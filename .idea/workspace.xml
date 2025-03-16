@@ -1,0 +1,476 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.idea/MonitorPal.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPPLANSBACKUPS/CHECKLISTMar13.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPPLANSBACKUPS/IMPLEMENTATIONPLANMar13.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPPLANSBACKUPS/IMPLEMENTATION_PLAN.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPPLANSBACKUPS/QTOPTIMIZATION" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPPLANSBACKUPS/ScreenshotStuffMar13v2" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPPLANSBACKUPS/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPPLANSBACKUPS/directoryLayout.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPPLANSBACKUPS/revised-refactoring-plan.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ThreadTestMar14.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/UnbiasedLayout" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/direct_capture.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/activity.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/airplay.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/alert-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/alert-octagon.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/alert-triangle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/align-center.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/align-justify.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/align-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/align-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/anchor.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/aperture.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/archive.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-down-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-down-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-down-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-down.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-left-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-right-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-up-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-up-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-up-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/arrow-up.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/at-sign.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/award.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/bar-chart-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/bar-chart.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/battery-charging.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/battery.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/bell-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/bell.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/bluetooth.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/bold.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/book-open.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/book.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/bookmark.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/box.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/briefcase.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/calendar.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/camera-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/camera.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/cast.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/check-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/check-square.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/check.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chevron-down.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chevron-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chevron-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chevron-up.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chevrons-down.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chevrons-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chevrons-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chevrons-up.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/chrome.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/clipboard.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/clock.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/cloud-drizzle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/cloud-lightning.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/cloud-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/cloud-rain.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/cloud-snow.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/cloud.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/code.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/codepen.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/codesandbox.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/coffee.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/columns.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/command.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/compass.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/copy.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/corner-down-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/corner-down-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/corner-left-down.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/corner-left-up.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/corner-right-down.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/corner-right-up.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/corner-up-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/corner-up-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/cpu.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/credit-card.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/crop.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/crosshair.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/database.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/delete.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/disc.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/divide-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/divide-square.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/divide.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/dollar-sign.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/download-cloud.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/download.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/dribbble.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/droplet.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/edit-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/edit-3.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/edit.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/external-link.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/eye-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/eye.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/facebook.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/fast-forward.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/feather.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/figma.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/file-minus.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/file-plus.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/file-text.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/file.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/film.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/filter.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/flag.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/folder-minus.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/folder-plus.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/folder.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/framer.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/frown.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/gift.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/git-branch.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/git-commit.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/git-merge.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/git-pull-request.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/github.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/gitlab.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/globe.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/grid.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/hard-drive.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/hash.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/headphones.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/heart.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/help-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/hexagon.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/home.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/image.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/inbox.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/info.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/instagram.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/italic.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/key.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/layers.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/layout.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/life-buoy.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/link-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/link.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/linkedin.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/list.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/loader.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/lock.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/log-in.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/log-out.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/mail.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/map-pin.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/map.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/maximize-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/maximize.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/meh.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/menu.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/message-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/message-square.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/mic-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/mic.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/minimize-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/minimize.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/minus-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/minus-square.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/minus.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/monitor.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/moon.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/more-horizontal.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/more-vertical.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/mouse-pointer.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/move.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/music.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/navigation-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/navigation.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/octagon.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/package.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/paperclip.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/pause-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/pause.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/pen-tool.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/percent.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/phone-call.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/phone-forwarded.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/phone-incoming.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/phone-missed.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/phone-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/phone-outgoing.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/phone.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/pie-chart.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/play-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/play.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/plus-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/plus-square.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/plus.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/pocket.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/power.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/printer.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/radio.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/refresh-ccw.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/refresh-cw.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/repeat.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/rewind.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/rotate-ccw.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/rotate-cw.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/rss.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/save.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/scissors.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/search.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/send.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/server.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/settings.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/share-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/share.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/shield-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/shield.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/shopping-bag.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/shopping-cart.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/shuffle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/sidebar.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/skip-back.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/skip-forward.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/slack.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/slash.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/sliders.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/smartphone.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/smile.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/speaker.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/square.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/star.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/stop-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/sun.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/sunrise.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/sunset.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/table.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/tablet.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/tag.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/target.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/terminal.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/thermometer.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/thumbs-down.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/thumbs-up.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/toggle-left.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/toggle-right.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/tool.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/trash-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/trash.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/trello.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/trending-down.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/trending-up.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/triangle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/truck.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/tv.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/twitch.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/twitter.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/type.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/umbrella.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/underline.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/unlock.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/upload-cloud.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/upload.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/user-check.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/user-minus.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/user-plus.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/user-x.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/user.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/users.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/video-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/video.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/voicemail.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/volume-1.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/volume-2.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/volume-x.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/volume.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/watch.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/wifi-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/wifi.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/wind.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/x-circle.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/x-octagon.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/x-square.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/x.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/youtube.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/zap-off.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/zap.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/zoom-in.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/resources/icons/zoom-out.svg" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/application/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/common/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/common/di_container.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/common/errors.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/common/result.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/models/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/models/monitoring_result.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_config_repository_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_lockout_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_logger_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_platform_detection_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_screenshot_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_verification_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_window_manager_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/config/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/logging/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/logging/logger_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/ocr/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/overlay_window.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/screenshot_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_platform_detection_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/workers/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/threading/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/components/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/views/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/utils/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/utils/logging_config.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test_app.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/integration/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/unit/__init__.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;customColor&quot;: &quot;&quot;,
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="2uKB1VnBuGhNY9QW0ZZa9UVaPw5" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python tests.Python tests in GeminiThreadTest.py.executor": "Run",
+    "Python.ThreadTestMar14.executor": "Run",
+    "Python.ThreadingTest.executor": "Run",
+    "Python.main.executor": "Run",
+    "Python.simple_test_app.executor": "Run",
+    "Python.test_app.executor": "Run",
+    "Python.test_appOLD.executor": "Run",
+    "Python.test_di.executor": "Run",
+    "Python.test_platform_detection.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "master",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\domain\services" />
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform\workers" />
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform" />
+    </key>
+  </component>
+  <component name="RunManager">
+    <configuration name="test_di" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="MonitorPal" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/test_di.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="Python tests in C:/Users/Gabe/PycharmProjects/MonitorPal/GeminiThreadTest.py" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
+      <module name="MonitorPal" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="_new_additionalArguments" value="&quot;&quot;" />
+      <option name="_new_target" value="&quot;$PROJECT_DIR$/GeminiThreadTest.py&quot;" />
+      <option name="_new_targetType" value="&quot;PATH&quot;" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.test_di" />
+        <item itemvalue="Python tests.Python tests in C:/Users/Gabe/PycharmProjects/MonitorPal/GeminiThreadTest.py" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-fc1d50d2d915-aa17d162503b-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-243.24978.54" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="" />
+      <created>1741987172530</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1741987172530</updated>
+    </task>
+    <servers />
+  </component>
+</project>

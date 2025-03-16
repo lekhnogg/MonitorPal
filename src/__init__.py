@@ -1,0 +1,3 @@
+"""
+MonitorPal application package.
+"""

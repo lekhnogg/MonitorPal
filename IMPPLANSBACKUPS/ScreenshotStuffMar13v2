@@ -1,0 +1,76 @@
+# MonitorPal Refactoring Summary
+
+## Project Overview
+
+MonitorPal is a desktop application designed to help traders manage risk by monitoring profit/loss values across trading platforms like Quantower, NinjaTrader, TradingView, and Tradovate. The application detects trading platform windows, monitors P&L values using OCR, and triggers a lockout sequence when losses exceed thresholds.
+
+## Architectural Foundation
+
+The application follows a clean architecture approach with distinct layers:
+
+- **Domain Layer**: Contains business logic interfaces, models, and error handling patterns
+- **Infrastructure Layer**: Provides concrete implementations for services
+- **Presentation Layer**: PySide6-based UI components
+- **Application Layer**: Dependency injection container and initialization
+
+## Refactoring Accomplished
+
+We've successfully implemented the following refactoring:
+
+1. **Qt-native Screenshot Implementation**
+   - Replaced PyAutoGUI with Qt's native screenshot capabilities
+   - Created `QtScreenshotService` in the infrastructure layer
+   - Fixed QPixmap to PIL Image conversion using an intermediate buffer approach
+
+2. **Qt-based Region Selection**
+   - Implemented a Qt-native region selector
+   - Created `qt_region_selector.py` with `select_region_qt` function
+
+3. **Dependency Injection Updates**
+   - Updated the container in `app.py` to register the new screenshot service
+
+## Current State and Challenges
+
+The refactoring is partially complete with some remaining issues:
+
+1. **Core Functionality**
+   - Screenshot capture is working correctly: images are being captured
+   - OCR text extraction is functioning: text is being extracted from screenshots
+   - Region selection is working: users can select regions on screen
+
+2. **UI Issues**
+   - In the test app, the captured screenshots aren't displaying in preview areas
+   - The issue appears to be related to UI updating, not the screenshot service itself
+   - All necessary data is available, but UI components aren't displaying it correctly
+
+3. **Architecture Status**
+   - Clean architecture maintained with proper layer separation
+   - Fixed `qpixmap_to_pil` conversion to work reliably
+   - Removed duplicate files to maintain clean organization
+
+## Files Added/Modified
+
+1. **New Files**:
+   - `src/infrastructure/platform/qt_screenshot_service.py`: Qt-native screenshot service
+   - `src/presentation/components/qt_region_selector.py`: Qt-based region selection UI
+
+2. **Modified Files**:
+   - `app.py`: Updated to use the new screenshot service
+   - `test_app.py`: Updated to use the new region selector
+
+3. **Deleted Files**:
+   - Removed duplicate screenshot service in incorrect location
+   - Will replace the old PyAutoGUI-based screenshot service once testing is complete
+
+## Next Steps
+
+To fully complete the refactoring:
+
+1. Resolve the UI update issues in the test app
+2. Confirm all thread-safety aspects work correctly
+3. Apply consistent use of `Qt.QueuedConnection` for cross-thread signals
+4. Test all scenarios thoroughly
+5. Once confirmed working, remove the old PyAutoGUI-based implementation
+6. Update documentation
+
+The core architectural refactoring is complete but still requires UI-level adjustments before we can fully replace the old implementation.

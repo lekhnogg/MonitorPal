@@ -1,0 +1,106 @@
+# Updated Directory Layout and Refactoring Plan
+
+## Directory Layout (Updated)
+
+```
+/NewLayout
+│
+├── IMPLEMENTATION_PLAN.md
+├── README.md
+├── revised-refactoring-plan.md
+├── test_app.py
+├── test_platform_detection.py
+│
+├── src/
+│   ├── __init__.py
+│   │
+│   ├── application/
+│   │   ├── __init__.py
+│   │   └── app.py
+│   │
+│   ├── domain/
+│   │   ├── __init__.py
+│   │   │
+│   │   ├── common/
+│   │   │   ├── __init__.py
+│   │   │   ├── di_container.py
+│   │   │   ├── errors.py
+│   │   │   └── result.py
+│   │   │
+│   │   ├── models/
+│   │   │   ├── __init__.py
+│   │   │   └── monitoring_result.py
+│   │   │
+│   │   └── services/
+│   │       ├── __init__.py
+│   │       ├── config_repository.py
+│   │       ├── i_logger_service.py
+│   │       ├── i_lockout_service.py
+│   │       ├── i_monitoring_service.py
+│   │       ├── i_ocr_service.py
+│   │       ├── i_screenshot_service.py
+│   │       ├── i_verification_service.py
+│   │       ├── i_window_manager.py
+│   │       ├── platform_detection_service.py
+│   │       └── thread_service.py
+│   │
+│   ├── infrastructure/
+│   │   ├── __init__.py
+│   │   │
+│   │   ├── config/
+│   │   │   ├── __init__.py
+│   │   │   └── json_config_repository.py
+│   │   │
+│   │   ├── logging/
+│   │   │   ├── __init__.py
+│   │   │   └── logger_service.py
+│   │   │
+│   │   ├── ocr/
+│   │   │   ├── __init__.py
+│   │   │   └── tesseract_ocr_service.py
+│   │   │
+│   │   ├── platform/
+│   │   │   ├── __init__.py
+│   │   │   ├── lockout_service.py
+│   │   │   ├── monitoring_service.py
+│   │   │   ├── screenshot_service.py
+│   │   │   ├── verification_service.py
+│   │   │   ├── window_manager.py
+│   │   │   ├── windows_platform_detection_service.py
+│   │   │   │
+│   │   │   └── workers/
+│   │   │       ├── __init__.py
+│   │   │       └── verification_worker.py
+│   │   │
+│   │   └── threading/
+│   │       ├── __init__.py
+│   │       └── qt_thread_service.py
+│   │
+│   ├── presentation/
+│   │   ├── __init__.py
+│   │   │
+│   │   ├── components/
+│   │   │   ├── __init__.py
+│   │   │   ├── region_selector.py
+│   │   │   └── ui_components.py
+│   │   │
+│   │   ├── view_models/
+│   │   │   └── __init__.py
+│   │   │
+│   │   └── views/
+│   │       └── __init__.py
+│   │
+│   └── utils/
+│       ├── __init__.py
+│       └── ui_helpers.py
+│
+├── resources/
+│   └── __init__.py
+│
+└── tests/
+    ├── integration/
+    │   └── __init__.py
+    │
+    └── unit/
+        └── __init__.py
+```

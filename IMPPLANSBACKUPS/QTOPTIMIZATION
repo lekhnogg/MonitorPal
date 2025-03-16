@@ -1,0 +1,101 @@
+# MonitorPal: Architecture Optimization Plan
+
+## Introduction to MonitorPal
+
+MonitorPal is a desktop application designed to help traders manage risk by monitoring profit/loss values across various trading platforms (Quantower, NinjaTrader, TradingView, Tradovate, etc.). The application automatically detects trading platform windows, monitors specific screen regions for P&L values using OCR, and when losses exceed configured thresholds, it can trigger a "lockout" sequence that:
+
+1. Provides a brief window to flatten positions (close trades)
+2. Then blocks access to trading platforms via Cold Turkey Blocker
+
+This risk management tool is designed for eventual commercial use, targeting disciplined traders who want technological enforcement of their trading rules and stop-loss thresholds.
+
+## Current Architecture
+
+The application has been developed with a clean architecture approach:
+
+- **Domain Layer**: Contains business logic interfaces, models, and the Result pattern for error handling
+- **Infrastructure Layer**: Provides concrete implementations for services
+- **Presentation Layer**: PySide6-based UI components
+- **Application Layer**: Dependency injection container and app initialization
+
+Key components include:
+- Thread service for background operations
+- Screenshot and OCR services for monitoring
+- Platform detection service for finding trading applications
+- Lockout service for executing the risk management actions
+
+## Progress So Far
+
+1. Successfully refactored from an older project to a cleaner architecture
+2. Implemented dependency injection for better testability and maintainability
+3. Established the Worker pattern for background operations
+4. Created a consistent Result pattern for error handling
+5. Developed a test application to demonstrate and verify core functionality
+6. Identified thread-safety issues, particularly with screenshot functionality
+
+## Priority Optimizations
+
+The following low-effort, high-impact optimizations should be implemented:
+
+1. **Qt-native Screenshot Implementation**
+   - Replace PyAutoGUI with Qt's native screenshot capabilities
+   - Implement a Qt-based region selection tool
+   - Ensure thread-safety for screenshot operations
+
+2. **Consistent Worker Usage**
+   - Standardize on the Worker pattern for all background operations
+   - Eliminate direct Python threading where used
+
+3. **Signal Connection Types**
+   - Specify `Qt.QueuedConnection` for cross-thread signals
+   - Use appropriate connection types based on signal purpose
+
+4. **Resource Management**
+   - Ensure proper cleanup in closeEvent handlers
+   - Implement consistent resource management patterns
+
+## Action Plan
+
+### 1. Implement Qt-Native Screenshot Service (1-2 days)
+
+```python
+class QtScreenshotService(IScreenshotService):
+    def capture_region(self, region):
+        screen = QApplication.primaryScreen()
+        x, y, width, height = region
+        pixmap = screen.grabWindow(0, x, y, width, height)
+        # Convert to PIL Image if needed for OCR
+        return Result.ok(self._pixmap_to_pil(pixmap))
+```
+
+### 2. Create Qt-Native Region Selector (1 day)
+
+```python
+class QtRegionSelector(QDialog):
+    selection_made = Signal(tuple)  # (x, y, width, height)
+    # Implementation with QRubberBand and transparent overlay
+```
+
+### 3. Fix Thread Safety Issues (1 day)
+
+- Update all signal connections with appropriate connection types
+- Replace any direct threading with Worker pattern
+
+### 4. Update Test Application (1 day)
+
+- Implement the optimized components in the test app
+- Verify functionality across all tabs
+
+### 5. Documentation Update (1/2 day)
+
+- Create coding standards for PySide6 development
+- Document thread-safety considerations
+- Update architecture documentation
+
+## Summary of Recommendations
+
+The current architecture is fundamentally sound with good separation of concerns and clear abstractions. The priority is addressing specific thread-safety issues, particularly around screenshots and platform detection, rather than a complete refactoring.
+
+By implementing these targeted optimizations, MonitorPal will maintain its clean architecture while gaining the stability and reliability needed for commercial use. The Qt-native approach will ensure better integration with PySide6's event loop and threading model.
+
+Once these optimizations are implemented, the application will be well-positioned for further feature development and eventual commercial deployment.
