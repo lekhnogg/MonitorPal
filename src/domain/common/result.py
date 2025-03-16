@@ -1,4 +1,4 @@
-#NewLayout/src/domain/common/result.py
+# src/domain/common/result.py
 
 """
 Result pattern implementation for error handling.
@@ -187,6 +187,42 @@ class Result(Generic[T]):
             return func(self._value)
         else:
             return Result.fail(self._error)
+
+    @classmethod
+    def from_operation(cls, operation_func, logger, error_type, error_message, **kwargs):
+        """
+        Create a Result from an operation that might fail.
+
+        This utility method standardizes the try/except pattern used throughout services.
+
+        Args:
+            operation_func: The function to execute
+            logger: Logger to use for errors
+            error_type: The domain error type to create on failure
+            error_message: Error message prefix
+            **kwargs: Context information for error details
+
+        Returns:
+            A Result object containing the operation result or error
+        """
+        try:
+            result = operation_func()
+            # If the operation already returns a Result, use it directly
+            if isinstance(result, Result):
+                return result
+            # Otherwise wrap the result in a successful Result
+            return cls.ok(result)
+        except Exception as e:
+            # Create appropriate error object
+            error = error_type(
+                message=f"{error_message}: {e}",
+                details=kwargs,
+                inner_error=e
+            )
+            # Log the error
+            logger.error(str(error))
+            # Return failure result
+            return cls.fail(error)
 
     def to_thread_safe_dict(self) -> Dict[str, Any]:
         """

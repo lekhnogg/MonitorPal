@@ -1,4 +1,4 @@
-# src/domain/services/i_platform_detection_service.py
+#src/domain/services/i_platform_detection_service.py
 
 
 """
@@ -111,5 +111,21 @@ class IPlatformDetectionService(ABC):
 
         Returns:
             Result containing dictionary mapping platform names to executable names
+        """
+        pass
+
+    @abstractmethod
+    def is_platform_running(self, platform: str) -> Result[bool]:
+        """
+        Quickly check if a platform's process is running without full window detection.
+
+        This is a lightweight check to determine if the executable associated with
+        a platform is currently running on the system.
+
+        Args:
+            platform: Platform name (e.g., "Quantower", "NinjaTrader")
+
+        Returns:
+            Result containing True if the platform is running, False otherwise
         """
         pass

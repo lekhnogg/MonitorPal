@@ -121,30 +121,36 @@ class LogSignalEmitter(QObject):
         """
         super().__init__(parent)
 
+    def _emit(self, level: str, message: str):
+        """Internal method to emit log signals with standard handling."""
+        # Get the corresponding signal
+        signal = getattr(self, f"{level}_logged", None)
+        if signal:
+            signal.emit(message)
+
+        # Also log using standard logging
+        log_method = getattr(logging, level, logging.info)
+        log_method(message)
+
     def emit_debug(self, message: str):
         """Emit debug log signal"""
-        self.debug_logged.emit(message)
-        logging.debug(message)
+        self._emit("debug", message)
 
     def emit_info(self, message: str):
         """Emit info log signal"""
-        self.info_logged.emit(message)
-        logging.info(message)
+        self._emit("info", message)
 
     def emit_warning(self, message: str):
         """Emit warning log signal"""
-        self.warning_logged.emit(message)
-        logging.warning(message)
+        self._emit("warning", message)
 
     def emit_error(self, message: str):
         """Emit error log signal"""
-        self.error_logged.emit(message)
-        logging.error(message)
+        self._emit("error", message)
 
     def emit_critical(self, message: str):
         """Emit critical log signal"""
-        self.critical_logged.emit(message)
-        logging.critical(message)
+        self._emit("critical", message)
 
 
 # Global log signal emitter for easy access

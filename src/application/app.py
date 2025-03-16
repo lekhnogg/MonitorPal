@@ -1,4 +1,5 @@
-# NewLayout/src/application/app.py (Modified)
+#src/domain/common/di_container.py
+
 import os
 import logging
 from typing import Optional
@@ -8,27 +9,33 @@ from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_background_task_service import IBackgroundTaskService
 from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.services.i_platform_detection_service import IPlatformDetectionService
+from src.domain.services.i_window_manager_service import IWindowManager
+from src.domain.services.i_screenshot_service import IScreenshotService
+from src.domain.services.i_ocr_service import IOcrService
+from src.domain.services.i_monitoring_service import IMonitoringService
+from src.domain.services.i_lockout_service import ILockoutService
+from src.domain.services.i_verification_service import IVerificationService
+from src.domain.services.i_cold_turkey_service import IColdTurkeyService
+from src.domain.services.i_ui_service import IUIService
 
 from src.infrastructure.logging.logger_service import ConsoleLoggerService
 from src.infrastructure.threading.qt_background_task_service import QtBackgroundTaskService
 from src.infrastructure.config.json_config_repository import JsonConfigRepository
 from src.infrastructure.platform.windows_platform_detection_service import WindowsPlatformDetectionService
-from src.domain.services.i_screenshot_service import IScreenshotService
-from src.infrastructure.platform.screenshot_service import QtScreenshotService
-from src.domain.services.i_ocr_service import IOcrService
-from src.infrastructure.ocr.tesseract_ocr_service import TesseractOcrService
-from src.domain.services.i_monitoring_service import IMonitoringService
-from src.infrastructure.platform.monitoring_service import MonitoringService
-from src.domain.services.i_lockout_service import ILockoutService
-from src.infrastructure.platform.lockout_service import WindowsLockoutService
-from src.domain.services.i_verification_service import IVerificationService
-from src.infrastructure.platform.verification_service import WindowsVerificationService
-from src.domain.services.i_window_manager_service import IWindowManager
 from src.infrastructure.platform.window_manager import WindowsWindowManager
+from src.infrastructure.platform.screenshot_service import QtScreenshotService
+from src.infrastructure.ocr.tesseract_ocr_service import TesseractOcrService
+from src.infrastructure.platform.monitoring_service import MonitoringService
+from src.infrastructure.platform.lockout_service import WindowsLockoutService
+from src.infrastructure.platform.verification_service import WindowsVerificationService
+from src.infrastructure.platform.windows_cold_turkey_service import WindowsColdTurkeyService
+from src.infrastructure.ui.qt_ui_service import QtUIService
+
 
 def initialize_app() -> DIContainer:
     container = DIContainer()
 
+    # Core services
     logger = ConsoleLoggerService(level=logging.DEBUG)
     container.register_instance(ILoggerService, logger)
 
@@ -36,21 +43,31 @@ def initialize_app() -> DIContainer:
     config_repo = JsonConfigRepository(config_file, logger)
     container.register_instance(IConfigRepository, config_repo)
 
-    # --- Thread Service Setup (Simplified) ---
     thread_service = QtBackgroundTaskService(logger)
     container.register_instance(IBackgroundTaskService, thread_service)
-    # --- End Thread Service Setup ---
 
-    container.register_factory(IWindowManager,
-                               lambda: WindowsWindowManager(container.resolve(ILoggerService)))
+    # Window management and UI services
+    container.register_factory(
+        IWindowManager,
+        lambda: WindowsWindowManager(container.resolve(ILoggerService))
+    )
+
+    container.register_factory(
+        IUIService,
+        lambda: QtUIService(container.resolve(ILoggerService))
+    )
+
+    # Platform services
     container.register_factory(
         IScreenshotService,
         lambda: QtScreenshotService(container.resolve(ILoggerService))
     )
+
     container.register_factory(
         IOcrService,
         lambda: TesseractOcrService(container.resolve(ILoggerService))
     )
+
     container.register_factory(
         IPlatformDetectionService,
         lambda: WindowsPlatformDetectionService(
@@ -58,15 +75,42 @@ def initialize_app() -> DIContainer:
             window_manager=container.resolve(IWindowManager)
         )
     )
+
+    # Cold Turkey integration - register this first
+    container.register_factory(
+        IColdTurkeyService,
+        lambda: WindowsColdTurkeyService(
+            logger=container.resolve(ILoggerService),
+            config_repository=container.resolve(IConfigRepository),
+            window_manager=container.resolve(IWindowManager)
+        )
+    )
+
+    # Verification service - now depends on Cold Turkey service
+    container.register_factory(
+        IVerificationService,
+        lambda: WindowsVerificationService(
+            logger=container.resolve(ILoggerService),
+            cold_turkey_service=container.resolve(IColdTurkeyService),
+            thread_service=container.resolve(IBackgroundTaskService),
+            ui_service=container.resolve(IUIService)  # <-- Add this parameter
+        )
+    )
+
+    # Core application services
     container.register_factory(
         ILockoutService,
         lambda: WindowsLockoutService(
             logger=container.resolve(ILoggerService),
             config_repository=container.resolve(IConfigRepository),
             platform_detection_service=container.resolve(IPlatformDetectionService),
+            window_manager=container.resolve(IWindowManager),
+            ui_service=container.resolve(IUIService),
+            cold_turkey_service=container.resolve(IColdTurkeyService),
             thread_service=container.resolve(IBackgroundTaskService)
         )
     )
+
     container.register_factory(
         IMonitoringService,
         lambda: MonitoringService(
@@ -78,19 +122,14 @@ def initialize_app() -> DIContainer:
             logger=container.resolve(ILoggerService)
         )
     )
-    container.register_factory(
-        IVerificationService,
-        lambda: WindowsVerificationService(
-            logger=container.resolve(ILoggerService),
-            config_repository=container.resolve(IConfigRepository),
-            thread_service = container.resolve(IBackgroundTaskService)
-        )
-    )
+
     logger.info("Application dependencies initialized")
 
     return container
 
+
 _container: Optional[DIContainer] = None
+
 
 def get_container() -> DIContainer:
     global _container

@@ -408,7 +408,7 @@ def select_region_qt(message="Select a region by clicking and dragging") -> Opti
         timer.start()
         loop.exec()  # Much more responsive than sleep approach
         timer.stop()
-
+        print(selected_region)
         return selected_region
 
     except Exception as e:

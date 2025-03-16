@@ -501,9 +501,6 @@ class QtBackgroundTaskService(IBackgroundTaskService):
     def _cleanup_task(self, task_id: str) -> None:
         """
         Clean up resources for a task that has completed or failed.
-
-        Args:
-            task_id: Identifier of the task to clean up
         """
         locker = QMutexLocker(self.mutex)
         try:
@@ -516,13 +513,24 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             # Clean up signals
             task_info.disconnect_signals()
 
+            # Properly terminate the thread - ADDING THIS FIXES THE ISSUE
+            task_info.thread.quit()
+
+            # Try graceful termination
+            for attempt in range(5):
+                if task_info.thread.wait(250):
+                    break
+                QApplication.instance().processEvents()
+
+            # Force terminate if needed
+            if not task_info.thread.isFinished():
+                self.logger.warning(f"Forcing termination of task '{task_id}'")
+                task_info.thread.terminate()
+                task_info.thread.wait(500)
+
             # Remove task from dictionary
             del self.tasks[task_id]
 
             self.logger.debug(f"Task '{task_id}' resources cleaned up")
         except Exception as e:
             self.logger.error(f"Error cleaning up task '{task_id}': {e}")
-            self.logger.debug(traceback.format_exc())
-        finally:
-            # QMutexLocker will automatically unlock when it goes out of scope
-            pass

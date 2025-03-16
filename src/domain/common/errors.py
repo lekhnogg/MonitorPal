@@ -1,4 +1,4 @@
-#NewLayout/src/domain/common/errors.py
+#src/domain/common/errors.py
 
 """
 Domain-specific error types for standardized error handling.
@@ -89,8 +89,6 @@ class DomainError:
         """String representation of the error."""
         return f"{self.category.value} Error: {self.message}"
 
-
-# Specific error types for different categories
 
 class ValidationError(DomainError):
     """Error for validation failures."""

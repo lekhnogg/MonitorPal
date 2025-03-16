@@ -1,410 +1,477 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
-Block Verification Test Application
+Test application for Cold Turkey Blocker verification.
 
-A standalone test application for verifying the Cold Turkey Blocker integration.
-This script can be run directly to test the block verification sequence.
+This standalone app tests the verification functionality of Cold Turkey blocks
+using the application's existing architecture and services.
 """
 import sys
 import os
+from datetime import datetime
+
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QTextEdit, QComboBox, QStatusBar
+)
+from PySide6.QtCore import Qt, Slot, QTimer
+
+# Prevent double logging by disabling Python's built-in logger
 import logging
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLabel, \
-    QLineEdit, QFileDialog, QMessageBox, QComboBox, QGroupBox
-from PySide6.QtCore import Qt, QTimer
 
-# Add the project root to the Python path if needed
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+logging.getLogger().handlers = []  # Remove all handlers from the root logger
+logging.getLogger().addHandler(logging.NullHandler())  # Add null handler to avoid warnings
 
-# Import necessary services
-from src.domain.common.di_container import DIContainer
-from src.domain.services.i_logger_service import ILoggerService
-from src.domain.services.i_background_task_service import IBackgroundTaskService
-from src.domain.services.i_config_repository_service import IConfigRepository
+# Add parent directory to path to allow imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import app initialization and container
+from src.application.app import initialize_app, get_container
+
+# Import interfaces
 from src.domain.services.i_verification_service import IVerificationService
-from src.infrastructure.logging.logger_service import ConsoleLoggerService, FileLoggerService
-from src.infrastructure.threading.qt_background_task_service import QtBackgroundTaskService
-from src.infrastructure.config.json_config_repository import JsonConfigRepository
-from src.infrastructure.platform.verification_service import WindowsVerificationService
+from src.domain.services.i_cold_turkey_service import IColdTurkeyService
+from src.domain.services.i_config_repository_service import IConfigRepository
+from src.domain.services.i_logger_service import ILoggerService
+from src.domain.services.i_ui_service import IUIService
 
 
-class BlockVerificationTestWindow(QMainWindow):
-    """
-    Test window for the block verification functionality.
-    """
+class VerificationTestWindow(QMainWindow):
+    """Main window for the Cold Turkey verification test app."""
 
-    def __init__(self):
+    def __init__(self, container):
+        """Initialize the main window with services from the container."""
         super().__init__()
-        self.setWindowTitle("Block Verification Test")
-        self.setMinimumSize(600, 400)
 
-        # Initialize services
-        self.initialize_services()
+        # Resolve services from the container
+        self.verification_service = container.resolve(IVerificationService)
+        self.cold_turkey_service = container.resolve(IColdTurkeyService)
+        self.config_repository = container.resolve(IConfigRepository)
+        self.logger = container.resolve(ILoggerService)
+        self.ui_service = container.resolve(IUIService)
 
-        # Set up UI
-        self.setup_ui()
+        self.setWindowTitle("Cold Turkey Block Verification Test")
+        self.setMinimumSize(600, 500)
 
-        # Load initial values from config
-        self.load_config_values()
+        # Create and set the central widget
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
 
-    def initialize_services(self):
-        """Initialize required services."""
-        # Create container
-        self.container = DIContainer()
+        # Create layout
+        self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout.setSpacing(10)
+        self.main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # Set up logger
-        self.logger = FileLoggerService(level=logging.DEBUG)
-        self.container.register_instance(ILoggerService, self.logger)
+        # Add header
+        header_label = QLabel("Cold Turkey Block Verification Test")
+        header_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        self.main_layout.addWidget(header_label)
 
-        # Set up config repository
-        config_path = os.path.join(os.getcwd(), "config.json")
-        self.config_repo = JsonConfigRepository(config_path, self.logger)
-        self.container.register_instance(IConfigRepository, self.config_repo)
-
-        # Set up thread service
-        self.thread_service = QtBackgroundTaskService(self.logger)
-        self.container.register_instance(IBackgroundTaskService, self.thread_service)
-
-        # Set up verification service
-        self.verification_service = WindowsVerificationService(
-            logger=self.logger,
-            config_repository=self.config_repo,
-            thread_service=self.thread_service
+        # Add description
+        description = QLabel(
+            "This utility tests the verification of Cold Turkey Blocker blocks "
+            "for trading platforms. Enter the platform name and block name to verify."
         )
-        self.container.register_instance(IVerificationService, self.verification_service)
+        description.setWordWrap(True)
+        self.main_layout.addWidget(description)
 
-    def setup_ui(self):
-        """Set up the user interface."""
-        # Create central widget and layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-
-        # Cold Turkey Blocker path selection
-        blocker_group = QGroupBox("Cold Turkey Blocker Configuration")
-        blocker_layout = QVBoxLayout(blocker_group)
-
+        # Path configuration
         path_layout = QHBoxLayout()
-        path_label = QLabel("Cold Turkey Path:")
-        self.path_field = QLineEdit()
-        self.path_field.setReadOnly(True)
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self.browse_for_blocker)
+        path_layout.addWidget(QLabel("Cold Turkey Path:"))
 
-        path_layout.addWidget(path_label)
-        path_layout.addWidget(self.path_field, 1)
-        path_layout.addWidget(browse_btn)
-        blocker_layout.addLayout(path_layout)
+        self.path_input = QLineEdit()
+        self.path_input.setPlaceholderText("Path to Cold Turkey Blocker executable")
+        path_layout.addWidget(self.path_input, 1)
 
-        main_layout.addWidget(blocker_group)
+        self.browse_button = QPushButton("Browse...")
+        path_layout.addWidget(self.browse_button)
+
+        self.save_path_button = QPushButton("Save Path")
+        path_layout.addWidget(self.save_path_button)
+
+        self.main_layout.addLayout(path_layout)
 
         # Platform selection
-        platform_group = QGroupBox("Platform Configuration")
-        platform_layout = QVBoxLayout(platform_group)
+        platform_layout = QHBoxLayout()
+        platform_layout.addWidget(QLabel("Platform:"))
 
-        platform_selection_layout = QHBoxLayout()
-        platform_label = QLabel("Platform:")
         self.platform_combo = QComboBox()
         self.platform_combo.addItems(["Quantower", "NinjaTrader", "TradingView", "Tradovate"])
-        platform_selection_layout.addWidget(platform_label)
-        platform_selection_layout.addWidget(self.platform_combo, 1)
-        platform_layout.addLayout(platform_selection_layout)
+        self.platform_combo.setCurrentText("NinjaTrader")  # Set a default
+        platform_layout.addWidget(self.platform_combo, 1)
+
+        self.main_layout.addLayout(platform_layout)
 
         # Block name
         block_layout = QHBoxLayout()
-        block_label = QLabel("Block Name:")
-        self.block_name_field = QLineEdit()
-        block_layout.addWidget(block_label)
-        block_layout.addWidget(self.block_name_field, 1)
-        platform_layout.addLayout(block_layout)
+        block_layout.addWidget(QLabel("Block Name:"))
 
-        main_layout.addWidget(platform_group)
+        self.block_input = QLineEdit("Ninja")  # Default value for testing
+        self.block_input.setPlaceholderText("Enter the name of the Cold Turkey block")
+        block_layout.addWidget(self.block_input, 1)
 
-        # Verification controls
-        controls_group = QGroupBox("Verification Controls")
-        controls_layout = QVBoxLayout(controls_group)
+        self.main_layout.addLayout(block_layout)
 
-        # Status display
-        self.status_label = QLabel("Status: Ready")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("font-weight: bold; padding: 10px;")
-        controls_layout.addWidget(self.status_label)
+        # Verification button
+        self.verify_button = QPushButton("Verify Block")
+        self.verify_button.setMinimumHeight(40)
+        self.main_layout.addWidget(self.verify_button)
 
-        # Buttons
-        button_layout = QHBoxLayout()
-        self.verify_btn = QPushButton("Verify Block")
-        self.verify_btn.clicked.connect(self.verify_block)
-        self.verify_btn.setMinimumHeight(40)
-        self.verify_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        # Cancel button
+        self.cancel_button = QPushButton("Cancel Verification")
+        self.cancel_button.setEnabled(False)
+        self.main_layout.addWidget(self.cancel_button)
 
-        self.cancel_btn = QPushButton("Cancel Verification")
-        self.cancel_btn.clicked.connect(self.cancel_verification)
-        self.cancel_btn.setEnabled(False)
+        # Log output
+        self.main_layout.addWidget(QLabel("Log Output:"))
 
-        button_layout.addWidget(self.verify_btn)
-        button_layout.addWidget(self.cancel_btn)
-        controls_layout.addLayout(button_layout)
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setMinimumHeight(200)
+        self.main_layout.addWidget(self.log_output)
 
-        main_layout.addWidget(controls_group)
+        # Status bar
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
 
-        # Verified blocks display
-        verified_group = QGroupBox("Verified Blocks")
-        verified_layout = QVBoxLayout(verified_group)
+        # Connect signals
+        self.verify_button.clicked.connect(self.verify_block)
+        self.cancel_button.clicked.connect(self.cancel_verification)
+        self.browse_button.clicked.connect(self.browse_for_path)
+        self.save_path_button.clicked.connect(self.save_path)
 
-        self.verified_blocks_label = QLabel("No verified blocks")
-        verified_layout.addWidget(self.verified_blocks_label)
+        # Load current path from config
+        self.load_path()
 
-        # Add a button to clear verified blocks
-        clear_btn = QPushButton("Clear Verified Blocks")
-        clear_btn.clicked.connect(self.clear_verified_blocks)
-        verified_layout.addWidget(clear_btn)
+        # Update verification status
+        self.update_verification_status()
 
-        main_layout.addWidget(verified_group)
+        # Log initialization
+        self.log_message("Verification Test App initialized", "info")
 
-        # Help section
-        help_group = QGroupBox("Instructions")
-        help_layout = QVBoxLayout(help_group)
+        # Make window active when started
+        self.activateWindow()
+        self.raise_()
 
-        help_text = """
-        <p><b>How to use this test application:</b></p>
-        <ol>
-            <li>Select the Cold Turkey Blocker executable using the Browse button</li>
-            <li>Choose a platform from the dropdown</li>
-            <li>Enter the <b>exact</b> name of the block you created in Cold Turkey</li>
-            <li>Click "Verify Block" to test the verification</li>
-        </ol>
-        <p>The verification will check if Cold Turkey can successfully block the platform.</p>
-        """
-        help_label = QLabel(help_text)
-        help_label.setWordWrap(True)
-        help_layout.addWidget(help_label)
+    def load_path(self):
+        """Load Cold Turkey path from configuration."""
+        # Get path using the service's method rather than direct configuration access
+        path_result = self.cold_turkey_service.get_blocker_path()
 
-        main_layout.addWidget(help_group)
+        if path_result.is_success:
+            path = path_result.value
+            self.path_input.setText(path)
 
-    def load_config_values(self):
-        """Load values from configuration."""
-        # Load Cold Turkey path
-        ct_path = self.config_repo.get_cold_turkey_path()
-        if ct_path:
-            self.path_field.setText(ct_path)
-            self.update_status(f"Cold Turkey Blocker found at: {ct_path}", "info")
+            # Update status based on path
+            if path and os.path.exists(path):
+                self.status_bar.showMessage("Cold Turkey Blocker path is configured.")
+            else:
+                self.status_bar.showMessage("Cold Turkey Blocker path is not configured or invalid!", 5000)
         else:
-            self.update_status("Cold Turkey Blocker path not configured", "warning")
+            self.log_message(f"Failed to load Cold Turkey path: {path_result.error}", "error")
+            self.status_bar.showMessage("Failed to load Cold Turkey path configuration!", 5000)
 
-        # Load platform
-        current_platform = self.config_repo.get_current_platform()
-        if current_platform:
-            index = self.platform_combo.findText(current_platform)
-            if index >= 0:
-                self.platform_combo.setCurrentIndex(index)
+    def save_path(self):
+        """Save Cold Turkey path to configuration."""
+        path = self.path_input.text().strip()
 
-        # Load block name from verified blocks
-        verified_blocks = self.verification_service.get_verified_blocks()
-        if verified_blocks.is_success and verified_blocks.value:
-            self.refresh_verified_blocks_display(verified_blocks.value)
+        if not path:
+            self.log_message("Error: Path cannot be empty", "error")
+            return
 
-            # Find block for current platform
-            current_platform = self.platform_combo.currentText()
-            for block in verified_blocks.value:
-                if block.get("platform") == current_platform:
-                    self.block_name_field.setText(block.get("block_name", ""))
+        if not os.path.exists(path):
+            self.log_message(f"Error: Path does not exist: {path}", "error")
+            return
+
+        result = self.cold_turkey_service.set_blocker_path(path)
+
+        if result.is_success:
+            self.log_message(f"Successfully saved Cold Turkey path: {path}", "info")
+            self.status_bar.showMessage("Path saved successfully!")
+            self.update_verification_status()
+        else:
+            self.log_message(f"Failed to save path: {result.error}", "error")
+            self.status_bar.showMessage("Failed to save path!")
+
+    def browse_for_path(self):
+        """Open file dialog to browse for Cold Turkey executable using UI service."""
+        result = self.ui_service.select_file(
+            "Locate Cold Turkey Blocker Executable",
+            "Executables (*.exe)"
+        )
+
+        if result.is_success and result.value:
+            self.path_input.setText(result.value)
+
+    @Slot()
+    def verify_block(self):
+        """Initiate the block verification process."""
+        platform = self.platform_combo.currentText()
+        block_name = self.block_input.text().strip()
+
+        if not block_name:
+            self.log_message("Error: Block name cannot be empty", "error")
+            return
+
+        self.log_message(f"Starting verification for platform '{platform}' with block '{block_name}'...", "info")
+
+        # Verify the blocker path first
+        if not self.cold_turkey_service.is_blocker_path_configured():
+            self.log_message("Error: Cold Turkey Blocker path is not configured", "error")
+            return
+
+        # Update UI state
+        self.verify_button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
+
+        # Start verification process
+        result = self.verification_service.verify_platform_block(platform, block_name)
+
+        if result.is_failure:
+            self.log_message(f"Failed to start verification: {result.error}", "error")
+            self.verify_button.setEnabled(True)
+            self.cancel_button.setEnabled(False)
+            return
+
+        self.log_message("Verification process started. This may take a moment...", "info")
+        self.status_bar.showMessage("Verification in progress...")
+
+        # Start a timer to check verification status
+        self.check_timer = QTimer(self)
+        self.check_timer.timeout.connect(self.check_verification_status)
+        self.check_timer.start(500)  # Check every 500ms
+
+    @Slot()
+    def check_verification_status(self):
+        """Check the status of the verification process."""
+        if not self.verification_service.is_verification_in_progress():
+            self.check_timer.stop()
+
+            # Wait a brief moment to ensure all async operations complete
+            QTimer.singleShot(200, self._update_after_verification)
+
+    def _update_after_verification(self):
+        """Update UI after verification completes."""
+        # Check if verification succeeded by looking at verified blocks
+        verified_blocks_result = self.verification_service.get_verified_blocks()
+
+        if verified_blocks_result.is_success:
+            platform = self.platform_combo.currentText()
+            block_found = False
+
+            for block in verified_blocks_result.value:
+                if block.get("platform") == platform:
+                    block_found = True
+                    self.log_message(
+                        f"Verification successful! Block '{block.get('block_name')}' "
+                        f"is now verified for platform '{platform}'",
+                        "success"
+                    )
                     break
 
-    def browse_for_blocker(self):
-        """Open file dialog to browse for Cold Turkey Blocker executable."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Cold Turkey Blocker Executable",
-            "",
-            "Executables (*.exe);;All Files (*)"
-        )
-
-        if file_path:
-            # Save path to config
-            result = self.config_repo.set_cold_turkey_path(file_path)
-            if result.is_success:
-                self.path_field.setText(file_path)
-                self.update_status(f"Cold Turkey Blocker path set to: {file_path}", "success")
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Configuration Error",
-                    f"Failed to save Cold Turkey path: {result.error}"
-                )
-
-    def verify_block(self):
-        """Start the block verification process."""
-        # Get values
-        platform = self.platform_combo.currentText()
-        block_name = self.block_name_field.text().strip()
-
-        # Validate
-        if not block_name:
-            QMessageBox.warning(
-                self,
-                "Validation Error",
-                "Please enter a block name."
-            )
-            return
-
-        if not self.verification_service.is_blocker_path_configured():
-            QMessageBox.warning(
-                self,
-                "Configuration Error",
-                "Cold Turkey Blocker path is not configured. Please select the executable."
-            )
-            return
-
-        # Update UI
-        self.verify_btn.setEnabled(False)
-        self.cancel_btn.setEnabled(True)
-        self.update_status(f"Verifying block '{block_name}' for platform '{platform}'...", "info")
-
-        # Create a callback function for verification completion
-        def on_verification_completed(result):
-            # Handle result
-            self.verify_btn.setEnabled(True)
-            self.cancel_btn.setEnabled(False)
-
-            if isinstance(result, bool):
-                if result:
-                    # Add to verified blocks
-                    add_result = self.verification_service.add_verified_block(platform, block_name)
-                    if add_result.is_success:
-                        self.update_status(
-                            f"Block '{block_name}' for '{platform}' verified successfully!",
-                            "success"
-                        )
-                        # Refresh verified blocks display
-                        verified_blocks = self.verification_service.get_verified_blocks()
-                        if verified_blocks.is_success:
-                            self.refresh_verified_blocks_display(verified_blocks.value)
-                    else:
-                        self.update_status(
-                            f"Block verified but failed to save: {add_result.error}",
-                            "error"
-                        )
-                else:
-                    self.update_status(
-                        f"Block verification failed. Please check that the block name matches exactly.",
-                        "error"
-                    )
-            else:
-                self.update_status(
-                    f"Verification failed with unexpected result: {result}",
+            if not block_found:
+                self.log_message(
+                    f"Verification failed or was cancelled. No verified block found for '{platform}'",
                     "error"
                 )
+        else:
+            self.log_message(f"Error checking verified blocks: {verified_blocks_result.error}", "error")
 
-        def on_verification_error(error):
-            self.verify_btn.setEnabled(True)
-            self.cancel_btn.setEnabled(False)
-            self.update_status(f"Verification error: {error}", "error")
+        # Reset UI state
+        self.verify_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
+        self.status_bar.showMessage("Verification completed.")
 
-        # Create the worker and set callbacks
-        from src.infrastructure.platform.verification_service import VerificationWorker
-        worker = VerificationWorker(
-            platform=platform,
-            block_name=block_name,
-            blocker_path=self.config_repo.get_cold_turkey_path(),
-            logger=self.logger
-        )
+        # Refresh verification status
+        self.update_verification_status()
 
-        worker.set_on_completed(on_verification_completed)
-        worker.set_on_error(on_verification_error)
+        # Re-activate this window
+        self.activateWindow()
+        self.raise_()
 
-        # Start verification
-        result = self.thread_service.execute_task("verify_block", worker)
-
-        if not result.is_success:
-            self.verify_btn.setEnabled(True)
-            self.cancel_btn.setEnabled(False)
-            self.update_status(f"Failed to start verification: {result.error}", "error")
-
+    @Slot()
     def cancel_verification(self):
         """Cancel the ongoing verification process."""
-        result = self.verification_service.cancel_verification()
-        if result.is_success:
-            self.update_status("Verification cancelled", "warning")
-        else:
-            self.update_status(f"Failed to cancel verification: {result.error}", "error")
+        if self.verification_service.is_verification_in_progress():
+            self.log_message("Cancelling verification...", "info")
 
-        self.verify_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
+            result = self.verification_service.cancel_verification()
 
-    def clear_verified_blocks(self):
-        """Clear all verified blocks."""
-        reply = QMessageBox.question(
-            self,
-            "Confirm Clear",
-            "Are you sure you want to clear all verified blocks?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if reply == QMessageBox.Yes:
-            result = self.verification_service.clear_verified_blocks()
             if result.is_success:
-                self.update_status("All verified blocks cleared", "info")
-                self.verified_blocks_label.setText("No verified blocks")
+                self.log_message("Verification cancelled successfully", "info")
             else:
-                self.update_status(f"Failed to clear verified blocks: {result.error}", "error")
+                self.log_message(f"Failed to cancel verification: {result.error}", "error")
 
-    def update_status(self, message, level="info"):
-        """Update the status label with a message."""
-        # Log the message
-        if level == "error":
-            style = "color: #D32F2F; background-color: #FFEBEE;"
-            self.logger.error(message)
-        elif level == "warning":
-            style = "color: #FF8F00; background-color: #FFF8E1;"
-            self.logger.warning(message)
-        elif level == "success":
-            style = "color: #388E3C; background-color: #E8F5E9;"
-            self.logger.info(message)
-        elif level == "info":
-            style = "color: #1976D2; background-color: #E3F2FD;"
-            self.logger.info(message)
+        # Reset UI state
+        self.verify_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
 
-        # Update the status label
-        self.status_label.setText(f"Status: {message}")
-        self.status_label.setStyleSheet(f"font-weight: bold; padding: 10px; border-radius: 5px; {style}")
+        # Stop the check timer if it's running
+        if hasattr(self, "check_timer") and self.check_timer.isActive():
+            self.check_timer.stop()
 
-    def refresh_verified_blocks_display(self, blocks):
-        """Update the verified blocks display."""
-        if not blocks:
-            self.verified_blocks_label.setText("No verified blocks")
+    def update_verification_status(self):
+        """Update the UI with current verification status."""
+        result = self.verification_service.get_verified_blocks()
+
+        if result.is_failure:
+            self.log_message(f"Error getting verified blocks: {result.error}", "error")
             return
 
-        html = "<ul>"
-        for block in blocks:
+        verified_blocks = result.value
+
+        if not verified_blocks:
+            self.log_message("No verified blocks found.", "info")
+            return
+
+        self.log_message("Current verified blocks:", "info")
+
+        for block in verified_blocks:
             platform = block.get("platform", "Unknown")
             block_name = block.get("block_name", "Unknown")
-            html += f"<li><b>{platform}:</b> {block_name}</li>"
-        html += "</ul>"
+            self.log_message(f"  • Platform: {platform}, Block: {block_name}", "info")
 
-        self.verified_blocks_label.setText(html)
+    def log_message(self, message: str, level: str = "info"):
+        """Add a message to the log output with appropriate styling."""
+        # Define colors for different log levels
+        colors = {
+            "info": "black",
+            "success": "green",
+            "warning": "orange",
+            "error": "red",
+            "critical": "darkred"
+        }
+
+        # Normalize level to lowercase for consistency
+        level = level.lower()
+        color = colors.get(level, "black")
+
+        # Add message to log output with timestamp
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # Log through the logger service
+        log_method = getattr(self.logger, level, self.logger.info)
+        log_method(message)
+
+        # Add to UI with HTML formatting
+        self.log_output.append(
+            f'<span style="color:{color}">[{timestamp}] [{level.upper()}] {message}</span>'
+        )
+
+        # Auto-scroll to bottom
+        self.log_output.verticalScrollBar().setValue(
+            self.log_output.verticalScrollBar().maximum()
+        )
 
     def closeEvent(self, event):
-        """Handle application close event."""
-        # Clean up
-        self.thread_service.cancel_all_tasks()
+        """Handle window close event to ensure thread cleanup."""
+        # Cancel any running verification
+        if self.verification_service.is_verification_in_progress():
+            self.verification_service.cancel_verification()
+
+        # Accept the close event
         event.accept()
 
 
+def modify_ui_service():
+    """Patch UI service to correctly handle window activation."""
+    # Get the container
+    container = get_container()
+
+    # Get UI service
+    ui_service = container.resolve(IUIService)
+
+    # Add the activation method if it doesn't exist
+    if not hasattr(ui_service, 'activate_application_window'):
+        from src.domain.common.result import Result
+        from src.domain.common.errors import UIError
+
+        def activate_application_window(self):
+            """Bring the main application window to the foreground."""
+
+            def operation():
+                # Import QMainWindow and QApplication
+                from PySide6.QtWidgets import QMainWindow, QApplication
+                from PySide6.QtCore import Qt
+
+                # Find the main window
+                main_window = None
+                for widget in QApplication.topLevelWidgets():
+                    if isinstance(widget, QMainWindow):
+                        main_window = widget
+                        break
+
+                if not main_window:
+                    return False
+
+                # Use Qt's built-in mechanisms first
+                main_window.setWindowState(
+                    main_window.windowState() & ~Qt.WindowMinimized
+                )
+                main_window.show()
+                main_window.activateWindow()
+                main_window.raise_()
+
+                # For Windows, additional API calls for more reliable activation
+                if sys.platform == 'win32':
+                    try:
+                        # Convert Qt window ID to a Windows handle
+                        window_id = int(main_window.winId())
+
+                        # Try to force foreground using Win32 API
+                        import win32gui
+                        import win32con
+
+                        # Ensure window is not minimized
+                        if win32gui.IsIconic(window_id):
+                            win32gui.ShowWindow(window_id, win32con.SW_RESTORE)
+
+                        # Set as foreground window
+                        win32gui.SetForegroundWindow(window_id)
+                    except Exception as e:
+                        self.logger.warning(f"Windows-specific activation failed: {e}")
+                        # Continue with Qt's activation methods
+
+                return True
+
+            return Result.from_operation(
+                operation,
+                self.logger,
+                UIError,
+                "Error activating application window"
+            )
+
+        # Add the method to the UI service
+        import types
+        ui_service.activate_application_window = types.MethodType(
+            activate_application_window, ui_service
+        )
+
+
+def main():
+    """Main entry point for the test application."""
+    try:
+        # Initialize QApplication
+        app = QApplication(sys.argv)
+
+        # Use the application's own initialization
+        container = initialize_app()
+
+        # Patch the UI service to add activation method
+        modify_ui_service()
+
+        # Create main window with the container
+        window = VerificationTestWindow(container)
+        window.show()
+
+        # Run the application
+        sys.exit(app.exec())
+
+    except Exception as e:
+        print(f"Error starting application: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    print("Starting Block Verification Test Application...")
-
-    # Create application
-    app = QApplication(sys.argv)
-
-    # Set application style
-    app.setStyle("Fusion")
-
-    # Create and show the main window
-    window = BlockVerificationTestWindow()
-    window.show()
-
-    # Start the application
-    sys.exit(app.exec())
+    main()

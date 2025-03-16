@@ -1,4 +1,4 @@
-# src/domain/services/i_config_repository_service.py
+#src/domain/services/i_config_repository_service.py
 """
 Configuration repository interface for application settings.
 

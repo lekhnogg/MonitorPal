@@ -1,44 +1,24 @@
-# src/infrastructure/platform/lockout_service.py
+#src/infrastructure/platform/lockout_service.py
+
 """
 Implementation of the lockout service for Windows.
 
 This service creates an overlay window with click-through holes for flatten buttons
 and executes Cold Turkey Blocker commands to lock out trading platforms.
 """
-import os
 import time
-import subprocess
-import ctypes
-from typing import List, Dict, Any, Optional, Callable
-
-import win32gui
-import win32con
-from PySide6.QtWidgets import QMessageBox, QApplication
-from PySide6.QtCore import QThread, Signal, Slot, QObject, QTimer
+from typing import List, Dict, Any, Optional, Callable, Tuple
 
 from src.domain.services.i_lockout_service import ILockoutService
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_background_task_service import Worker, IBackgroundTaskService
 from src.domain.services.i_platform_detection_service import IPlatformDetectionService
 from src.domain.services.i_config_repository_service import IConfigRepository
+from src.domain.services.i_window_manager_service import IWindowManager
+from src.domain.services.i_ui_service import IUIService
+from src.domain.services.i_cold_turkey_service import IColdTurkeyService
 from src.domain.common.result import Result
 from src.domain.common.errors import ValidationError, ConfigurationError, PlatformError
-
-# Win32 constants for layered window
-WS_EX_LAYERED = 0x00080000
-WS_EX_TOPMOST = 0x00000008
-WS_POPUP = 0x80000000
-ULW_ALPHA = 0x02
-AC_SRC_OVER = 0x00
-AC_SRC_ALPHA = 0x01
-
-
-class OverlaySignals(QObject):
-    """Qt signals for overlay window operations."""
-    overlay_created = Signal(int)  # hwnd
-    overlay_closed = Signal()
-    overlay_error = Signal(str)
-
 
 class LockoutWorker(Worker[bool]):
     """Worker for executing the lockout sequence in a background thread."""
@@ -47,8 +27,10 @@ class LockoutWorker(Worker[bool]):
                  platform: str,
                  flatten_positions: List[Dict[str, Any]],
                  lockout_duration: int,
-                 blocker_path: str,
                  platform_detection_service: IPlatformDetectionService,
+                 window_manager: IWindowManager,
+                 ui_service: IUIService,
+                 cold_turkey_service: IColdTurkeyService,
                  logger: ILoggerService,
                  on_status_update: Optional[Callable[[str, str], None]] = None):
         """Initialize the lockout worker."""
@@ -56,8 +38,10 @@ class LockoutWorker(Worker[bool]):
         self.platform = platform
         self.flatten_positions = flatten_positions
         self.lockout_duration = lockout_duration
-        self.blocker_path = blocker_path
         self.platform_detection_service = platform_detection_service
+        self.window_manager = window_manager
+        self.ui_service = ui_service
+        self.cold_turkey_service = cold_turkey_service
         self.logger = logger
         self.on_status_update = on_status_update
 
@@ -67,10 +51,8 @@ class LockoutWorker(Worker[bool]):
             # Other platforms use default (first word of platform name)
         }
 
-        # Qt signals for cross-thread communication
-        self.signals = OverlaySignals()
+        # State variables
         self.overlay_hwnd = 0
-        self.overlay_countdown_finished = False
 
     def execute(self) -> bool:
         """Execute the lockout sequence."""
@@ -83,72 +65,62 @@ class LockoutWorker(Worker[bool]):
                 self.logger.warning(f"Window activation warning: {activate_result.error}")
                 # Continue anyway, as this is not critical
 
-            # Step 2: Show info dialog - this must be done in the main UI thread
-            QTimer.singleShot(0, lambda: self._show_lockout_notice())
-
-            # Wait a bit for the dialog to be displayed and closed
-            time.sleep(1)
+            # Step 2: Show info dialog
+            self.ui_service.show_message(
+                "Lockout Notice",
+                f"Stop Loss triggered on {self.platform}.\n\n"
+                "You have 30 seconds to flatten positions by clicking in the designated holes.\n"
+                "All other areas are blocked!"
+            )
 
             # Step 3: Create overlay
             self.report_status(f"Creating overlay with flatten positions...", "INFO")
 
             # Get screen dimensions
+            import ctypes
+            import win32con
             user32 = ctypes.windll.user32
             scr_w = user32.GetSystemMetrics(win32con.SM_CXSCREEN)
             scr_h = user32.GetSystemMetrics(win32con.SM_CYSCREEN)
 
-            # Create overlay in the main thread via a signal
-            overlay_created = False
-            error_message = None
+            # Convert flatten positions format
+            click_through_regions = []
+            for pos in self.flatten_positions:
+                coords = pos.get("coords")
+                if coords:
+                    x1, y1, x2, y2 = coords
+                    w = x2 - x1
+                    h = y2 - y1
+                    click_through_regions.append((x1, y1, w, h))
 
-            def create_overlay_in_main_thread():
-                nonlocal overlay_created, error_message
-                try:
-                    from src.infrastructure.platform.overlay_window import create_layered_window
-                    hwnd = create_layered_window(self.flatten_positions, scr_w, scr_h)
-                    if hwnd:
-                        self.overlay_hwnd = hwnd
-                        overlay_created = True
-                    else:
-                        error_message = "Failed to create overlay window"
-                except Exception as e:
-                    error_message = str(e)
+            # Create the overlay window using the window manager
+            overlay_result = self.window_manager.create_transparent_overlay(
+                size=(scr_w, scr_h),
+                position=(0, 0),
+                click_through_regions=click_through_regions
+            )
 
-            # Execute in main thread and wait for completion
-            QTimer.singleShot(0, create_overlay_in_main_thread)
-
-            # Wait for overlay creation
-            countdown = 10  # 1 second timeout
-            while not overlay_created and countdown > 0 and not error_message:
-                time.sleep(0.1)
-                countdown -= 1
-
-            if error_message:
-                self.report_error(f"Failed to create overlay: {error_message}")
+            if overlay_result.is_failure:
+                self.report_error(f"Failed to create overlay: {overlay_result.error}")
                 return False
 
-            if not overlay_created:
-                self.report_error("Timeout waiting for overlay window creation")
-                return False
+            self.overlay_hwnd = overlay_result.value
+            self.logger.info(f"Created overlay window with handle: {self.overlay_hwnd}")
 
             # Step 4: Wait for 30 seconds (with cancelation support)
             self.report_status(f"Lockout countdown (30s) started for {self.platform}...", "INFO")
             for i in range(30):
                 if self.cancel_requested:
                     break
+                self.report_progress(i * 3 + 10, f"Countdown: {30 - i} seconds remaining")
                 time.sleep(1)
 
             # Destroy overlay window
             if self.overlay_hwnd:
-                try:
-                    def destroy_overlay():
-                        user32.DestroyWindow(self.overlay_hwnd)
-                        self.overlay_hwnd = 0
-
-                    QTimer.singleShot(0, destroy_overlay)
-                    time.sleep(0.5)  # Give a moment for window destruction
-                except Exception as e:
-                    self.logger.error(f"Error destroying overlay window: {e}")
+                destroy_result = self.window_manager.destroy_window(self.overlay_hwnd)
+                if destroy_result.is_failure:
+                    self.logger.warning(f"Failed to destroy overlay window: {destroy_result.error}")
+                self.overlay_hwnd = 0
 
             # Check if we were cancelled
             if self.cancel_requested:
@@ -161,36 +133,32 @@ class LockoutWorker(Worker[bool]):
             # Get platform command
             platform_cmd = self._get_platform_cmd(self.platform)
 
-            # Execute command
-            result = self._execute_blocker_command(self.blocker_path, platform_cmd, self.lockout_duration)
+            # Execute block command
+            block_result = self.cold_turkey_service.execute_block_command(
+                platform_cmd, self.lockout_duration
+            )
 
-            if result:
-                self.report_status(
-                    f"Lockout executed successfully. {self.platform} locked for {self.lockout_duration} minute(s).",
-                    "SUCCESS"
-                )
-                return True
-            else:
-                self.report_error("Failed to execute Cold Turkey blocker command")
+            if block_result.is_failure:
+                self.report_error(f"Failed to execute Cold Turkey block: {block_result.error}")
                 return False
+
+            self.report_status(
+                f"Lockout executed successfully. {self.platform} locked for {self.lockout_duration} minute(s).",
+                "SUCCESS"
+            )
+            return True
 
         except Exception as e:
             self.logger.error(f"Lockout error: {e}")
             self.report_error(f"Lockout error: {e}")
             return False
-
-    def _show_lockout_notice(self):
-        """Show notice dialog about the lockout."""
-        try:
-            QMessageBox.information(
-                None,
-                "Lockout Notice",
-                f"Stop Loss triggered on {self.platform}.\n\n"
-                "You have 30 seconds to flatten positions by clicking in the designated holes.\n"
-                "All other areas are blocked!"
-            )
-        except Exception as e:
-            self.logger.error(f"Error showing lockout notice: {e}")
+        finally:
+            # Make sure overlay is destroyed even if an exception occurs
+            if self.overlay_hwnd:
+                try:
+                    self.window_manager.destroy_window(self.overlay_hwnd)
+                except Exception as e:
+                    self.logger.error(f"Error destroying overlay in finally block: {e}")
 
     def _get_platform_cmd(self, platform: str) -> str:
         """Get the platform command for Cold Turkey Blocker."""
@@ -201,35 +169,11 @@ class LockoutWorker(Worker[bool]):
         # Default to capitalizing the first part
         return platform.split()[0].capitalize()
 
-    def _execute_blocker_command(self, blocker_path: str, platform_cmd: str, lockout_duration: int) -> bool:
-        """Execute the Cold Turkey Blocker command."""
-        try:
-            normalized_path = os.path.normpath(blocker_path)
-            cmd = f'"{normalized_path}" -start "{platform_cmd}" -lock "{lockout_duration}"'
-            self.logger.info(f"Executing command: {cmd}")
-
-            # Execute command
-            result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
-
-            self.logger.info(f"Cold Turkey command output: {result.stdout}")
-            if result.stderr:
-                self.logger.warning(f"Cold Turkey command stderr: {result.stderr}")
-
-            return True
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to execute Cold Turkey: {e}")
-            return False
-        except Exception as e:
-            self.logger.error(f"Unexpected error: {e}")
-            return False
-
     def report_status(self, message: str, level: str) -> None:
         """Report status update to callback if available."""
         self.logger.info(message)
         if self.on_status_update:
             self.on_status_update(message, level)
-        # Also report progress
-        self.report_progress(50, message)
 
 
 class WindowsLockoutService(ILockoutService):
@@ -239,11 +183,17 @@ class WindowsLockoutService(ILockoutService):
                  logger: ILoggerService,
                  config_repository: IConfigRepository,
                  platform_detection_service: IPlatformDetectionService,
+                 window_manager: IWindowManager,
+                 ui_service: IUIService,
+                 cold_turkey_service: IColdTurkeyService,
                  thread_service: IBackgroundTaskService):
         """Initialize the lockout service."""
         self.logger = logger
         self.config_repository = config_repository
         self.platform_detection_service = platform_detection_service
+        self.window_manager = window_manager
+        self.ui_service = ui_service
+        self.cold_turkey_service = cold_turkey_service
         self.thread_service = thread_service
         self.lockout_task_id = "lockout_sequence"
 
@@ -271,12 +221,10 @@ class WindowsLockoutService(ILockoutService):
                 )
                 return Result.fail(error)
 
-            # Get blocker path
-            blocker_path = self.config_repository.get_cold_turkey_path()
-            if not blocker_path or not os.path.exists(blocker_path):
+            # Check if Cold Turkey is configured
+            if not self.cold_turkey_service.is_blocker_path_configured():
                 error = ConfigurationError(
-                    message="Cold Turkey Blocker path not configured or invalid",
-                    details={"path": blocker_path, "exists": os.path.exists(blocker_path) if blocker_path else False}
+                    message="Cold Turkey Blocker path not configured or invalid"
                 )
                 return Result.fail(error)
 
@@ -285,8 +233,10 @@ class WindowsLockoutService(ILockoutService):
                 platform=platform,
                 flatten_positions=flatten_positions,
                 lockout_duration=lockout_duration,
-                blocker_path=blocker_path,
                 platform_detection_service=self.platform_detection_service,
+                window_manager=self.window_manager,
+                ui_service=self.ui_service,
+                cold_turkey_service=self.cold_turkey_service,
                 logger=self.logger,
                 on_status_update=on_status_update
             )
@@ -305,33 +255,12 @@ class WindowsLockoutService(ILockoutService):
 
     def verify_blocker_configuration(self, platform: str, block_name: str) -> Result[bool]:
         """Verify that Cold Turkey Blocker is properly configured for the platform."""
-        # This requires UI automation which would be complex to implement here
-        # We'll provide a minimal implementation that just checks the executable exists
-        blocker_path = self.config_repository.get_cold_turkey_path()
-        if not blocker_path or not os.path.exists(blocker_path):
-            return Result.fail("Cold Turkey Blocker executable not found")
-
-        # We could add more verification here, such as:
-        # - Check if the block exists
-        # - Check if the block is properly configured
-        # - Test a quick block/unblock
-
-        return Result.ok(True)
+        return self.cold_turkey_service.verify_block_configuration(block_name)
 
     def get_blocker_path(self) -> Result[str]:
         """Get the path to the Cold Turkey Blocker executable."""
-        path = self.config_repository.get_cold_turkey_path()
-        if not path:
-            return Result.fail("Cold Turkey Blocker path not configured")
-        return Result.ok(path)
+        return self.cold_turkey_service.get_blocker_path()
 
     def set_blocker_path(self, path: str) -> Result[bool]:
         """Set the path to the Cold Turkey Blocker executable."""
-        if not path or not os.path.exists(path):
-            return Result.fail("Invalid path to Cold Turkey Blocker executable")
-
-        result = self.config_repository.set_cold_turkey_path(path)
-        if result.is_failure:
-            return result
-
-        return Result.ok(True)
+        return self.cold_turkey_service.set_blocker_path(path)

@@ -1,4 +1,4 @@
-#NewLayout/src/infrastructure/logging/logger_service.py
+# src/infrastructure/logging/logger_service.py
 """
 Implementation of the logger service using Python's built-in logging module.
 """
@@ -44,6 +44,23 @@ class ConsoleLoggerService(ILoggerService):
             # Add handler to logger
             self.logger.addHandler(console_handler)
 
+    def _log(self, level: str, message: str, **kwargs) -> None:
+        """
+        Generic logging method to handle all log levels.
+
+        Args:
+            level: The log level ('debug', 'info', etc.)
+            message: The message to log
+            **kwargs: Additional context information to log
+        """
+        extra = self._format_extra(kwargs)
+        if extra:
+            message = f"{message} {extra}"
+
+        # Get the appropriate logging method
+        log_method = getattr(self.logger, level)
+        log_method(message)
+
     def debug(self, message: str, **kwargs) -> None:
         """
         Log a debug message.
@@ -52,10 +69,7 @@ class ConsoleLoggerService(ILoggerService):
             message: The message to log
             **kwargs: Additional context information to log
         """
-        extra = self._format_extra(kwargs)
-        if extra:
-            message = f"{message} {extra}"
-        self.logger.debug(message)
+        self._log('debug', message, **kwargs)
 
     def info(self, message: str, **kwargs) -> None:
         """
@@ -65,10 +79,7 @@ class ConsoleLoggerService(ILoggerService):
             message: The message to log
             **kwargs: Additional context information to log
         """
-        extra = self._format_extra(kwargs)
-        if extra:
-            message = f"{message} {extra}"
-        self.logger.info(message)
+        self._log('info', message, **kwargs)
 
     def warning(self, message: str, **kwargs) -> None:
         """
@@ -78,10 +89,7 @@ class ConsoleLoggerService(ILoggerService):
             message: The message to log
             **kwargs: Additional context information to log
         """
-        extra = self._format_extra(kwargs)
-        if extra:
-            message = f"{message} {extra}"
-        self.logger.warning(message)
+        self._log('warning', message, **kwargs)
 
     def error(self, message: str, **kwargs) -> None:
         """
@@ -91,10 +99,7 @@ class ConsoleLoggerService(ILoggerService):
             message: The message to log
             **kwargs: Additional context information to log
         """
-        extra = self._format_extra(kwargs)
-        if extra:
-            message = f"{message} {extra}"
-        self.logger.error(message)
+        self._log('error', message, **kwargs)
 
     def critical(self, message: str, **kwargs) -> None:
         """
@@ -104,10 +109,7 @@ class ConsoleLoggerService(ILoggerService):
             message: The message to log
             **kwargs: Additional context information to log
         """
-        extra = self._format_extra(kwargs)
-        if extra:
-            message = f"{message} {extra}"
-        self.logger.critical(message)
+        self._log('critical', message, **kwargs)
 
     def set_level(self, level: int) -> None:
         """

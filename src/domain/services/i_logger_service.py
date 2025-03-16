@@ -1,4 +1,4 @@
-#NewLayout/src/domain/services/i_logger_service.py
+#src/domain/services/i_logger_service.py
 """
 Logger service interface for application-wide logging.
 

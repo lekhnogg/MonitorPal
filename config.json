@@ -5,20 +5,51 @@
         "Tradovate",
         "TradingView"
     ],
-    "platforms": {},
+    "platforms": {
+        "Quantower": {
+            "monitoring_regions": {},
+            "flatten_regions": {}
+        },
+        "NinjaTrader": {
+            "monitoring_regions": {
+                "monitor_1": [
+                    497,
+                    292,
+                    338,
+                    51
+                ]
+            },
+            "flatten_regions": {
+                "flatten_1": [
+                    584,
+                    557,
+                    143,
+                    29
+                ]
+            }
+        },
+        "TradingView": {
+            "monitoring_regions": {},
+            "flatten_regions": {}
+        },
+        "Tradovate": {
+            "monitoring_regions": {},
+            "flatten_regions": {}
+        }
+    },
     "cold_turkey_blocker": "C:/Program Files/Cold Turkey/Cold Turkey Blocker.exe",
     "block_settings": {
-        "Quantower": "Quantower"
+        "NinjaTrader": "Ninja"
     },
     "verified_blocks": [
         {
-            "platform": "Quantower",
-            "block_name": "Quantower"
+            "platform": "NinjaTrader",
+            "block_name": "Ninja"
         }
     ],
     "stop_loss_threshold": 0.0,
     "lockout_duration": 15,
-    "current_platform": "",
+    "current_platform": "NinjaTrader",
     "first_run": true,
     "app_version": "1.0.0",
     "stress_test_1": "2025-03-14T17:53:11.469257",

@@ -1,4 +1,4 @@
-# src/domain/services/i_screenshot_service.py
+#src/domain/services/i_screenshot_service.py
 
 """
 Screenshot service interface for capturing and managing screenshots.

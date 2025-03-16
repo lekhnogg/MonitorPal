@@ -1,4 +1,4 @@
-# src/infrastructure/platform/monitoring_service.py
+#src/infrastructure/platform/monitoring_service.py
 """
 Implementation of the monitoring service.
 
@@ -115,13 +115,11 @@ class MonitoringWorker(Worker[bool]):
                     # Only check when platform is active
                     if is_active:
                         # Process this check
-                        result = self._process_check()
-
-                        # Handle the result
-                        if result is not None:
+                        check_result = self._process_check()
+                        if check_result.is_success:
+                            result = check_result.value
                             # Call the completion callback
                             self.on_check_complete(result)
-
                             # If threshold was exceeded, exit the monitoring loop
                             if result.threshold_exceeded:
                                 self.report_status(
@@ -131,9 +129,10 @@ class MonitoringWorker(Worker[bool]):
                                 )
                                 break
                         else:
-                            # Handle the error case (when _process_check returns None)
+                            # Handle the error case
+                            error_message = str(check_result.error)
                             self.report_status(
-                                "Failed to process monitoring check. See logs for details.",
+                                f"Failed to process monitoring check: {error_message}",
                                 "ERROR"
                             )
                             # Optional: Add a short delay before the next attempt
@@ -165,12 +164,12 @@ class MonitoringWorker(Worker[bool]):
             self.report_error(f"Monitoring error: {str(e)}")
             return False
 
-    def _process_check(self) -> Optional[MonitoringResult]:
+    def _process_check(self) -> Result[MonitoringResult]:
         """
         Process a single monitoring check.
 
         Returns:
-            A MonitoringResult if successful, None otherwise
+            Result containing a MonitoringResult if successful
         """
         screenshot_path = os.path.join(
             self.save_directory,
@@ -183,14 +182,14 @@ class MonitoringWorker(Worker[bool]):
         capture_result = self.screenshot_service.capture_and_save(self.region, screenshot_path)
         if capture_result.is_failure:
             self.report_status(f"Failed to capture screenshot: {capture_result.error}", "ERROR")
-            return None
+            return Result.fail(capture_result.error)
 
         # Extract text from screenshot
         self.report_status(f"Extracting text from screenshot", "INFO")
         extract_result = self.ocr_service.extract_text_from_file(screenshot_path)
         if extract_result.is_failure:
             self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
-            return None
+            return Result.fail(extract_result.error)
 
         extracted_text = extract_result.value
 
@@ -198,13 +197,17 @@ class MonitoringWorker(Worker[bool]):
         extract_values_result = self.ocr_service.extract_numeric_values(extracted_text)
         if extract_values_result.is_failure:
             self.report_status(f"Failed to extract numeric values: {extract_values_result.error}", "ERROR")
-            return None
+            return Result.fail(extract_values_result.error)
 
         values = extract_values_result.value
 
         if len(values) == 0:
+            error = ValidationError(
+                message="No numeric values detected in the OCR text",
+                details={"screenshot_path": screenshot_path}
+            )
             self.report_status("No numeric values detected in the OCR text", "WARNING")
-            return None
+            return Result.fail(error)
 
         # Find the minimum value (most negative)
         min_value = min(values)
@@ -226,7 +229,7 @@ class MonitoringWorker(Worker[bool]):
         self.report_status(f"Detected values: {values}", "INFO")
         self.report_status(f"Current value: ${min_value:.2f}", "INFO")
 
-        return result
+        return Result.ok(result)
 
     def report_status(self, message: str, level: str) -> None:
         """Report a status update."""
@@ -416,7 +419,6 @@ class MonitoringService(IMonitoringService):
 
             # Use a different task ID to avoid conflicting with monitoring
             result = self.thread_service.execute_task("region_selection", worker)
-
             if result.is_failure:
                 return result
 

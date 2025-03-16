@@ -1,4 +1,4 @@
-#NewLayout/src/infrastructure/config/json_config_repository.py
+#src/infrastructure/config/json_config_repository.py
 
 """
 JSON-based implementation of the configuration repository.
@@ -13,7 +13,7 @@ from typing import Dict, Any, List
 from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.common.result import Result
-
+from src.domain.common.errors import ResourceError, ConfigurationError
 
 class JsonConfigRepository(IConfigRepository):
     """
@@ -171,9 +171,30 @@ class JsonConfigRepository(IConfigRepository):
                 # Notify observers after successful save
                 self._notify_observers()
                 return Result.ok(True)
+            except PermissionError as e:
+                error = ResourceError(
+                    message="Permission denied when saving configuration file",
+                    details={"config_file": self.config_file},
+                    inner_error=e
+                )
+                self.logger.error(str(error))
+                return Result.fail(error)
+            except IOError as e:
+                error = ResourceError(
+                    message="I/O error when saving configuration file",
+                    details={"config_file": self.config_file},
+                    inner_error=e
+                )
+                self.logger.error(str(error))
+                return Result.fail(error)
             except Exception as e:
-                self.logger.error(f"Error saving config: {e}")
-                return Result.fail(f"Failed to save config: {e}")
+                error = ConfigurationError(
+                    message="Failed to save configuration",
+                    details={"config_file": self.config_file},
+                    inner_error=e
+                )
+                self.logger.error(str(error))
+                return Result.fail(error)
 
     def get_global_setting(self, key: str, default: Any = None) -> Any:
         """

@@ -1,4 +1,4 @@
-# src/domain/services/i_ocr_service.py
+#src/domain/services/i_ocr_service.py
 
 """
 OCR service interface for extracting text from images.

@@ -1,3 +1,4 @@
+#src/infrastructure/platform/windows_platform_detection_service.py
 """
 Windows Platform Detection Service Implementation
 
@@ -64,6 +65,19 @@ class WindowsPlatformDetectionService(IPlatformDetectionService):
         target_exe = self._target_executables[platform]
         self.logger.debug(f"Looking for {platform} window with executable: {target_exe}")
 
+        # First check if the platform is running at all (fast check)
+        running_result = self.is_platform_running(platform)
+        if running_result.is_failure:
+            return running_result  # Pass through the error
+
+        if not running_result.value:
+            error = PlatformError(
+                message=f"Platform not running: {platform}",
+                details={"platform": platform, "executable": target_exe}
+            )
+            self.logger.warning(str(error))
+            return Result.fail(error)
+
         detected_info = None
         start_time = time.time()
 
@@ -127,8 +141,8 @@ class WindowsPlatformDetectionService(IPlatformDetectionService):
                 )
                 self.logger.warning(f"{error}")
 
-            # Wait before trying again
-            time.sleep(2)
+            # Wait before trying again - reduced wait time for more responsiveness
+            time.sleep(0.5)  # Check more frequently (was 2 seconds)
 
         # This should never be reached due to timeout check, but just in case
         error = PlatformError(
@@ -136,6 +150,7 @@ class WindowsPlatformDetectionService(IPlatformDetectionService):
             details={"platform": platform}
         )
         return Result.fail(error)
+
     def get_window_by_pid(self, pid: int) -> Result[Optional[int]]:
         """
         Get window handle associated with a process ID.
@@ -255,20 +270,62 @@ class WindowsPlatformDetectionService(IPlatformDetectionService):
             Result indicating success or failure
         """
         try:
+            # Safety check: Valid window handle?
+            import win32gui
+            if not win32gui.IsWindow(hwnd):
+                self.logger.warning(f"Handle {hwnd} is not a valid window")
+                return Result.fail(f"Invalid window handle: {hwnd}")
+
+            # Safety check: Is window visible?
+            if not win32gui.IsWindowVisible(hwnd):
+                self.logger.warning(f"Window {hwnd} is not visible")
+                return Result.fail(f"Window {hwnd} is not visible")
+
             # Check if window is minimized and restore it
             if win32gui.IsIconic(hwnd):
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                # Small delay to let the window restore
+                import time
+                time.sleep(0.1)
 
-            # Make window topmost, then disable topmost to avoid keeping it permanently on top
-            win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
-                                  win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
-            win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0,
-                                  win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+            # Basic approach - use Windows API directly through win32gui
+            # Avoid mixing ctypes with win32gui in the same operation
+            try:
+                # Make window topmost, then disable topmost
+                win32gui.SetWindowPos(
+                    hwnd,
+                    win32con.HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE
+                )
 
-            # Set as foreground window
-            result = win32gui.SetForegroundWindow(hwnd)
+                # Short delay
+                import time
+                time.sleep(0.2)
 
-            return Result.ok(True)
+                # Remove topmost flag
+                win32gui.SetWindowPos(
+                    hwnd,
+                    win32con.HWND_NOTOPMOST,
+                    0, 0, 0, 0,
+                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE
+                )
+
+                # Try to set as foreground
+                try:
+                    win32gui.SetForegroundWindow(hwnd)
+                    return Result.ok(True)
+                except Exception:
+                    # Try alternative - Show + SW_RESTORE is sometimes more reliable
+                    win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    return Result.ok(True)
+
+            except Exception as window_ex:
+                self.logger.debug(f"Window activation failed: {window_ex}")
+                # Return failure but don't try additional unsafe methods
+                return Result.fail(f"Failed to bring window to foreground: {window_ex}")
+
         except Exception as e:
             self.logger.warning(f"Failed to force foreground for window {hwnd}: {e}")
             return Result.fail(f"Failed to force foreground for window {hwnd}: {e}")
@@ -303,25 +360,36 @@ class WindowsPlatformDetectionService(IPlatformDetectionService):
                 self.logger.warning(f"Error enumerating processes: {e}")
                 # Continue with any processes we found
 
+            # Early return if no processes found
+            if not matching_processes:
+                self.logger.warning(f"No processes found for platform {platform}")
+                return Result.fail(f"No processes found for platform {platform}")
+
             # Now try to activate windows for these processes
+            # Try to focus on main window rather than activating all windows
             for pid in matching_processes:
                 try:
                     windows_result = self.get_all_windows_for_pid(pid)
 
-                    if windows_result.is_failure:
-                        continue
+                    if windows_result.is_success:
+                        hwnds = windows_result.value
+                        for hwnd in hwnds:
+                            try:
+                                # Safe check here - is the window still valid?
+                                if not win32gui.IsWindow(hwnd):
+                                    continue
 
-                    hwnds = windows_result.value
-                    for hwnd in hwnds:
-                        try:
-                            force_result = self.force_foreground_window(hwnd)
-                            if force_result.is_success:
-                                activated_count += 1
-                        except Exception as e:
-                            self.logger.warning(f"Error activating window {hwnd}: {e}")
+                                # Process one window at a time with deliberate delay
+                                force_result = self.force_foreground_window(hwnd)
+                                if force_result.is_success:
+                                    activated_count += 1
+                                    # Small delay between activations
+                                    time.sleep(0.2)
+
+                            except Exception as e:
+                                self.logger.warning(f"Error activating window {hwnd}: {e}")
                 except Exception as e:
                     self.logger.warning(f"Error processing PID {pid}: {e}")
-                    continue
 
             if activated_count > 0:
                 self.logger.info(f"Activated {activated_count} windows for platform {platform}")
@@ -341,3 +409,51 @@ class WindowsPlatformDetectionService(IPlatformDetectionService):
             Result containing dictionary mapping platform names to executable names
         """
         return Result.ok(self._target_executables.copy())
+
+    def is_platform_running(self, platform: str) -> Result[bool]:
+        """
+        Quickly check if a platform's process is running without full window detection.
+
+        Args:
+            platform: Platform name (e.g., "Quantower", "NinjaTrader")
+
+        Returns:
+            Result containing True if the platform is running, False otherwise
+        """
+        try:
+            # Validate platform name
+            if platform not in self._target_executables:
+                error = PlatformError(
+                    message=f"Unknown platform: {platform}",
+                    details={
+                        "platform": platform,
+                        "supported_platforms": list(self._target_executables.keys())
+                    }
+                )
+                self.logger.error(str(error))
+                return Result.fail(error)
+
+            target_exe = self._target_executables[platform]
+            self.logger.debug(f"Checking if {platform} is running (executable: {target_exe})")
+
+            # Check for processes matching the target executable
+            import psutil
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    if proc.info['name'] and proc.info['name'].lower() == target_exe.lower():
+                        self.logger.debug(f"Found running process for {platform}: PID {proc.info['pid']}")
+                        return Result.ok(True)
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+
+            self.logger.debug(f"No running process found for {platform}")
+            return Result.ok(False)
+
+        except Exception as e:
+            error = PlatformError(
+                message=f"Error checking if platform is running: {platform}",
+                details={"platform": platform},
+                inner_error=e
+            )
+            self.logger.error(str(error))
+            return Result.fail(error)

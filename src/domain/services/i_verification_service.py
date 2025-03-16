@@ -1,34 +1,33 @@
-# src/domain/services/i_verification_service.py
-"""
-Interface for verifying platform blocks in Cold Turkey Blocker.
+#src/domain/services/i_verification_service.py
 
-This service verifies that Cold Turkey Blocker is properly configured
-for blocking trading platforms.
-"""
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
-
+from typing import List, Dict, Any
 from src.domain.common.result import Result
 
 
 class IVerificationService(ABC):
     """
     Service for verifying platform blocks in Cold Turkey Blocker.
+
+    This service coordinates the verification process, handling rate limiting,
+    background threading, and user feedback for Cold Turkey Blocker verification.
     """
 
     @abstractmethod
-    def verify_block(self, platform: str, block_name: str,
-                     cancellable: bool = True) -> Result[bool]:
+    def verify_platform_block(self, platform: str, block_name: str, cancellable: bool = True) -> Result[bool]:
         """
-        Verify that a Cold Turkey block exists and is properly configured.
+        Verify that a Cold Turkey block exists and is properly configured for a specific trading platform.
+
+        This method coordinates the verification process in a background thread, with rate limiting
+        and cancellation support.
 
         Args:
-            platform: Platform name
-            block_name: Cold Turkey block name
-            cancellable: Whether the verification can be cancelled by the user
+            platform: The trading platform name (e.g., "Quantower")
+            block_name: Name of the block in Cold Turkey Blocker
+            cancellable: Whether the verification process can be cancelled
 
         Returns:
-            Result indicating success or failure
+            Result containing True if verification succeeded, False otherwise
         """
         pass
 
@@ -38,7 +37,27 @@ class IVerificationService(ABC):
         Cancel any running verification task.
 
         Returns:
-            Result indicating success or failure
+            Result containing True if a task was cancelled, False if no task was running
+        """
+        pass
+
+    @abstractmethod
+    def is_verification_in_progress(self) -> bool:
+        """
+        Check if a verification task is currently running.
+
+        Returns:
+            True if verification is in progress, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def get_cooldown_remaining(self) -> int:
+        """
+        Get the remaining cooldown time in seconds before another verification can be started.
+
+        Returns:
+            Seconds remaining in cooldown, or 0 if no cooldown is active
         """
         pass
 
@@ -48,21 +67,7 @@ class IVerificationService(ABC):
         Get list of verified platform blocks.
 
         Returns:
-            Result containing list of verified blocks
-        """
-        pass
-
-    @abstractmethod
-    def add_verified_block(self, platform: str, block_name: str) -> Result[bool]:
-        """
-        Add a verified platform block to the saved configuration.
-
-        Args:
-            platform: Platform name
-            block_name: Cold Turkey block name
-
-        Returns:
-            Result indicating success or failure
+            Result containing a list of platform block configurations
         """
         pass
 
@@ -72,10 +77,10 @@ class IVerificationService(ABC):
         Remove a verified platform block from the saved configuration.
 
         Args:
-            platform: Platform name to remove
+            platform: Platform to remove verification for
 
         Returns:
-            Result indicating success or failure
+            Result containing True if removal succeeded, False otherwise
         """
         pass
 
@@ -85,17 +90,7 @@ class IVerificationService(ABC):
         Clear all verified platform blocks.
 
         Returns:
-            Result indicating success or failure
-        """
-        pass
-
-    @abstractmethod
-    def is_blocker_path_configured(self) -> bool:
-        """
-        Check if Cold Turkey Blocker path is configured.
-
-        Returns:
-            True if path is configured, False otherwise
+            Result containing True if clearing succeeded, False otherwise
         """
         pass
 
@@ -105,6 +100,16 @@ class IVerificationService(ABC):
         Check if at least one platform block has been verified.
 
         Returns:
-            True if at least one block is verified, False otherwise
+            True if at least one platform has been verified
+        """
+        pass
+
+    @abstractmethod
+    def is_blocker_path_configured(self) -> bool:
+        """
+        Check if Cold Turkey Blocker path is configured.
+
+        Returns:
+            True if Cold Turkey Blocker path is configured, False otherwise
         """
         pass

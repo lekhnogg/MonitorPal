@@ -1,4 +1,4 @@
-# src/domain/services/i_window_manager_service.py
+#src/domain/services/i_window_manager_service.py
 """
 Window management abstraction for platform-independent operations.
 

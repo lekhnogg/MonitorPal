@@ -1,4 +1,4 @@
-# src/infrastructure/ocr/tesseract_ocr_service.py
+#src/infrastructure/ocr/tesseract_ocr_service.py
 
 """
 Implementation of the OCR service using Tesseract OCR.
@@ -17,7 +17,7 @@ import pytesseract
 from src.domain.services.i_ocr_service import IOcrService
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.common.result import Result
-
+from src.domain.common.errors import ResourceError
 
 class TesseractOcrService(IOcrService):
     """
@@ -80,12 +80,6 @@ class TesseractOcrService(IOcrService):
     def extract_text(self, image: Image.Image) -> Result[str]:
         """
         Extract text from an image.
-
-        Args:
-            image: The PIL Image to process
-
-        Returns:
-            Result containing extracted text on success
         """
         try:
             self.logger.debug("Extracting text from image")
@@ -109,10 +103,21 @@ class TesseractOcrService(IOcrService):
             self.logger.debug(f"Extracted text: {extracted_text[:100]}" + ("..." if len(extracted_text) > 100 else ""))
             return Result.ok(extracted_text)
 
+        except FileNotFoundError as e:
+            error = ResourceError(
+                message="Tesseract OCR executable not found",
+                inner_error=e
+            )
+            self.logger.error(str(error))
+            return Result.fail(error)
         except Exception as e:
-            error_msg = f"Text extraction failed: {str(e)}"
-            self.logger.error(error_msg)
-            return Result.fail(error_msg)
+            error = ResourceError(
+                message="Text extraction failed",
+                details={"image_size": f"{image.width}x{image.height}" if hasattr(image, 'width') else "unknown"},
+                inner_error=e
+            )
+            self.logger.error(str(error))
+            return Result.fail(error)
 
     def extract_text_from_file(self, image_path: str) -> Result[str]:
         """
@@ -188,9 +193,13 @@ class TesseractOcrService(IOcrService):
             return Result.ok(processed_image)
 
         except Exception as e:
-            error_msg = f"Image preprocessing failed: {str(e)}"
-            self.logger.error(error_msg)
-            return Result.fail(error_msg)
+            error = ResourceError(
+                message="Image preprocessing failed",
+                details={"image_size": f"{image.width}x{image.height}" if hasattr(image, 'width') else "unknown"},
+                inner_error=e
+            )
+            self.logger.error(str(error))
+            return Result.fail(error)
 
     def extract_numeric_values(self, text: str) -> Result[List[float]]:
         """

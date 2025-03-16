@@ -1,4 +1,4 @@
-# src/infrastructure/platform/screenshot_service.py
+#src/infrastructure/platform/screenshot_service.py
 """
 Qt-native implementation of the screenshot service using QScreen.
 """

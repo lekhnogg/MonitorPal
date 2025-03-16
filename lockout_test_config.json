@@ -1,0 +1,17 @@
+{
+    "default_platforms": [
+        "Quantower",
+        "NinjaTrader",
+        "Tradovate",
+        "TradingView"
+    ],
+    "platforms": {},
+    "cold_turkey_blocker": "C:/Program Files/Cold Turkey/Cold Turkey Blocker.exe",
+    "block_settings": {},
+    "verified_blocks": [],
+    "stop_loss_threshold": 0.0,
+    "lockout_duration": 15,
+    "current_platform": "",
+    "first_run": true,
+    "app_version": "1.0.0"
+}

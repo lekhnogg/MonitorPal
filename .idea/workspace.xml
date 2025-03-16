@@ -4,11 +4,49 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Screenshot stuff works. changed the qt_region_selector to fix the coordinate mismatch.">
-      <change afterPath="$PROJECT_DIR$/verification_test.py" afterDir="false" />
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore.">
+      <change afterPath="$PROJECT_DIR$/CurrentIssuesMar17" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_cold_turkey_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_ui_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/ui/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/ui/qt_ui_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test_detect.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test_lockout.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logs/MonitorPal_2025-03-16.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/MonitorPal_2025-03-16.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/common/di_container.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/common/di_container.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/common/errors.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/common/errors.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/common/result.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/common/result.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/models/monitoring_result.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/models/monitoring_result.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_config_repository_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_config_repository_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_lockout_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_lockout_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_logger_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_logger_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_platform_detection_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_platform_detection_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_screenshot_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_screenshot_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_verification_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_verification_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_window_manager_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_window_manager_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/logging/logger_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/logging/logger_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/overlay_window.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/screenshot_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/screenshot_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/windows_platform_detection_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_platform_detection_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/workers/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/logging_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/logging_config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/verification_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/verification_test.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -25,18 +63,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "lekhnogg"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;lekhnogg&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/lekhnogg/MonitorPal.git",
-    "accountId": "0f2109b2-ddcc-4c25-b5aa-56dbe8a65b21"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/lekhnogg/MonitorPal.git&quot;,
+    &quot;accountId&quot;: &quot;0f2109b2-ddcc-4c25-b5aa-56dbe8a65b21&quot;
   }
-}]]></component>
+}</component>
   <component name="ProjectColorInfo">{
   &quot;customColor&quot;: &quot;&quot;,
   &quot;associatedIndex&quot;: 4
@@ -58,9 +96,12 @@
     "Python.simple_test_app.executor": "Run",
     "Python.test_app.executor": "Run",
     "Python.test_appOLD.executor": "Run",
+    "Python.test_detect.executor": "Run",
     "Python.test_di.executor": "Run",
+    "Python.test_lockout.executor": "Run",
     "Python.test_platform_detection.executor": "Run",
     "Python.test_screenshots.executor": "Run",
+    "Python.verification_service.executor": "Debug",
     "Python.verification_test.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
@@ -70,6 +111,7 @@
 }]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\ui" />
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\domain\services" />
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform\workers" />
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform" />
@@ -152,12 +194,29 @@
       <option name="project" value="LOCAL" />
       <updated>1742104307942</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore.">
+      <option name="closed" value="true" />
+      <created>1742107532653</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1742107532653</updated>
+    </task>
+    <task id="LOCAL-00004" summary="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore.">
+      <option name="closed" value="true" />
+      <created>1742107547990</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1742107547990</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Foundation and infrrastructure nearly complete, still working on the screenshot business.." />
     <MESSAGE value="Screenshot stuff works. changed the qt_region_selector to fix the coordinate mismatch." />
-    <option name="LAST_COMMIT_MESSAGE" value="Screenshot stuff works. changed the qt_region_selector to fix the coordinate mismatch." />
+    <MESSAGE value="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore." />
+    <option name="LAST_COMMIT_MESSAGE" value="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore." />
   </component>
 </project>

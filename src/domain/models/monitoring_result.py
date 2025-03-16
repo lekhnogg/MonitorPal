@@ -1,3 +1,4 @@
+#src/domain/models/monitoring_result.py
 """
 Monitoring result model for representing the outcome of a monitoring check.
 

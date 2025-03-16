@@ -1,4 +1,4 @@
-#NewLayout/src/domain/common/di_container.py
+#src/domain/common/di_container.py
 
 """
 Simple dependency injection container for the application.
