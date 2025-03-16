@@ -7,8 +7,15 @@
     ],
     "platforms": {},
     "cold_turkey_blocker": "C:/Program Files/Cold Turkey/Cold Turkey Blocker.exe",
-    "block_settings": {},
-    "verified_blocks": [],
+    "block_settings": {
+        "Quantower": "Quantower"
+    },
+    "verified_blocks": [
+        {
+            "platform": "Quantower",
+            "block_name": "Quantower"
+        }
+    ],
     "stop_loss_threshold": 0.0,
     "lockout_duration": 15,
     "current_platform": "",

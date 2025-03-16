@@ -104,15 +104,15 @@ class VerificationWorker(Worker[bool]):
 
                 try:
                     # Bring the window to the foreground
-                    win32gui.ShowWindow(cold_turkey_hwnd, win32gui.SW_RESTORE)
+                    win32gui.ShowWindow(cold_turkey_hwnd, 9)  # SW_RESTORE
                     win32gui.SetForegroundWindow(cold_turkey_hwnd)
                     time.sleep(0.5)
 
-                    # Connect to the Cold Turkey window using pywinauto
+                    # Connect once to the Cold Turkey window using pywinauto
                     app = pywinauto.Application(backend="uia").connect(handle=cold_turkey_hwnd)
                     main_window = app.window(handle=cold_turkey_hwnd)
 
-                    # Try to click on the "Blocks" tab
+                    # Click on the "Blocks" tab
                     blocks_elements = [
                         elem for elem in main_window.descendants()
                         if hasattr(elem, 'window_text') and "Blocks" in elem.window_text()
@@ -120,7 +120,7 @@ class VerificationWorker(Worker[bool]):
 
                     clicked = False
                     for blocks_element in blocks_elements:
-                        for i in range(3):  # Try up to 3 times
+                        for i in range(3):
                             try:
                                 self.logger.debug(f"Attempting click {i + 1} on Blocks tab")
                                 blocks_element.click_input()
@@ -149,7 +149,7 @@ class VerificationWorker(Worker[bool]):
                         self.logger.warning(f"Could not verify block '{self.block_name}'")
 
                 except Exception as e:
-                    self.logger.error(f"Error during verification process: {e}")
+                    self.logger.error(f"Error bringing window to foreground or navigating to Blocks tab: {e}")
                     error_message = str(e)
 
             # Handle verification result
@@ -290,6 +290,7 @@ class VerificationWorker(Worker[bool]):
 
         return verification_success, row_text
 
+
 class WindowsVerificationService(IVerificationService):
     """
     Windows implementation of the verification service.
@@ -313,6 +314,10 @@ class WindowsVerificationService(IVerificationService):
         self.thread_service = thread_service
         self.verification_task_id = "verify_block"
 
+        # Add cooldown tracking to prevent rapid verifications
+        self._last_verification_time = 0
+        self._cooldown_seconds = 60  # 1 minute cooldown
+
     def verify_block(self, platform: str, block_name: str, cancellable: bool = True) -> Result[bool]:
         """
         Verify that a Cold Turkey block exists and is properly configured.
@@ -330,6 +335,13 @@ class WindowsVerificationService(IVerificationService):
 
         if not block_name:
             return Result.fail("Block name is empty")
+
+        # Check cooldown period
+        current_time = time.time()
+        time_since_last = current_time - self._last_verification_time
+        if time_since_last < self._cooldown_seconds:
+            cooldown_remaining = int(self._cooldown_seconds - time_since_last)
+            return Result.fail(f"Please wait {cooldown_remaining} seconds before verifying again")
 
         try:
             blocker_path = self.config_repository.get_cold_turkey_path()
@@ -351,6 +363,7 @@ class WindowsVerificationService(IVerificationService):
             def on_verification_completed(result):
                 nonlocal verification_result
                 verification_result = result
+                self._last_verification_time = time.time()  # Update last verification time
 
             worker.set_on_completed(on_verification_completed)
 
@@ -363,10 +376,11 @@ class WindowsVerificationService(IVerificationService):
                 return task_result
 
             # Wait for the verification to complete or be cancelled
-            wait_result = self.thread_service.wait_for_task_completion(
+            wait_result = self.thread_service.wait_for_task(
                 self.verification_task_id,
                 timeout_ms=30000
             )
+
             if wait_result.is_failure:
                 return Result.fail(wait_result.error)
 

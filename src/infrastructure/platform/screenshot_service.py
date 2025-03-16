@@ -61,22 +61,6 @@ class QtScreenshotService(IScreenshotService):
 
             self.logger.debug(f"Total monitors detected: {len(screens)}")
 
-            # Log information about all screens for debugging
-            for i, screen in enumerate(screens):
-                geometry = screen.geometry()
-                available = screen.availableGeometry()
-                self.logger.debug(f"Monitor #{i + 1}:")
-                self.logger.debug(f"  Name: {screen.name()}")
-                self.logger.debug(f"  Manufacturer: {screen.manufacturer()}")
-                self.logger.debug(f"  Model: {screen.model()}")
-                self.logger.debug(
-                    f"  Geometry: x={geometry.x()}, y={geometry.y()}, width={geometry.width()}, height={geometry.height()}")
-                self.logger.debug(
-                    f"  Available: x={available.x()}, y={available.y()}, width={available.width()}, height={available.height()}")
-                self.logger.debug(f"  DPI: {screen.physicalDotsPerInchX()}x{screen.physicalDotsPerInchY()}")
-                self.logger.debug(f"  Scale factor: {screen.devicePixelRatio()}")
-                self.logger.debug(f"  Primary: {screen.name() == QApplication.primaryScreen().name()}")
-
             # Find which screen contains the majority of this region
             target_screen = None
             best_overlap_area = 0
@@ -109,22 +93,8 @@ class QtScreenshotService(IScreenshotService):
             relative_left = left - screen_geo.x()
             relative_top = top - screen_geo.y()
 
-            self.logger.debug(f"Region to capture: left={left}, top={top}, width={width}, height={height}")
-            self.logger.debug(
-                f"Screen geometry: x={screen_geo.x()}, y={screen_geo.y()}, width={screen_geo.width()}, height={screen_geo.height()}")
-            self.logger.debug(f"Relative to screen: left={relative_left}, top={relative_top}")
-
-            # Log the exact grabWindow call for debugging
-            self.logger.debug(
-                f"Attempting to capture using screen.grabWindow(0, {relative_left}, {relative_top}, {width}, {height})")
-
             # Capture the screenshot using the calculated coordinates
             pixmap = target_screen.grabWindow(0, relative_left, relative_top, width, height)
-
-            # Verify the pixmap was created successfully
-            self.logger.debug(f"Capture complete. Pixmap: {pixmap}")
-            self.logger.debug(f"Pixmap size: {pixmap.width()}x{pixmap.height()}")
-            self.logger.debug(f"Pixmap null status: {pixmap.isNull()}")
 
             if pixmap.isNull():
                 return Result.fail(ResourceError(
@@ -140,8 +110,6 @@ class QtScreenshotService(IScreenshotService):
                     message="Failed to convert QPixmap to PIL Image",
                     details={"region": region}
                 ))
-
-            self.logger.debug(f"Screenshot captured with size {image.width}x{image.height}")
             return Result.ok(image)
         except Exception as e:
             return Result.fail(ResourceError(
