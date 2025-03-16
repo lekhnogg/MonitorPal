@@ -1,0 +1,102 @@
+# Detailed User Workflow for the Trading Platform Monitoring System
+
+## Initial Onboarding
+
+1. User launches the application for the first time and sees the onboarding tutorial
+2. User progresses through 5 onboarding screens explaining the system's purpose and functionality
+3. User learns that the tool monitors trading platforms and locks them when losses exceed thresholds
+4. User understands they'll need to set up Cold Turkey Blocker integration
+5. User learns about monitoring regions, risk thresholds, and position flattening during lockout
+6. User completes the onboarding and is directed to the "Getting Started" tab
+
+## Cold Turkey Blocker Setup
+
+7. User navigates to the Cold Turkey Blocker setup section in the "Getting Started" tab
+8. User locates their Cold Turkey Blocker installation (typically in Program Files or similar location)
+9. User selects the executable path via a file browser dialog and confirms
+10. The application stores this path in the configuration repository for future use
+11. User creates a block in Cold Turkey Blocker with a specific name (e.g., "TradingBlock")
+12. User enters this block name in the verification field in the application
+13. The application initiates a verification process:
+    - Sends a command to Cold Turkey via subprocess to start a 1-minute block
+    - Uses the `subprocess.run()` command with arguments to trigger the block
+    - Brings Cold Turkey to the foreground using Win32 API calls
+    - Uses pywinauto to interact with the Cold Turkey UI
+    - Looks for confirmation keywords like "locked," "blocked," or "minutes left"
+    - Verifies the block has been successfully initiated
+14. Upon successful verification, the application stores the block name in configuration
+15. User receives confirmation that Cold Turkey is properly configured
+
+## Platform Selection and Configuration
+
+16. User selects which trading platform they want to monitor (Quantower, NinjaTrader, TradingView, or Tradovate)
+17. Application saves this as the current platform in configuration
+18. User is prompted to configure loss threshold amount (e.g., -$500)
+19. User configures lockout duration in minutes (default is 15 minutes, min 5, max 720)
+20. Application validates and saves these settings in the configuration repository
+
+## Region Selection for P&L Monitoring
+
+21. User clicks "Select Region" to identify where P&L values appear on their trading platform
+22. Application shows a dialog explaining how to select the region
+23. User confirms and the application displays a full-screen transparent overlay
+24. User sees a crosshair cursor and is instructed to click and drag to select the region
+25. As user drags, a red rectangle appears with dimensions displayed in real-time
+26. User releases mouse button to finalize the selection
+27. Application captures the exact coordinates (x, y, width, height) of the selected region
+28. These coordinates are stored in the platform-specific settings in configuration
+
+## Flatten Position Button Configuration (Optional)
+
+29. User is asked if they want to define "flatten position" buttons
+30. If yes, user clicks "Configure Flatten Buttons" and follows a similar region selection process
+31. User selects multiple regions where flatten buttons are located on their platform
+32. These regions will be the only clickable areas during lockout
+33. Coordinates are stored as a list of "flatten_positions" in configuration
+
+## Start Monitoring
+
+34. User clicks "Start Monitoring" to begin the monitoring process
+35. Application creates a background worker thread that:
+    - Detects if the platform window is active using Win32 APIs
+    - Captures screenshots of the defined region at regular intervals
+    - Preprocesses images to improve OCR accuracy
+    - Uses Tesseract OCR to extract text from the screenshots
+    - Processes the text to extract numeric values
+    - Identifies the most negative value (lowest P&L) in the extracted text
+    - Compares this value against the configured threshold
+36. User can see status updates and the latest detected values in the UI
+37. User can stop monitoring at any time by clicking "Stop Monitoring"
+
+## Lockout Sequence (When Threshold is Exceeded)
+
+38. When losses exceed the configured threshold, the lockout sequence begins automatically
+39. Application activates the platform window using Win32 APIs to bring it to the foreground
+40. A warning dialog appears informing the user that the stop loss was triggered
+41. The dialog explains they have 30 seconds to flatten positions before lockout
+42. After user acknowledges, the application creates a transparent overlay window with "click-through holes"
+    - Uses the Win32 layered window API to create a semi-transparent blocking overlay
+    - The overlay allows mouse clicks only in the predefined flatten button regions
+    - All other screen areas are blocked from interaction
+43. A 30-second countdown begins, visible to the user
+44. User can only click on the flatten position buttons during this time
+45. After the countdown completes, the overlay is removed
+46. Application executes the Cold Turkey block command:
+    - Uses subprocess to execute a command like: `"C:\path\to\ColdTurkey.exe" -start "BlockName" -lock "15"`
+    - The platform name is mapped to the appropriate Cold Turkey block name
+    - The command includes the configured lockout duration
+47. Cold Turkey Blocker activates and blocks access to the trading platform
+48. User is prevented from accessing the trading platform for the specified duration
+49. Application shows a confirmation that lockout was successfully executed
+
+## Monitoring History and Reporting
+
+50. Application stores monitoring results including timestamps, detected values, and screenshots
+51. User can access a history of monitoring sessions in the application
+52. User can review previous screenshots and detected values
+53. User can analyze when and why previous lockouts occurred
+54. These records help the user improve their trading discipline over time
+
+This comprehensive workflow combines automated monitoring with enforced discipline,
+while still allowing for risk management (flattening positions) when losses
+exceed predefined thresholds.

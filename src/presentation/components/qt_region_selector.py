@@ -239,13 +239,18 @@ class QtRegionSelector(QMainWindow):
             min_size = 5  # Minimum area to recognize as an intentional selection
             if self.selection_rect.width() > min_size and self.selection_rect.height() > min_size:
                 # Convert to (x, y, width, height) format
-                x = self.selection_rect.x()
-                y = self.selection_rect.y()
+                local_x = self.selection_rect.x()
+                local_y = self.selection_rect.y()
                 width = self.selection_rect.width()
                 height = self.selection_rect.height()
 
-                # Emit the signal with the selected region
-                self.region_selected.emit((x, y, width, height))
+                # Convert to global coordinates by adding the window's position
+                global_point = self.mapToGlobal(QPoint(local_x, local_y))
+                global_x = global_point.x()
+                global_y = global_point.y()
+
+                # Emit the signal with the global coordinates
+                self.region_selected.emit((global_x, global_y, width, height))
 
                 # Give a brief moment to see the final selection
                 QTimer.singleShot(200, self.close)
