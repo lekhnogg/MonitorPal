@@ -12,19 +12,25 @@
         },
         "NinjaTrader": {
             "monitoring_regions": {
-                "monitor_1": [
-                    497,
-                    292,
-                    338,
-                    51
+                "P&L_1": [
+                    1867,
+                    122,
+                    92,
+                    36
                 ]
             },
             "flatten_regions": {
                 "flatten_1": [
-                    584,
-                    557,
-                    143,
-                    29
+                    2445,
+                    465,
+                    109,
+                    31
+                ],
+                "flatten_2": [
+                    1259,
+                    129,
+                    114,
+                    31
                 ]
             }
         },
@@ -47,9 +53,9 @@
             "block_name": "Ninja"
         }
     ],
-    "stop_loss_threshold": 0.0,
-    "lockout_duration": 15,
-    "current_platform": "NinjaTrader",
+    "stop_loss_threshold": -500.0,
+    "lockout_duration": 5,
+    "current_platform": "Tradovate",
     "first_run": true,
     "app_version": "1.0.0",
     "stress_test_1": "2025-03-14T17:53:11.469257",
@@ -77,5 +83,84 @@
     "stress_test_29": "2025-03-14T17:53:11.887831",
     "stress_test_39": "2025-03-14T17:53:11.894741",
     "stress_test_49": "2025-03-14T17:53:11.901754",
-    "test_timestamp": "2025-03-14T17:53:09.200104"
+    "test_timestamp": "2025-03-14T17:53:09.200104",
+    "platform_profiles": {
+        "Quantower": {
+            "ocr_profile": {
+                "scale_factor": 2.0,
+                "threshold_block_size": 11,
+                "threshold_c": 2,
+                "denoise_h": 15,
+                "denoise_template_window_size": 7,
+                "denoise_search_window_size": 21,
+                "tesseract_config": "--oem 3 --psm 7",
+                "additional_params": {}
+            },
+            "numeric_patterns": {
+                "dollar": "\\$([\\d,]+\\.?\\d*)",
+                "negative": "\\((?:\\$)?([\\d,]+\\.?\\d*)\\)",
+                "regular": "(?<!\\$)(-?[\\d,]+\\.?\\d*)"
+            },
+            "is_enabled": true,
+            "additional_settings": {}
+        },
+        "NinjaTrader": {
+            "ocr_profile": {
+                "scale_factor": 2.5,
+                "threshold_block_size": 15,
+                "threshold_c": 3,
+                "denoise_h": 10,
+                "denoise_template_window_size": 7,
+                "denoise_search_window_size": 21,
+                "tesseract_config": "--oem 3 --psm 7",
+                "additional_params": {}
+            },
+            "numeric_patterns": {
+                "dollar": "\\$([\\d,]+\\.?\\d*)",
+                "negative": "\\((?:\\$)?([\\d,]+\\.?\\d*)\\)",
+                "regular": "(?<!\\$)(-?[\\d,]+\\.?\\d*)"
+            },
+            "is_enabled": true,
+            "additional_settings": {}
+        },
+        "TradingView": {
+            "ocr_profile": {
+                "scale_factor": 2.2,
+                "threshold_block_size": 13,
+                "threshold_c": 2,
+                "denoise_h": 10,
+                "denoise_template_window_size": 7,
+                "denoise_search_window_size": 21,
+                "tesseract_config": "--oem 3 --psm 7",
+                "additional_params": {}
+            },
+            "numeric_patterns": {
+                "dollar": "\\$([\\d,]+\\.?\\d*)",
+                "negative": "\\((?:\\$)?([\\d,]+\\.?\\d*)\\)",
+                "minus_dollar": "-\\$[\\d,]+\\.?\\d*",
+                "regular": "(?<!\\$)(-?[\\d,]+\\.?\\d*)"
+            },
+            "is_enabled": true,
+            "additional_settings": {}
+        },
+        "Tradovate": {
+            "ocr_profile": {
+                "scale_factor": 1.8,
+                "threshold_block_size": 9,
+                "threshold_c": 2,
+                "denoise_h": 10,
+                "denoise_template_window_size": 7,
+                "denoise_search_window_size": 21,
+                "tesseract_config": "--oem 3 --psm 7",
+                "additional_params": {}
+            },
+            "numeric_patterns": {
+                "dollar": "\\$([\\d,]+\\.?\\d*)",
+                "negative": "\\((?:\\$)?([\\d,]+\\.?\\d*)\\)",
+                "regular": "(?<!\\$)(-?[\\d,]+\\.?\\d*)"
+            },
+            "is_enabled": true,
+            "additional_settings": {}
+        }
+    }
 }

@@ -5,8 +5,9 @@ Windows implementation of the window management abstraction.
 Implements window operations using Windows-specific APIs (win32gui, win32con, etc.).
 """
 import ctypes
+import time
 from ctypes import wintypes
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
 import win32gui
 import win32con
@@ -288,15 +289,20 @@ class WindowsWindowManager(IWindowManager):
                                    click_through_regions: List[Tuple[int, int, int, int]]) -> Result[int]:
         """Create a transparent overlay window with click-through holes."""
         try:
+            # Log the input parameters for debugging
+            self.logger.debug(
+                f"Creating overlay with size={size}, position={position}, regions={click_through_regions}")
+
             # Convert the click_through_regions to the format expected by the implementation
             screen_w, screen_h = size
             x_pos, y_pos = position
 
-            # Format conversion: [(x1,y1,w,h)] -> [{coords: (x1,y1,x2,y2)}]
+            # The overlay expects regions as a list of dict objects with "coords" key
+            # But we're receiving them as (x, y, w, h) tuples, so we'll convert them
             flatten_positions = []
             for region in click_through_regions:
                 x, y, w, h = region
-                flatten_positions.append({"coords": (x, y, x+w, y+h)})
+                flatten_positions.append({"coords": (x, y, x + w, y + h)})
 
             # Call the implementation
             hwnd = self._create_layered_window_impl(
@@ -323,6 +329,68 @@ class WindowsWindowManager(IWindowManager):
             self.logger.error(str(error))
             return Result.fail(error)
 
+    def process_messages(self, window_handle: int, duration_ms: int) -> Result[bool]:
+        """
+        Process Windows messages for a specific window for a given duration.
+
+        Args:
+            window_handle: Handle of the window to process messages for
+            duration_ms: Maximum time to process messages in milliseconds
+
+        Returns:
+            Result indicating success or failure
+        """
+        try:
+            # Define Windows message structure if not already defined
+            class MSG(ctypes.Structure):
+                _fields_ = [
+                    ("hwnd", wintypes.HWND),
+                    ("message", wintypes.UINT),
+                    ("wParam", wintypes.WPARAM),
+                    ("lParam", wintypes.LPARAM),
+                    ("time", wintypes.DWORD),
+                    ("pt", wintypes.POINT),
+                ]
+
+            # Constants
+            PM_REMOVE = 0x0001
+            WM_QUIT = 0x0012
+
+            # Prepare for message loop
+            msg = MSG()
+            start_time = time.time()
+            end_time = start_time + (duration_ms / 1000.0)
+
+            # Process messages until timeout
+            while time.time() < end_time:
+                # Check if window is still valid
+                if window_handle and not self._user32.IsWindow(window_handle):
+                    self.logger.debug(f"Window {window_handle} is no longer valid")
+                    return Result.ok(False)
+
+                # Process all pending messages
+                while self._user32.PeekMessageW(ctypes.byref(msg), 0, 0, 0, PM_REMOVE):
+                    if msg.message == WM_QUIT:
+                        self.logger.debug("Received WM_QUIT message")
+                        return Result.ok(False)
+
+                    self._user32.TranslateMessage(ctypes.byref(msg))
+                    self._user32.DispatchMessageW(ctypes.byref(msg))
+
+                # Sleep briefly to avoid high CPU usage
+                time.sleep(0.01)
+
+            return Result.ok(True)
+
+        except Exception as e:
+            error = PlatformError(
+                message=f"Error processing window messages",
+                details={"window_handle": window_handle, "duration_ms": duration_ms},
+                inner_error=e
+            )
+            self.logger.error(str(error))
+            return Result.fail(error)
+
     def destroy_window(self, window_handle: int) -> Result[bool]:
         """Destroy a window."""
         try:
@@ -338,11 +406,11 @@ class WindowsWindowManager(IWindowManager):
             return Result.fail(error)
 
     def _create_layered_window_impl(self,
-                                   flatten_positions: List[dict],
-                                   screen_w: int,
-                                   screen_h: int,
-                                   position: Tuple[int, int] = (0, 0),
-                                   alpha_block: int = 200) -> int:
+                                    flatten_positions: List[dict],
+                                    screen_w: int,
+                                    screen_h: int,
+                                    position: Tuple[int, int] = (0, 0),
+                                    alpha_block: int = 200) -> int:
         """
         Implementation of the layered window creation.
 
@@ -360,30 +428,30 @@ class WindowsWindowManager(IWindowManager):
         hdcScreen = 0
         hdcMem = 0
         hBmp = 0
-        atom_class = 0
+        atomClass = 0
 
         try:
+            # Following the working approach more closely
             className = "LayeredLockoutWindow"
             hInstance = self._kernel32.GetModuleHandleW(None)
             if not hInstance:
                 self.logger.error("GetModuleHandleW(None) failed")
                 return 0
 
-            # Register window class
-            wc = win32gui.WNDCLASS()
-            wc.style = 0
-            wc.lpfnWndProc = WNDPROC(wndproc)
-            wc.cbClsExtra = 0
-            wc.cbWndExtra = 0
-            wc.hInstance = hInstance
-            wc.hIcon = 0
-            wc.hCursor = 0
-            wc.hbrBackground = 0
-            wc.lpszMenuName = 0
-            wc.lpszClassName = className
-            atom_class = win32gui.RegisterClass(wc)
+            # Create a simpler WNDCLASS structure like in the working code
+            wndClass = win32gui.WNDCLASS()
+            wndClass.hInstance = hInstance
+            wndClass.lpszClassName = className
+            wndClass.lpfnWndProc = WNDPROC(wndproc)
 
-            # Create window
+            # Register the class and get the atom
+            atomClass = win32gui.RegisterClass(wndClass)
+            if not atomClass:
+                error_code = ctypes.windll.kernel32.GetLastError()
+                self.logger.error(f"RegisterClass failed with error code: {error_code}")
+                return 0
+
+            # Create window using atomClass (critical change)
             styleEx = WS_EX_LAYERED | WS_EX_TOPMOST
             style = WS_POPUP
 
@@ -391,7 +459,7 @@ class WindowsWindowManager(IWindowManager):
 
             hWnd = self._user32.CreateWindowExW(
                 styleEx,
-                atom_class,
+                atomClass,  # Use atomClass here, not className or atom_class
                 "LockoutOverlay",
                 style,
                 x_pos, y_pos,
@@ -400,8 +468,10 @@ class WindowsWindowManager(IWindowManager):
                 hInstance,
                 None
             )
+
             if not hWnd:
-                self.logger.error("CreateWindowExW failed for layered window")
+                error_code = ctypes.windll.kernel32.GetLastError()
+                self.logger.error(f"CreateWindowExW failed with error code: {error_code}")
                 return 0
 
             # Get device contexts
@@ -453,7 +523,18 @@ class WindowsWindowManager(IWindowManager):
 
             # Carve out holes for flatten buttons
             for pos in flatten_positions:
-                coords = pos.get("coords")
+                # Handle both dictionary with "coords" and direct tuple formats
+                if isinstance(pos, dict) and "coords" in pos:
+                    coords = pos["coords"]
+                elif isinstance(pos, tuple) and len(pos) == 4:
+                    # If it's already a (x, y, w, h) tuple
+                    x, y, w, h = pos
+                    coords = (x, y, x + w, y + h)
+                else:
+                    # Skip invalid formats
+                    self.logger.warning(f"Skipping invalid flatten position format: {pos}")
+                    continue
+
                 if coords:
                     x1, y1, x2, y2 = coords
                     if x2 < x1:
@@ -485,7 +566,8 @@ class WindowsWindowManager(IWindowManager):
             )
 
             if not result:
-                self.logger.error(f"UpdateLayeredWindow failed: {ctypes.GetLastError()}")
+                error_code = ctypes.windll.kernel32.GetLastError()
+                self.logger.error(f"UpdateLayeredWindow failed with error code: {error_code}")
 
             # Clean up GDI resources used for creation, now that window is updated
             if old_obj:
@@ -525,7 +607,11 @@ class WindowsWindowManager(IWindowManager):
             if hWnd:
                 self._user32.DestroyWindow(hWnd)
 
-            if atom_class:
-                win32gui.UnregisterClass(atom_class, self._kernel32.GetModuleHandleW(None))
+            if atomClass:
+                # Unregister the class if needed
+                try:
+                    win32gui.UnregisterClass(atomClass, self._kernel32.GetModuleHandleW(None))
+                except Exception as e:
+                    self.logger.warning(f"Error unregistering window class: {e}")
 
             return 0

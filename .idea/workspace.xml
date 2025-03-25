@@ -5,48 +5,25 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore.">
-      <change afterPath="$PROJECT_DIR$/CurrentIssuesMar17" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/domain/services/i_cold_turkey_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/domain/services/i_ui_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/ui/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/ui/qt_ui_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/test_detect.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/test_lockout.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/models/platform_profile.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_platform_selection_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_profile_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/platform_selection_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/components/platform_selector_toolbar.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/logs/MonitorPal_2025-03-16.log" beforeDir="false" afterPath="$PROJECT_DIR$/logs/MonitorPal_2025-03-16.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/common/di_container.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/common/di_container.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/common/errors.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/common/errors.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/common/result.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/common/result.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/models/monitoring_result.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/models/monitoring_result.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_config_repository_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_config_repository_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_lockout_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_lockout_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_logger_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_logger_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_platform_detection_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_platform_detection_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_screenshot_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_screenshot_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_verification_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_verification_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/services/i_window_manager_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_window_manager_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/logging/logger_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/logging/logger_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/overlay_window.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/screenshot_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/screenshot_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/windows_platform_detection_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_platform_detection_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/workers/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/logging_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/logging_config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/verification_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/verification_test.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ui/qt_ui_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ui/qt_ui_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/test_lockout.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_lockout.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -87,28 +64,28 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python tests.Python tests in GeminiThreadTest.py.executor": "Run",
-    "Python.ThreadTestMar14.executor": "Run",
-    "Python.ThreadingTest.executor": "Run",
-    "Python.main.executor": "Run",
-    "Python.simple_test_app.executor": "Run",
-    "Python.test_app.executor": "Run",
-    "Python.test_appOLD.executor": "Run",
-    "Python.test_detect.executor": "Run",
-    "Python.test_di.executor": "Run",
-    "Python.test_lockout.executor": "Run",
-    "Python.test_platform_detection.executor": "Run",
-    "Python.test_screenshots.executor": "Run",
-    "Python.verification_service.executor": "Debug",
-    "Python.verification_test.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python tests.Python tests in GeminiThreadTest.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python.ThreadTestMar14.executor&quot;: &quot;Run&quot;,
+    &quot;Python.ThreadingTest.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.simple_test_app.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_app.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_appOLD.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_detect.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_di.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_lockout.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_platform_detection.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_screenshots.executor&quot;: &quot;Run&quot;,
+    &quot;Python.verification_service.executor&quot;: &quot;Debug&quot;,
+    &quot;Python.verification_test.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\ui" />

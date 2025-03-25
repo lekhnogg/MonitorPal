@@ -22,6 +22,7 @@ class IMonitoringService(ABC):
     def start_monitoring(self,
                          platform: str,
                          region: Tuple[int, int, int, int],
+                         region_name: str,
                          threshold: float,
                          interval_seconds: float = 5.0,
                          on_status_update: Optional[Callable[[str, str], None]] = None,
@@ -33,6 +34,7 @@ class IMonitoringService(ABC):
         Args:
             platform: The platform being monitored (e.g., "Quantower")
             region: The region to monitor (left, top, width, height)
+            region_name: The name of the region being monitored
             threshold: The threshold value (negative number, losses below this trigger alerts)
             interval_seconds: How often to check (in seconds)
             on_status_update: Callback for status updates (message, level)

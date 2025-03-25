@@ -20,6 +20,7 @@ from src.domain.services.i_cold_turkey_service import IColdTurkeyService
 from src.domain.common.result import Result
 from src.domain.common.errors import ValidationError, ConfigurationError, PlatformError
 
+
 class LockoutWorker(Worker[bool]):
     """Worker for executing the lockout sequence in a background thread."""
 
@@ -109,11 +110,29 @@ class LockoutWorker(Worker[bool]):
 
             # Step 4: Wait for 30 seconds (with cancelation support)
             self.report_status(f"Lockout countdown (30s) started for {self.platform}...", "INFO")
-            for i in range(30):
+
+            # Start countdown - 30 seconds total, update every 1 second
+            total_countdown = 30
+            remaining_seconds = total_countdown
+
+            while remaining_seconds > 0:
+                # Check if we were cancelled
                 if self.cancel_requested:
+                    self.report_status("Lockout sequence cancelled", "WARNING")
                     break
-                self.report_progress(i * 3 + 10, f"Countdown: {30 - i} seconds remaining")
-                time.sleep(1)
+
+                # Update progress
+                progress_pct = int(((total_countdown - remaining_seconds) / total_countdown) * 100)
+                self.report_progress(progress_pct, f"Countdown: {remaining_seconds} seconds remaining")
+
+                # Process messages for 1 second
+                process_result = self.window_manager.process_messages(self.overlay_hwnd, 1000)
+
+                # Check process result - break if window was closed
+                if process_result.is_failure:
+                    self.logger.warning(f"Message processing error: {process_result.error}")
+
+                remaining_seconds -= 1
 
             # Destroy overlay window
             if self.overlay_hwnd:
@@ -171,7 +190,6 @@ class LockoutWorker(Worker[bool]):
 
     def report_status(self, message: str, level: str) -> None:
         """Report status update to callback if available."""
-        self.logger.info(message)
         if self.on_status_update:
             self.on_status_update(message, level)
 

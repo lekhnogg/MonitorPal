@@ -20,6 +20,7 @@ class MonitoringResult:
         threshold_exceeded: Whether the threshold was exceeded
         raw_text: The raw text extracted from the OCR
         timestamp: The timestamp of the check
+        region_name: Name of the region being monitored
         screenshot_path: Optional path to the screenshot that was taken
     """
     values: List[float]
@@ -28,6 +29,7 @@ class MonitoringResult:
     threshold_exceeded: bool
     raw_text: str
     timestamp: float
+    region_name: str
     screenshot_path: Optional[str] = None
 
     @property

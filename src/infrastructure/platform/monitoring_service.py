@@ -8,8 +8,7 @@ import os
 import time
 from typing import Tuple, Optional, List, Callable
 from datetime import datetime
-
-from PySide6.QtWidgets import QApplication
+from PIL import Image
 
 from src.domain.services.i_monitoring_service import IMonitoringService
 from src.domain.services.i_screenshot_service import IScreenshotService
@@ -21,6 +20,7 @@ from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.models.monitoring_result import MonitoringResult
 from src.domain.common.result import Result
 from src.domain.common.errors import ValidationError, ConfigurationError, ResourceError
+from src.domain.services.i_profile_service import IProfileService
 
 class MonitoringWorker(Worker[bool]):
     """
@@ -30,12 +30,14 @@ class MonitoringWorker(Worker[bool]):
     def __init__(self,
                  platform: str,
                  region: Tuple[int, int, int, int],
+                 region_name: str,  # Add region_name parameter
                  threshold: float,
                  interval_seconds: float,
                  screenshot_service: IScreenshotService,
                  ocr_service: IOcrService,
                  platform_detection_service: IPlatformDetectionService,
                  logger: ILoggerService,
+                 profile_service: IProfileService,
                  save_directory: str,
                  on_check_complete: Callable[[MonitoringResult], None],
                  on_status_update: Optional[Callable[[str, str], None]] = None,
@@ -44,12 +46,14 @@ class MonitoringWorker(Worker[bool]):
         super().__init__()
         self.platform = platform
         self.region = region
+        self.region_name = region_name  # Store the region name
         self.threshold = threshold
         self.interval_seconds = interval_seconds
         self.screenshot_service = screenshot_service
         self.ocr_service = ocr_service
         self.platform_detection_service = platform_detection_service
         self.logger = logger
+        self.profile_service = profile_service
         self.save_directory = save_directory
         self.on_check_complete = on_check_complete
         self.on_status_update = on_status_update
@@ -173,7 +177,7 @@ class MonitoringWorker(Worker[bool]):
         """
         screenshot_path = os.path.join(
             self.save_directory,
-            f"check_{self.check_count}_{int(time.time())}.png"
+            f"{self.region_name}_{self.check_count}_{int(time.time())}.png"
         )
 
         self.report_status(f"Capturing screenshot (check #{self.check_count})", "INFO")
@@ -184,8 +188,74 @@ class MonitoringWorker(Worker[bool]):
             self.report_status(f"Failed to capture screenshot: {capture_result.error}", "ERROR")
             return Result.fail(capture_result.error)
 
+        # Get platform profile
+        profile_result = self.profile_service.get_profile(self.platform)
+        if profile_result.is_failure:
+            self.report_status(f"Failed to get platform profile: {profile_result.error}", "WARNING")
+            # Fall back to standard extraction method if profile not available
+            return self._process_check_standard(screenshot_path)
+
+        profile = profile_result.value
+        self.report_status(f"Using platform-specific OCR profile for {self.platform}", "INFO")
+
+        # Extract text from screenshot using profile
+        image = Image.open(screenshot_path)
+        extract_result = self.ocr_service.extract_text_with_profile(image, profile.ocr_profile)
+        if extract_result.is_failure:
+            self.report_status(f"Failed to extract text with profile: {extract_result.error}", "WARNING")
+            # Fall back to standard extraction method
+            return self._process_check_standard(screenshot_path)
+
+        extracted_text = extract_result.value
+
+        # Extract numeric values from text using profile patterns
+        extract_values_result = self.ocr_service.extract_numeric_values_with_patterns(
+            extracted_text, profile.numeric_patterns)
+
+        if extract_values_result.is_failure:
+            self.report_status(f"Failed to extract numeric values with profile patterns: {extract_values_result.error}",
+                               "WARNING")
+            # Fall back to standard extraction method
+            return self._process_check_standard(screenshot_path)
+
+        values = extract_values_result.value
+
+        if len(values) == 0:
+            self.report_status("No numeric values detected in the OCR text", "WARNING")
+            error = ValidationError(
+                message="No numeric values detected in the OCR text",
+                details={"screenshot_path": screenshot_path}
+            )
+            return Result.fail(error)
+
+        # Find the minimum value (most negative)
+        min_value = min(values)
+
+        # Check if the loss exceeds the threshold
+        threshold_exceeded = min_value < self.threshold
+
+        # Create result object
+        result = MonitoringResult(
+            values=values,
+            minimum_value=min_value,
+            threshold=self.threshold,
+            threshold_exceeded=threshold_exceeded,
+            raw_text=extracted_text,
+            timestamp=time.time(),
+            region_name=self.region_name,  # Add the region name
+            screenshot_path=screenshot_path
+        )
+
+        self.report_status(f"Detected values: {values}", "INFO")
+        self.report_status(f"Current value: ${min_value:.2f}", "INFO")
+
+        return Result.ok(result)
+
+    def _process_check_standard(self, screenshot_path: str) -> Result[MonitoringResult]:
+        """Fallback method using standard OCR processing."""
+        self.report_status("Falling back to standard OCR processing", "INFO")
+
         # Extract text from screenshot
-        self.report_status(f"Extracting text from screenshot", "INFO")
         extract_result = self.ocr_service.extract_text_from_file(screenshot_path)
         if extract_result.is_failure:
             self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
@@ -253,7 +323,8 @@ class MonitoringService(IMonitoringService):
                  thread_service: IBackgroundTaskService,
                  platform_detection_service: IPlatformDetectionService,
                  config_repository: IConfigRepository,
-                 logger: ILoggerService):
+                 logger: ILoggerService,
+                 profile_service: IProfileService):
         """Initialize the monitoring service."""
         self.screenshot_service = screenshot_service
         self.ocr_service = ocr_service
@@ -261,6 +332,7 @@ class MonitoringService(IMonitoringService):
         self.platform_detection_service = platform_detection_service
         self.config_repository = config_repository
         self.logger = logger
+        self.profile_service = profile_service  # Add this line
 
         # Internal state
         self.monitoring_active = False
@@ -279,6 +351,7 @@ class MonitoringService(IMonitoringService):
     def start_monitoring(self,
                          platform: str,
                          region: Tuple[int, int, int, int],
+                         region_name: str,
                          threshold: float,
                          interval_seconds: float = 5.0,
                          on_status_update: Optional[Callable[[str, str], None]] = None,
@@ -294,7 +367,7 @@ class MonitoringService(IMonitoringService):
             return Result.fail(error)
 
         try:
-            self.logger.info(f"Starting monitoring for {platform}")
+            self.logger.info(f"Starting monitoring for {platform}, region '{region_name}'")
 
             # Validate inputs
             if not platform:
@@ -341,12 +414,14 @@ class MonitoringService(IMonitoringService):
             worker = MonitoringWorker(
                 platform=platform,
                 region=region,
+                region_name=region_name,  # Add this parameter
                 threshold=threshold,
                 interval_seconds=interval_seconds,
                 screenshot_service=self.screenshot_service,
                 ocr_service=self.ocr_service,
                 platform_detection_service=self.platform_detection_service,
                 logger=self.logger,
+                profile_service=self.profile_service,
                 save_directory=session_dir,
                 on_check_complete=self._on_check_complete,
                 on_status_update=on_status_update,

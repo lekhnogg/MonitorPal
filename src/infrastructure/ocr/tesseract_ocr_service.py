@@ -8,7 +8,7 @@ import re
 import sys
 import cv2
 import numpy as np
-from typing import List
+from typing import List, Dict
 from PIL import Image, ImageEnhance
 
 # Import Tesseract binding
@@ -18,6 +18,7 @@ from src.domain.services.i_ocr_service import IOcrService
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.common.result import Result
 from src.domain.common.errors import ResourceError
+from src.domain.models.platform_profile import OcrProfile
 
 class TesseractOcrService(IOcrService):
     """
@@ -301,5 +302,176 @@ class TesseractOcrService(IOcrService):
 
         except Exception as e:
             error_msg = f"Numeric value extraction failed: {str(e)}"
+            self.logger.error(error_msg)
+            return Result.fail(error_msg)
+
+    def extract_text_with_profile(self, image: Image.Image, profile: OcrProfile) -> Result[str]:
+        """Extract text from an image using a specific OCR profile."""
+        try:
+            self.logger.debug("Extracting text with custom profile")
+
+            # Preprocess with profile parameters
+            preprocess_result = self._preprocess_with_profile(image, profile)
+            if preprocess_result.is_failure:
+                return Result.fail(preprocess_result.error)
+
+            processed_image = preprocess_result.value
+
+            # Use profile's tesseract config
+            custom_config = profile.tesseract_config
+
+            # Perform OCR
+            extracted_text = pytesseract.image_to_string(processed_image, config=custom_config)
+            extracted_text = extracted_text.strip()
+
+            self.logger.debug(
+                f"Extracted text with profile: {extracted_text[:100]}" + ("..." if len(extracted_text) > 100 else ""))
+            return Result.ok(extracted_text)
+        except FileNotFoundError as e:
+            error = ResourceError(
+                message="Tesseract OCR executable not found",
+                inner_error=e
+            )
+            self.logger.error(str(error))
+            return Result.fail(error)
+        except Exception as e:
+            error = ResourceError(
+                message="Text extraction with profile failed",
+                details={"image_size": f"{image.width}x{image.height}" if hasattr(image, 'width') else "unknown"},
+                inner_error=e
+            )
+            self.logger.error(str(error))
+            return Result.fail(error)
+
+    def _preprocess_with_profile(self, image: Image.Image, profile: OcrProfile) -> Result[Image.Image]:
+        """Preprocess an image using profile parameters."""
+        try:
+            self.logger.debug("Preprocessing image with profile parameters")
+
+            # Convert to numpy, grayscale
+            img_np = np.array(image)
+            if len(img_np.shape) == 3 and img_np.shape[2] >= 3:
+                img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+            else:
+                img_gray = img_np
+
+            # Apply profile parameters
+            h, w = img_gray.shape
+            img_resized = cv2.resize(
+                img_gray,
+                (int(w * profile.scale_factor), int(h * profile.scale_factor)),
+                interpolation=cv2.INTER_CUBIC
+            )
+
+            img_thresh = cv2.adaptiveThreshold(
+                img_resized,
+                255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,
+                profile.threshold_block_size,
+                profile.threshold_c
+            )
+
+            img_denoised = cv2.fastNlMeansDenoising(
+                img_thresh,
+                None,
+                profile.denoise_h,
+                profile.denoise_template_window_size,
+                profile.denoise_search_window_size
+            )
+
+            # Apply any additional processing from profile
+            if profile.additional_params:
+                # Example: Apply additional blur if specified
+                if profile.additional_params.get("apply_blur", False):
+                    blur_size = profile.additional_params.get("blur_kernel_size", 3)
+                    img_denoised = cv2.GaussianBlur(img_denoised, (blur_size, blur_size), 0)
+
+            # Convert back to PIL Image
+            processed_image = Image.fromarray(img_denoised)
+            return Result.ok(processed_image)
+
+        except Exception as e:
+            error = ResourceError(
+                message="Image preprocessing with profile failed",
+                details={"image_size": f"{image.width}x{image.height}" if hasattr(image, 'width') else "unknown"},
+                inner_error=e
+            )
+            self.logger.error(str(error))
+            return Result.fail(error)
+
+    def extract_numeric_values_with_patterns(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
+        """Extract numeric values from text using custom regex patterns."""
+        try:
+            self.logger.debug("Extracting numeric values with custom patterns")
+
+            # Preprocessing - replace common OCR errors
+            text = text.replace(';', '.')  # Replace semicolons with periods (common OCR error)
+
+            # List to store extracted values
+            values = []
+
+            # Process each pattern
+            for pattern_name, pattern in patterns.items():
+                self.logger.debug(f"Processing pattern '{pattern_name}': {pattern}")
+
+                matches = re.findall(pattern, text)
+                for match in matches:
+                    try:
+                        # Remove commas and convert to float
+                        clean_value = match.replace(',', '')
+
+                        # Handle negative values in patterns
+                        if pattern_name == "negative":
+                            value = -float(clean_value)
+                        elif pattern_name == "negative_dash" or pattern_name == "minus_dollar":
+                            value = -float(clean_value)
+                        else:
+                            value = float(clean_value)
+
+                        values.append(value)
+                        self.logger.debug(f"Extracted value: {value} from match: {match}")
+                    except ValueError:
+                        self.logger.debug(f"Failed to convert match to float: {match}")
+                        continue
+
+            # Apply the same post-processing logic as in the original method
+            if len(values) > 1 and not any('$' in text for _ in text):
+                # Check for cases like "96062.0, 50.0" which should be "96062.50"
+                reconstructed = False
+                for i in range(len(values) - 1):
+                    v1_str = str(values[i])
+                    v2_str = str(values[i + 1])
+                    # If v1 is a whole number and v2 is a small decimal
+                    if v1_str.endswith('.0') and 0 < values[i + 1] < 1:
+                        try:
+                            # Reconstruct like "96062" + ".50"
+                            full_value = float(v1_str[:-2] + '.' + v2_str.split('.')[-1])
+                            values = [full_value]  # Replace with the reconstructed value
+                            reconstructed = True
+                            break
+                        except:
+                            pass
+
+                # If no reconstruction worked, look for decimal fragments
+                if not reconstructed:
+                    # If we have values like [96062.0, 50.0], try to see if they should be 96062.50
+                    for i in range(len(values)):
+                        if i < len(values) - 1 and values[i] > 100 and values[i + 1] < 100:
+                            # This might be a split decimal - check the original text
+                            # to see if they appear next to each other
+                            v1_pos = text.find(str(int(values[i])))
+                            v2_pos = text.find(str(int(values[i + 1])))
+                            if v1_pos != -1 and v2_pos != -1 and 0 < v2_pos - v1_pos < 20:
+                                # They're close in the text, likely a split value
+                                combined = float(f"{int(values[i])}.{int(values[i + 1])}")
+                                values = [combined]
+                                break
+
+            self.logger.debug(f"Extracted numeric values with patterns: {values}")
+            return Result.ok(values)
+
+        except Exception as e:
+            error_msg = f"Numeric value extraction with patterns failed: {str(e)}"
             self.logger.error(error_msg)
             return Result.fail(error_msg)

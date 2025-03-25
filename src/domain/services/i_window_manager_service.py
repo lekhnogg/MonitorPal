@@ -145,3 +145,20 @@ class IWindowManager(ABC):
             Result indicating success or failure
         """
         pass
+
+    @abstractmethod
+    def process_messages(self, window_handle: int, duration_ms: int) -> Result[bool]:
+        """
+        Process Windows messages for a specific window for a given duration.
+
+        This allows windows like overlays to remain responsive to user input
+        without blocking the main application thread.
+
+        Args:
+            window_handle: Handle of the window to process messages for
+            duration_ms: Maximum time to process messages in milliseconds
+
+        Returns:
+            Result indicating success or failure
+        """
+        pass

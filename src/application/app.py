@@ -17,6 +17,8 @@ from src.domain.services.i_lockout_service import ILockoutService
 from src.domain.services.i_verification_service import IVerificationService
 from src.domain.services.i_cold_turkey_service import IColdTurkeyService
 from src.domain.services.i_ui_service import IUIService
+from src.domain.services.i_profile_service import IProfileService
+from src.domain.services.i_platform_selection_service import IPlatformSelectionService
 
 from src.infrastructure.logging.logger_service import ConsoleLoggerService
 from src.infrastructure.threading.qt_background_task_service import QtBackgroundTaskService
@@ -30,8 +32,8 @@ from src.infrastructure.platform.lockout_service import WindowsLockoutService
 from src.infrastructure.platform.verification_service import WindowsVerificationService
 from src.infrastructure.platform.windows_cold_turkey_service import WindowsColdTurkeyService
 from src.infrastructure.ui.qt_ui_service import QtUIService
-
-
+from src.infrastructure.config.profile_service import ProfileService
+from src.infrastructure.platform.platform_selection_service import PlatformSelectionService
 def initialize_app() -> DIContainer:
     container = DIContainer()
 
@@ -66,6 +68,24 @@ def initialize_app() -> DIContainer:
     container.register_factory(
         IOcrService,
         lambda: TesseractOcrService(container.resolve(ILoggerService))
+    )
+
+
+    container.register_factory(
+        IPlatformSelectionService,
+        lambda: PlatformSelectionService(
+            config_repository=container.resolve(IConfigRepository),
+            logger=container.resolve(ILoggerService),
+            platform_detection_service=container.resolve(IPlatformDetectionService)
+        )
+    )
+
+    container.register_factory(
+        IProfileService,
+        lambda: ProfileService(
+            config_repository=container.resolve(IConfigRepository),
+            logger=container.resolve(ILoggerService)
+        )
     )
 
     container.register_factory(
@@ -119,9 +139,11 @@ def initialize_app() -> DIContainer:
             thread_service=container.resolve(IBackgroundTaskService),
             platform_detection_service=container.resolve(IPlatformDetectionService),
             config_repository=container.resolve(IConfigRepository),
-            logger=container.resolve(ILoggerService)
+            logger=container.resolve(ILoggerService),
+            profile_service = container.resolve(IProfileService)
         )
     )
+
 
     logger.info("Application dependencies initialized")
 

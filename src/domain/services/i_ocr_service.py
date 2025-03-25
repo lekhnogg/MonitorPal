@@ -6,10 +6,10 @@ OCR service interface for extracting text from images.
 Defines the contract for OCR services in the application.
 """
 from abc import ABC, abstractmethod
-from typing import Any, List
+from typing import Any, List, Dict
 
 from src.domain.common.result import Result
-
+from src.domain.models.platform_profile import OcrProfile
 
 class IOcrService(ABC):
     """
@@ -70,4 +70,14 @@ class IOcrService(ABC):
         Returns:
             Result containing a list of extracted numeric values on success
         """
+        pass
+
+    @abstractmethod
+    def extract_text_with_profile(self, image: Any, profile: OcrProfile) -> Result[str]:
+        """Extract text using a specific OCR profile."""
+        pass
+
+    @abstractmethod
+    def extract_numeric_values_with_patterns(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
+        """Extract numeric values using custom regex patterns."""
         pass
