@@ -74,10 +74,31 @@ class IOcrService(ABC):
 
     @abstractmethod
     def extract_text_with_profile(self, image: Any, profile: OcrProfile) -> Result[str]:
-        """Extract text using a specific OCR profile."""
+        """
+        Extract text from an image using specific OCR profile.
+
+        This is the primary method for text extraction that should be used
+        whenever a platform-specific extraction is needed.
+
+        Args:
+            image: The image to process
+            profile: OCR profile with processing parameters
+
+        Returns:
+            Result containing extracted text
+        """
         pass
 
     @abstractmethod
     def extract_numeric_values_with_patterns(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
-        """Extract numeric values using custom regex patterns."""
+        """
+        Extract numeric values using custom regex patterns.
+
+        Args:
+            text: The text to process
+            patterns: Dictionary of named regex patterns
+
+        Returns:
+            Result containing list of extracted values
+        """
         pass

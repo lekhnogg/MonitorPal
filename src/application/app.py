@@ -19,6 +19,7 @@ from src.domain.services.i_cold_turkey_service import IColdTurkeyService
 from src.domain.services.i_ui_service import IUIService
 from src.domain.services.i_profile_service import IProfileService
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
+from src.domain.services.i_region_service import IRegionService
 
 from src.infrastructure.logging.logger_service import ConsoleLoggerService
 from src.infrastructure.threading.qt_background_task_service import QtBackgroundTaskService
@@ -34,6 +35,8 @@ from src.infrastructure.platform.windows_cold_turkey_service import WindowsColdT
 from src.infrastructure.ui.qt_ui_service import QtUIService
 from src.infrastructure.config.profile_service import ProfileService
 from src.infrastructure.platform.platform_selection_service import PlatformSelectionService
+from src.infrastructure.platform.region_service import RegionService
+
 def initialize_app() -> DIContainer:
     container = DIContainer()
 
@@ -70,6 +73,14 @@ def initialize_app() -> DIContainer:
         lambda: TesseractOcrService(container.resolve(ILoggerService))
     )
 
+    container.register_factory(
+        IRegionService,
+        lambda: RegionService(
+            config_repository=container.resolve(IConfigRepository),
+            screenshot_service=container.resolve(IScreenshotService),
+            logger=container.resolve(ILoggerService)
+        )
+    )
 
     container.register_factory(
         IPlatformSelectionService,

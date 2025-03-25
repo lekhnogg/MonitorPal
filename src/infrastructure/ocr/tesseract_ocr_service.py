@@ -80,55 +80,22 @@ class TesseractOcrService(IOcrService):
 
     def extract_text(self, image: Image.Image) -> Result[str]:
         """
-        Extract text from an image.
+        Legacy method - now uses default profile.
+
+        For better results, use extract_text_with_profile directly.
         """
-        try:
-            self.logger.debug("Extracting text from image")
+        # Create a default profile
+        default_profile = OcrProfile()
 
-            # Preprocess the image
-            preprocess_result = self.preprocess_image(image)
-            if preprocess_result.is_failure:
-                return Result.fail(preprocess_result.error)
-
-            processed_image = preprocess_result.value
-
-            # Configure OCR options
-            custom_config = '--oem 3 --psm 6'  # OEM 3 = Default engine, PSM 6 = Assume a single uniform block of text
-
-            # Perform OCR
-            extracted_text = pytesseract.image_to_string(processed_image, config=custom_config)
-
-            # Clean up the extracted text
-            extracted_text = extracted_text.strip()
-
-            self.logger.debug(f"Extracted text: {extracted_text[:100]}" + ("..." if len(extracted_text) > 100 else ""))
-            return Result.ok(extracted_text)
-
-        except FileNotFoundError as e:
-            error = ResourceError(
-                message="Tesseract OCR executable not found",
-                inner_error=e
-            )
-            self.logger.error(str(error))
-            return Result.fail(error)
-        except Exception as e:
-            error = ResourceError(
-                message="Text extraction failed",
-                details={"image_size": f"{image.width}x{image.height}" if hasattr(image, 'width') else "unknown"},
-                inner_error=e
-            )
-            self.logger.error(str(error))
-            return Result.fail(error)
+        # Use the profile-based method
+        return self.extract_text_with_profile(image, default_profile)
 
     def extract_text_from_file(self, image_path: str) -> Result[str]:
         """
-        Extract text from an image file.
+        Extract text from an image file using default profile.
 
-        Args:
-            image_path: Path to the image file
-
-        Returns:
-            Result containing extracted text on success
+        For better results, load the file and use extract_text_with_profile with
+        a platform-specific profile.
         """
         try:
             self.logger.debug(f"Extracting text from file: {image_path}")
@@ -143,8 +110,9 @@ class TesseractOcrService(IOcrService):
             except Exception as e:
                 return Result.fail(f"Failed to open image file: {str(e)}")
 
-            # Extract text from the loaded image
-            return self.extract_text(image)
+            # Extract using default profile
+            default_profile = OcrProfile()
+            return self.extract_text_with_profile(image, default_profile)
 
         except Exception as e:
             error_msg = f"Text extraction from file failed: {str(e)}"
@@ -153,157 +121,30 @@ class TesseractOcrService(IOcrService):
 
     def preprocess_image(self, image: Image.Image) -> Result[Image.Image]:
         """
-        Preprocess an image to improve OCR accuracy.
+        Legacy method - now uses default profile.
 
-        Args:
-            image: The PIL Image to preprocess
-
-        Returns:
-            Result containing the preprocessed PIL Image on success
+        For better results, use _preprocess_with_profile directly.
         """
-        try:
-            self.logger.debug("Preprocessing image for OCR")
-
-            # Convert PIL image to numpy array for OpenCV processing
-            img_np = np.array(image)
-
-            # Convert to grayscale if it's a color image
-            if len(img_np.shape) == 3 and img_np.shape[2] >= 3:
-                img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            else:
-                img_gray = img_np
-
-            # Resize image (upscale)
-            scale_factor = 2
-            h, w = img_gray.shape
-            img_resized = cv2.resize(img_gray, (w * scale_factor, h * scale_factor),
-                                     interpolation=cv2.INTER_CUBIC)
-
-            # Apply adaptive threshold to get a binary image
-            img_thresh = cv2.adaptiveThreshold(
-                img_resized, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY, 11, 2
-            )
-
-            # Denoise the image
-            img_denoised = cv2.fastNlMeansDenoising(img_thresh, None, 10, 7, 21)
-
-            # Convert back to PIL Image
-            processed_image = Image.fromarray(img_denoised)
-
-            return Result.ok(processed_image)
-
-        except Exception as e:
-            error = ResourceError(
-                message="Image preprocessing failed",
-                details={"image_size": f"{image.width}x{image.height}" if hasattr(image, 'width') else "unknown"},
-                inner_error=e
-            )
-            self.logger.error(str(error))
-            return Result.fail(error)
+        default_profile = OcrProfile()
+        return self._preprocess_with_profile(image, default_profile)
 
     def extract_numeric_values(self, text: str) -> Result[List[float]]:
         """
-        Extract numeric values from text.
+        Legacy method for extracting numeric values.
 
-        Handles various formats including dollar amounts, percentages, etc.
-
-        Args:
-            text: The text to process
-
-        Returns:
-            Result containing a list of extracted numeric values on success
+        For better results, use extract_numeric_values_with_patterns with
+        platform-specific patterns.
         """
-        try:
-            self.logger.debug("Extracting numeric values from text")
+        # Create default patterns
+        default_patterns = {
+            "dollar": r'\$([\d,]+\.?\d*)',
+            "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
+            "negative_dash": r'-\$?([\d,]+\.?\d*)',
+            "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
+        }
 
-            # Preprocessing - replace common OCR errors
-            text = text.replace(';', '.')  # Replace semicolons with periods (common OCR error)
-
-            # List to store extracted values
-            values = []
-
-            # Pattern 1: Dollar values with $ symbol and optional commas - $1,234.56 or $1234.56
-            dollar_pattern = r'\$([\d,]+\.?\d*)'
-            dollar_matches = re.findall(dollar_pattern, text)
-            for match in dollar_matches:
-                try:
-                    # Remove commas and convert to float
-                    clean_value = match.replace(',', '')
-                    value = float(clean_value)
-                    values.append(value)
-                except ValueError:
-                    continue
-
-            # Pattern 2: Negative values in parentheses - (123.45) or ($123.45)
-            neg_pattern = r'\((?:\$)?([\d,]+\.?\d*)\)'
-            neg_matches = re.findall(neg_pattern, text)
-            for match in neg_matches:
-                try:
-                    # Remove commas, convert to float, and make negative
-                    clean_value = match.replace(',', '')
-                    value = -float(clean_value)
-                    values.append(value)
-                except ValueError:
-                    continue
-
-            # Pattern 3: Regular numbers with optional decimal point and negative sign - 123.45 or -123.45
-            # But don't match numbers that are part of larger values already matched
-            # This is a secondary pattern that should only be used if no dollar values are found
-            if not values:
-                num_pattern = r'(?<!\$)(-?[\d,]+\.?\d*)'
-                num_matches = re.findall(num_pattern, text)
-                for match in num_matches:
-                    if match.strip() and not match.strip().startswith('$'):
-                        try:
-                            # Remove commas and convert to float
-                            clean_value = match.replace(',', '')
-                            value = float(clean_value)
-                            values.append(value)
-                        except ValueError:
-                            continue
-
-            # If we have matched multiple partial values that might be fragments of a single value,
-            # try to reconstruct the full value if possible
-            if len(values) > 1 and not any('$' in text for _ in text):
-                # Check for cases like "96062.0, 50.0" which should be "96062.50"
-                reconstructed = False
-                for i in range(len(values) - 1):
-                    v1_str = str(values[i])
-                    v2_str = str(values[i + 1])
-                    # If v1 is a whole number and v2 is a small decimal
-                    if v1_str.endswith('.0') and 0 < values[i + 1] < 1:
-                        try:
-                            # Reconstruct like "96062" + ".50"
-                            full_value = float(v1_str[:-2] + '.' + v2_str.split('.')[-1])
-                            values = [full_value]  # Replace with the reconstructed value
-                            reconstructed = True
-                            break
-                        except:
-                            pass
-
-                # If no reconstruction worked, look for decimal fragments
-                if not reconstructed:
-                    # If we have values like [96062.0, 50.0], try to see if they should be 96062.50
-                    for i in range(len(values)):
-                        if i < len(values) - 1 and values[i] > 100 and values[i + 1] < 100:
-                            # This might be a split decimal - check the original text
-                            # to see if they appear next to each other
-                            v1_pos = text.find(str(int(values[i])))
-                            v2_pos = text.find(str(int(values[i + 1])))
-                            if v1_pos != -1 and v2_pos != -1 and 0 < v2_pos - v1_pos < 20:
-                                # They're close in the text, likely a split value
-                                combined = float(f"{int(values[i])}.{int(values[i + 1])}")
-                                values = [combined]
-                                break
-
-            self.logger.debug(f"Extracted numeric values: {values}")
-            return Result.ok(values)
-
-        except Exception as e:
-            error_msg = f"Numeric value extraction failed: {str(e)}"
-            self.logger.error(error_msg)
-            return Result.fail(error_msg)
+        # Use the pattern-based method
+        return self.extract_numeric_values_with_patterns(text, default_patterns)
 
     def extract_text_with_profile(self, image: Image.Image, profile: OcrProfile) -> Result[str]:
         """Extract text from an image using a specific OCR profile."""
@@ -354,6 +195,11 @@ class TesseractOcrService(IOcrService):
                 img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
             else:
                 img_gray = img_np
+
+            # Apply color inversion if specified in profile
+            if profile.invert_colors:
+                self.logger.debug("Inverting image colors")
+                img_gray = cv2.bitwise_not(img_gray)  # Add this line
 
             # Apply profile parameters
             h, w = img_gray.shape

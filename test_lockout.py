@@ -21,13 +21,17 @@ import traceback
 
 from PySide6 import QtCore
 
+from src.domain.models.platform_profile import PlatformProfile
+from src.domain.services.i_region_service import IRegionService
+from src.domain.models.region_model import Region
+
 # Add the project root to the Python path so we can import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QTextEdit, QMessageBox, QTabWidget, QFileDialog, QLineEdit, QGroupBox, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox
+    QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox
 )
 from PySide6.QtGui import QPixmap, QColor, QTextCursor
 from PySide6.QtCore import Qt, QSize, QObject, Signal, QThread
@@ -52,6 +56,8 @@ from src.domain.services.i_profile_service import IProfileService
 
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
 from src.presentation.components.platform_selector_toolbar import PlatformSelectorToolbar
+SCREENSHOTS_DIR = os.path.join(os.getcwd(), "region_screenshots")
+
 
 class LogDisplay(QTextEdit):
     """Custom text display for logging messages with colors."""
@@ -136,9 +142,6 @@ class TradingMonitorTestApp(QMainWindow):
         self._setup_ui()
 
         # Initialize data
-        self.monitoring_regions = {}  # name -> (x, y, w, h)
-        self.flatten_regions = {}  # name -> (x, y, w, h)
-        self.current_platform = "Quantower"  # Default platform
         self.captured_screenshot = None
         self.is_monitoring = False
 
@@ -171,6 +174,8 @@ class TradingMonitorTestApp(QMainWindow):
         self.monitoring_service = self.container.resolve(IMonitoringService)
         self.profile_service = self.container.resolve(IProfileService)
         self.platform_selection_service = self.container.resolve(IPlatformSelectionService)
+        self.region_service = self.container.resolve(IRegionService)
+
     def _setup_ui(self):
         """Set up the user interface."""
         # Create central widget
@@ -519,6 +524,11 @@ class TradingMonitorTestApp(QMainWindow):
 
         layout.addWidget(profile_group)
 
+        # Color inversion option
+        self.invert_colors_check = QCheckBox("Invert Colors (for light text on dark background)")
+        profile_layout.addRow("", self.invert_colors_check)
+
+
         # Pattern settings
         patterns_group = QGroupBox("Regex Patterns")
         patterns_layout = QFormLayout(patterns_group)
@@ -554,6 +564,11 @@ class TradingMonitorTestApp(QMainWindow):
 
         layout.addLayout(button_layout)
 
+        # In _create_profile_tab method, add this with the other buttons
+        test_pipeline_btn = QPushButton("Test Full OCR Pipeline")
+        test_pipeline_btn.clicked.connect(self._test_profile_ocr_pipeline)
+        button_layout.addWidget(test_pipeline_btn)
+
         # OCR result display
         result_group = QGroupBox("OCR Test Results")
         result_layout = QVBoxLayout(result_group)
@@ -570,6 +585,7 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _populate_platform_list(self):
         """Populate the global platform dropdown."""
+        current_platform = self.platform_selection_service.get_current_platform()
         try:
             # Get supported platforms from platform detection service
             result = self.platform_detection.get_supported_platforms()
@@ -577,7 +593,7 @@ class TradingMonitorTestApp(QMainWindow):
             if result.is_success:
                 platforms = list(result.value.keys())
                 # We only need to update the global platform toolbar
-                self.platform_toolbar.update_platforms(platforms, self.current_platform)
+                self.platform_toolbar.update_platforms(platforms, current_platform)
             else:
                 self.log_message(f"Failed to get platform list: {result.error}", "ERROR")
         except Exception as e:
@@ -605,7 +621,6 @@ class TradingMonitorTestApp(QMainWindow):
             # Load current platform
             current = self.config_repository.get_current_platform()
             if current:
-                self.current_platform = current
                 # Update toolbar with current platform
                 self.platform_toolbar.update_platforms(
                     self.platform_detection.get_supported_platforms().value.keys(),
@@ -616,53 +631,17 @@ class TradingMonitorTestApp(QMainWindow):
             self._refresh_verified_blocks()
 
             # Load platform-specific regions
-            self._load_platform_regions()
+            self._load_regions_for_platform()  # USING THE NEW METHOD
 
             self.log_message("Settings loaded successfully", "INFO")
         except Exception as e:
             self.log_message(f"Error loading settings: {str(e)}", "ERROR")
             self.logger.error(f"Error loading settings: {e}", exc_info=True)
 
-    def _load_platform_regions(self):
-        """Load platform-specific regions from config."""
-        try:
-            platform_settings = self.config_repository.get_platform_settings(self.current_platform)
-
-            # Load monitoring regions
-            self.monitoring_regions = {}
-            self.monitoring_list.clear()
-
-            if "monitoring_regions" in platform_settings:
-                for name, region in platform_settings["monitoring_regions"].items():
-                    self.monitoring_regions[name] = tuple(region)
-                    self._add_region_to_list(name, region, "monitor")
-
-            # Load flatten regions
-            self.flatten_regions = {}
-            self.flatten_list.clear()
-
-            if "flatten_regions" in platform_settings:
-                for name, region in platform_settings["flatten_regions"].items():
-                    self.flatten_regions[name] = tuple(region)
-                    self._add_region_to_list(name, region, "flatten")
-
-            # Update monitoring region dropdown
-            self.monitor_region_combo.clear()
-            if self.monitoring_regions:
-                self.monitor_region_combo.addItems(self.monitoring_regions.keys())
-                self.monitor_region_combo.setCurrentIndex(0)
-
-            self.log_message(
-                f"Loaded {len(self.monitoring_regions)} monitoring regions and {len(self.flatten_regions)} flatten regions",
-                "INFO")
-        except Exception as e:
-            self.log_message(f"Error loading platform regions: {str(e)}", "WARNING")
-            self.logger.warning(f"Error loading platform regions: {e}", exc_info=True)
-
     def _load_platform_profile(self, platform=None):
         """Load and display profile for the selected platform."""
         if not platform:
-            platform = self.current_platform
+            platform = self.platform_selection_service.get_current_platform()
 
         if not platform:
             return
@@ -703,7 +682,7 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _save_platform_profile(self):
         """Save the current profile settings."""
-        platform = self.current_platform
+        platform = self.platform_selection_service.get_current_platform()
         if not platform:
             self.log_message("No platform selected", "WARNING")
             return
@@ -718,7 +697,8 @@ class TradingMonitorTestApp(QMainWindow):
                 threshold_block_size=self.block_size_spin.value(),
                 threshold_c=self.c_value_spin.value(),
                 denoise_h=self.denoise_h_spin.value(),
-                tesseract_config=self.config_text.text()
+                tesseract_config=self.config_text.text(),
+                invert_colors = self.invert_colors_check.isChecked()
             )
 
             # Create patterns dictionary
@@ -748,7 +728,7 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _reset_platform_profile(self):
         """Reset profile to default values."""
-        platform = self.current_platform
+        platform = self.platform_selection_service.get_current_platform()
         if not platform:
             self.log_message("No platform selected", "WARNING")
             return
@@ -773,7 +753,7 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message("No screenshot captured. Please capture one first.", "WARNING")
             return
 
-        platform = self.current_platform
+        platform = self.platform_selection_service.get_current_platform()
         if not platform:
             self.log_message("No platform selected", "WARNING")
             return
@@ -831,28 +811,6 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message(f"Error in OCR test: {str(e)}", "ERROR")
             self.logger.error(f"Error in OCR test: {e}", exc_info=True)
 
-    def _save_platform_regions(self):
-        """Save platform-specific regions to config."""
-        try:
-            # Get current platform settings
-            platform_settings = self.config_repository.get_platform_settings(self.current_platform)
-
-            # Update with current regions
-            platform_settings["monitoring_regions"] = {name: list(region) for name, region in
-                                                       self.monitoring_regions.items()}
-            platform_settings["flatten_regions"] = {name: list(region) for name, region in self.flatten_regions.items()}
-
-            # Save back to config
-            result = self.config_repository.save_platform_settings(self.current_platform, platform_settings)
-
-            if result.is_success:
-                self.log_message(f"Saved regions for {self.current_platform}", "SUCCESS")
-            else:
-                self.log_message(f"Failed to save regions: {result.error}", "ERROR")
-        except Exception as e:
-            self.log_message(f"Error saving platform regions: {str(e)}", "ERROR")
-            self.logger.error(f"Error saving platform regions: {e}", exc_info=True)
-
     def _refresh_verified_blocks(self):
         """Refresh the list of verified blocks."""
         try:
@@ -879,30 +837,53 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message(f"Error refreshing verified blocks: {str(e)}", "ERROR")
             self.logger.error(f"Error refreshing verified blocks: {e}", exc_info=True)
 
-    # REPLACE the method with:
     def _on_global_platform_changed(self, platform: str) -> None:
         """Handle global platform change."""
-        if platform != self.current_platform:
-            # Save current platform's regions before switching
-            self._save_platform_regions()
+        # No need to check against stored value - service manages that
 
-            # Update current platform
-            self.current_platform = platform
+        # Load regions for this platform
+        self._load_regions_for_platform()
 
-            # Load new platform's regions
-            self._load_platform_regions()
+        # Clear screenshot preview when switching platforms
+        self.captured_screenshot = None
+        self.screenshot_label.setText("No screenshot captured")
+        self.screenshot_label.setPixmap(QPixmap())
+        self.ocr_text.clear()
+        self.profile_ocr_text.clear()
 
-            # Clear screenshot preview when switching platforms
-            self.captured_screenshot = None
-            self.screenshot_label.setText("No screenshot captured")
-            self.screenshot_label.setPixmap(QPixmap())
-            self.ocr_text.clear()
-            self.profile_ocr_text.clear()
+        # Load profile for new platform
+        self._load_platform_profile(platform)
 
-            # Load profile for new platform
-            self._load_platform_profile(platform)
+        self.log_message(f"Selected platform: {platform}", "INFO")
 
-            self.log_message(f"Selected platform: {platform}", "INFO")
+    def _load_regions_for_platform(self):
+        """Load regions for the current platform."""
+        # Clear existing lists
+        self.monitoring_list.clear()
+        self.flatten_list.clear()
+
+        # Get current platform from service
+        current_platform = self.platform_selection_service.get_current_platform()
+
+        # Load monitoring regions
+        monitor_result = self.region_service.get_regions_by_platform(current_platform, "monitor")
+
+        if monitor_result.is_success:
+            for region in monitor_result.value:
+                self._add_region_to_list(region.name, region.coordinates, "monitor")
+        else:
+            self.log_message(f"Failed to load monitoring regions: {monitor_result.error}", "WARNING")
+
+        # Load flatten regions
+        flatten_result = self.region_service.get_regions_by_platform(current_platform, "flatten")
+        if flatten_result.is_success:
+            for region in flatten_result.value:
+                self._add_region_to_list(region.name, region.coordinates, "flatten")
+        else:
+            self.log_message(f"Failed to load flatten regions: {flatten_result.error}", "WARNING")
+
+        # Update monitoring dropdown
+        self._update_monitoring_dropdown()
 
     def _on_browse_ct_path(self):
         """Browse for Cold Turkey Blocker executable."""
@@ -931,7 +912,7 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _on_detect_platform(self):
         """Detect platform in background thread but keep activation on UI thread."""
-        platform = self.current_platform
+        platform = self.platform_selection_service.get_current_platform()
         if not platform:
             self.log_message("No platform selected", "WARNING")
             return
@@ -1019,27 +1000,32 @@ class TradingMonitorTestApp(QMainWindow):
     def _on_add_region(self, region_type):
         """Add a new region for monitoring or flatten positions."""
         from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
+        from src.domain.models.region_model import Region  # Import the model
 
+        current_platform = self.platform_selection_service.get_current_platform()
+        # Determine title and default name based on region type
         if region_type == "monitor":
             title = "Select P&L Monitoring Region"
-            collection = self.monitoring_regions
-            default_name = f"P&L_{len(self.monitoring_regions) + 1}"
+            # Get count of existing regions for default name
+            result = self.region_service.get_regions_by_platform(current_platform, "monitor")
+            count = len(result.value) if result.is_success else 0
+            default_name = f"P&L_{count + 1}"
         else:  # flatten
             title = "Select Position Flatten Button Region"
-            collection = self.flatten_regions
-            default_name = f"Flatten_{len(self.flatten_regions) + 1}"
+            # Get count of existing regions for default name
+            result = self.region_service.get_regions_by_platform(current_platform, "flatten")
+            count = len(result.value) if result.is_success else 0
+            default_name = f"Flatten_{count + 1}"
 
         # Use region selector
         self.log_message(f"Starting region selection for {region_type}...", "INFO")
-
-        # Use UI service for region selection to maintain consistency
         region_result = self.ui_service.select_screen_region(f"Please select the {region_type} region")
 
         if not region_result.is_success:
             self.log_message(f"Region selection cancelled or failed: {region_result.error}", "INFO")
             return
 
-        region = region_result.value
+        coordinates = region_result.value
 
         # Prompt for a name using Qt dialog
         while True:
@@ -1060,7 +1046,9 @@ class TradingMonitorTestApp(QMainWindow):
                 QMessageBox.warning(self, "Invalid Name", "Name cannot be empty.")
                 continue
 
-            if name in collection:
+            # Check if region with this name already exists
+            region_check = self.region_service.get_region(current_platform, region_type, name)
+            if region_check.is_success:
                 choice = QMessageBox.question(
                     self,
                     "Name Already Exists",
@@ -1075,80 +1063,163 @@ class TradingMonitorTestApp(QMainWindow):
             # Valid name obtained, break the loop
             break
 
-        # Add to collection
-        collection[name] = region
+        # Create a Region object
+        region_id = f"{current_platform}_{region_type}_{name}"
+        region = Region(
+            id=region_id,
+            name=name,
+            coordinates=coordinates,
+            type=region_type,
+            platform=current_platform
+        )
+
+        # Capture screenshot for the region
+        screenshot_result = self.region_service.capture_region_screenshot(
+            coordinates, region_id, current_platform, region_type
+        )
+
+        if screenshot_result.is_success:
+            region.screenshot_path = screenshot_result.value
+            self.log_message(f"Captured screenshot for region '{name}'", "SUCCESS")
+        else:
+            self.log_message(f"Failed to capture screenshot: {screenshot_result.error}", "WARNING")
+
+        # Save the region
+        save_result = self.region_service.save_region(region)
+        if save_result.is_failure:
+            self.log_message(f"Failed to save region: {save_result.error}", "ERROR")
+            return
 
         # Add to UI list
-        self._add_region_to_list(name, region, region_type)
+        self._add_region_to_list(name, coordinates, region_type)
 
-        self.log_message(f"Added {region_type} region '{name}': {region}", "SUCCESS")
+        self.log_message(f"Added {region_type} region '{name}': {coordinates}", "SUCCESS")
 
-        # If it's a monitoring region, capture a screenshot and do OCR
+        # If it's a monitoring region, display the screenshot and process OCR
         if region_type == "monitor":
-            self._capture_and_process_region(region)
+            # Load and display the screenshot
+            if region.screenshot_path:
+                load_result = self.region_service.load_region_screenshot(region)
+                if load_result.is_success:
+                    self.captured_screenshot = load_result.value
+                    # Display screenshot and process OCR
+                    pixmap_result = self.screenshot_service.to_pyside_pixmap(self.captured_screenshot)
+                    if pixmap_result.is_success:
+                        pixmap = pixmap_result.value
+                        self.screenshot_label.setPixmap(pixmap.scaled(
+                            self.screenshot_label.width(),
+                            self.screenshot_label.height(),
+                            Qt.KeepAspectRatio
+                        ))
+                        # Run OCR on the screenshot
+                        self._on_test_ocr()
+                    else:
+                        self.log_message(f"Error displaying screenshot: {pixmap_result.error}", "ERROR")
+                else:
+                    self.log_message(f"Error loading screenshot: {load_result.error}", "ERROR")
 
             # Update the monitoring dropdown
-            self.monitor_region_combo.clear()
-            self.monitor_region_combo.addItems(self.monitoring_regions.keys())
-            self.monitor_region_combo.setCurrentText(name)
+            self._update_monitoring_dropdown()
 
-        # Save updated regions to config
-        self._save_platform_regions()
-
-    def _on_edit_region(self, region_id, current_region, region_type):
+    def _on_edit_region(self, region_id, current_coords, region_type):
         """Edit an existing region."""
-        # Use region selector with previous region as starting point
         self.log_message(f"Editing region {region_id}...", "INFO")
 
+
+        current_platform = self.platform_selection_service.get_current_platform()
+
+        # Start region selection
         region_result = self.ui_service.select_screen_region(f"Edit the {region_type} region")
 
-        if region_result.is_success:
-            region = region_result.value
-
-            # Update collection
-            if region_type == "monitor":
-                self.monitoring_regions[region_id] = region
-                list_widget = self.monitoring_list
-            else:  # flatten
-                self.flatten_regions[region_id] = region
-                list_widget = self.flatten_list
-
-            # Update UI list
-            for i in range(list_widget.count()):
-                item = list_widget.item(i)
-                widget = list_widget.itemWidget(item)
-                if hasattr(widget, 'region_id') and widget.region_id == region_id:
-                    new_widget = RegionEntry(
-                        region_id, region,
-                        on_edit=lambda id, r: self._on_edit_region(id, r, region_type),
-                        on_delete=lambda id: self._on_delete_region(id, region_type),
-                        on_view=lambda id, r: self._on_view_region(id, r, region_type)
-                    )
-                    item.setSizeHint(new_widget.sizeHint())
-                    list_widget.setItemWidget(item, new_widget)
-                    break
-
-            self.log_message(f"Updated {region_type} region {region_id}: {region}", "SUCCESS")
-
-            # If it's a monitoring region, capture a screenshot and do OCR
-            if region_type == "monitor":
-                self._capture_and_process_region(region)
-
-            # Save updated regions to config
-            self._save_platform_regions()
-        else:
+        if region_result.is_failure:
             self.log_message(f"Region edit cancelled or failed: {region_result.error}", "INFO")
+            return
+
+        new_coordinates = region_result.value
+
+        # Get the existing region
+        get_result = self.region_service.get_region(current_platform, region_type, region_id)
+        if get_result.is_failure:
+            self.log_message(f"Failed to get region: {get_result.error}", "ERROR")
+            return
+
+        region = get_result.value
+
+        # Update coordinates
+        region.coordinates = new_coordinates
+
+        # Capture new screenshot
+        screenshot_result = self.region_service.capture_region_screenshot(
+            new_coordinates, region.id, current_platform, region_type
+        )
+
+        if screenshot_result.is_success:
+            region.screenshot_path = screenshot_result.value
+            self.log_message(f"Updated screenshot for region '{region_id}'", "SUCCESS")
+        else:
+            self.log_message(f"Failed to update screenshot: {screenshot_result.error}", "WARNING")
+
+        # Save updated region
+        save_result = self.region_service.save_region(region)
+        if save_result.is_failure:
+            self.log_message(f"Failed to save region: {save_result.error}", "ERROR")
+            return
+
+        # Update UI list
+        list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            widget = list_widget.itemWidget(item)
+            if hasattr(widget, 'region_id') and widget.region_id == region_id:
+                new_widget = RegionEntry(
+                    region_id, new_coordinates,
+                    on_edit=lambda id, r: self._on_edit_region(id, r, region_type),
+                    on_delete=lambda id: self._on_delete_region(id, region_type),
+                    on_view=lambda id, r: self._on_view_region(id, r, region_type)
+                )
+                item.setSizeHint(new_widget.sizeHint())
+                list_widget.setItemWidget(item, new_widget)
+                break
+
+        self.log_message(f"Updated {region_type} region {region_id}: {new_coordinates}", "SUCCESS")
+
+        # If it's a monitoring region, display the screenshot and process OCR
+        if region_type == "monitor":
+            # Load and display the screenshot
+            if region.screenshot_path:
+                load_result = self.region_service.load_region_screenshot(region)
+                if load_result.is_success:
+                    self.captured_screenshot = load_result.value
+                    # Display screenshot
+                    pixmap_result = self.screenshot_service.to_pyside_pixmap(self.captured_screenshot)
+                    if pixmap_result.is_success:
+                        pixmap = pixmap_result.value
+                        self.screenshot_label.setPixmap(pixmap.scaled(
+                            self.screenshot_label.width(),
+                            self.screenshot_label.height(),
+                            Qt.KeepAspectRatio
+                        ))
+                        # Run OCR on the screenshot
+                        self._on_test_ocr()
+                    else:
+                        self.log_message(f"Error displaying screenshot: {pixmap_result.error}", "ERROR")
+                else:
+                    self.log_message(f"Error loading screenshot: {load_result.error}", "ERROR")
 
     def _on_delete_region(self, region_id, region_type):
         """Delete an existing region."""
-        if region_type == "monitor":
-            del self.monitoring_regions[region_id]
-            list_widget = self.monitoring_list
-        else:  # flatten
-            del self.flatten_regions[region_id]
-            list_widget = self.flatten_list
+        self.log_message(f"Deleting region {region_id}...", "INFO")
+
+        current_platform = self.platform_selection_service.get_current_platform()
+        # Delete the region using service
+        result = self.region_service.delete_region(current_platform, region_type, region_id)
+
+        if result.is_failure:
+            self.log_message(f"Failed to delete region: {result.error}", "ERROR")
+            return
 
         # Remove from UI list
+        list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
         for i in range(list_widget.count()):
             item = list_widget.item(i)
             widget = list_widget.itemWidget(item)
@@ -1156,20 +1227,65 @@ class TradingMonitorTestApp(QMainWindow):
                 list_widget.takeItem(i)
                 break
 
-        self.log_message(f"Deleted {region_type} region {region_id}", "INFO")
+        self.log_message(f"Deleted {region_type} region {region_id}", "SUCCESS")
 
-        # Save updated regions to config
-        self._save_platform_regions()
+        # Update monitoring dropdown if needed
+        if region_type == "monitor":
+            self._update_monitoring_dropdown()
 
-    def _on_view_region(self, region_id, region, region_type):
-        """Capture and display a region."""
+    # In _on_view_region method
+    def _on_view_region(self, region_id, coordinates, region_type):
+        """Display a saved region screenshot."""
         self.log_message(f"Viewing region {region_id}...", "INFO")
 
-        # Capture the region
-        self._capture_and_process_region(region)
+        current_platform = self.platform_selection_service.get_current_platform()
 
+        # Get the region from the service
+        result = self.region_service.get_region(current_platform, region_type, region_id)
+
+        if result.is_failure:
+            self.log_message(f"Failed to get region: {result.error}", "ERROR")
+            return
+
+        region = result.value
+
+        # Load screenshot
+        if region.screenshot_path:
+            load_result = self.region_service.load_region_screenshot(region)
+            if load_result.is_success:
+                # Store the loaded image
+                self.captured_screenshot = load_result.value
+
+                # Display screenshot
+                pixmap_result = self.screenshot_service.to_pyside_pixmap(self.captured_screenshot)
+                if pixmap_result.is_success:
+                    pixmap = pixmap_result.value
+                    self.screenshot_label.setPixmap(pixmap.scaled(
+                        self.screenshot_label.width(),
+                        self.screenshot_label.height(),
+                        Qt.KeepAspectRatio
+                    ))
+                    self.log_message(f"Displayed saved screenshot for {region_id}", "SUCCESS")
+
+                    # Run OCR test with profile if it's a monitoring region
+                    if region_type == "monitor":
+                        self._on_test_ocr()
+                else:
+                    self.log_message(f"Error displaying screenshot: {pixmap_result.error}", "ERROR")
+            else:
+                self.log_message(f"Error loading screenshot: {load_result.error}", "WARNING")
+                # Fall back to capturing new screenshot
+                self._capture_and_process_region(region.coordinates)
+        else:
+            self.log_message(f"No saved screenshot found for {region_id}, capturing new one", "WARNING")
+            self._capture_and_process_region(region.coordinates)
+
+    # In test_lockout.py -> _capture_and_process_region method
     def _capture_and_process_region(self, region):
-        """Capture and process a region."""
+        """Capture and process a region using the current platform profile."""
+        # Get current platform
+        platform = self.platform_selection_service.get_current_platform()
+
         # Capture the screenshot
         result = self.screenshot_service.capture_region(region)
 
@@ -1186,6 +1302,12 @@ class TradingMonitorTestApp(QMainWindow):
                     self.screenshot_label.height(),
                     Qt.KeepAspectRatio
                 ))
+
+                # Process OCR using platform profile
+                if platform:
+                    self._on_test_ocr()
+                else:
+                    self.log_message("No platform selected for OCR processing", "WARNING")
             else:
                 self.log_message(f"Error converting to pixmap: {pixmap_result.error}", "ERROR")
         else:
@@ -1199,16 +1321,35 @@ class TradingMonitorTestApp(QMainWindow):
 
         self.log_message("Extracting text from screenshot...", "INFO")
 
-        # Extract text using OCR
-        result = self.ocr_service.extract_text(self.captured_screenshot)
+        # Get current platform
+        platform = self.platform_selection_service.get_current_platform()
+        if not platform:
+            self.log_message("No platform selected", "WARNING")
+            return
+
+        # Get profile for platform
+        profile_result = self.profile_service.get_profile(platform)
+        if profile_result.is_failure:
+            self.log_message(f"Failed to get profile: {profile_result.error}", "WARNING")
+            # Fall back to default profile if needed
+            from src.domain.models.platform_profile import OcrProfile
+            profile = PlatformProfile(platform_name="Default", ocr_profile=OcrProfile())
+        else:
+            profile = profile_result.value
+
+        # Extract text using OCR with profile
+        result = self.ocr_service.extract_text_with_profile(
+            self.captured_screenshot, profile.ocr_profile)
 
         if result.is_success:
             text = result.value
             self.log_message("Text extracted successfully", "SUCCESS")
             self.ocr_text.setText(text)
 
-            # Extract numeric values
-            numbers_result = self.ocr_service.extract_numeric_values(text)
+            # Extract numeric values with patterns
+            numbers_result = self.ocr_service.extract_numeric_values_with_patterns(
+                text, profile.numeric_patterns)
+
             if numbers_result.is_success:
                 numbers = numbers_result.value
                 if numbers:
@@ -1224,7 +1365,7 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _on_verify_block(self):
         """Verify the Cold Turkey block configuration."""
-        platform = self.current_platform
+        platform = self.platform_selection_service.get_current_platform()
         block_name = self.block_name_input.text()
 
         if not platform:
@@ -1308,25 +1449,28 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _on_start_monitoring(self):
         """Start monitoring for P&L losses."""
-        platform = self.current_platform
+        platform = self.platform_selection_service.get_current_platform()
+
         threshold = self.threshold_spin.value()
 
         # Ensure threshold is negative
         if threshold > 0:
             threshold = -threshold
 
-        # Check if we have monitoring regions
-        if not self.monitoring_regions:
-            self.log_message("No monitoring regions defined", "ERROR")
-            return
-
-        # Get the selected monitoring region
+        # Get selected region name
         region_name = self.monitor_region_combo.currentText()
-        if not region_name or region_name not in self.monitoring_regions:
+        if not region_name:
             self.log_message("No monitoring region selected", "ERROR")
             return
 
-        region = self.monitoring_regions[region_name]
+        # Get region details
+        region_result = self.region_service.get_region(platform, "monitor", region_name)
+        if region_result.is_failure:
+            self.log_message(f"Failed to get region: {region_result.error}", "ERROR")
+            return
+
+        region = region_result.value
+        coordinates = region.coordinates
 
         self.log_message(f"Starting monitoring for {platform} with region '{region_name}'...", "INFO")
         self.log_message(f"Threshold: ${threshold}", "INFO")
@@ -1356,8 +1500,8 @@ class TradingMonitorTestApp(QMainWindow):
         try:
             result = self.monitoring_service.start_monitoring(
                 platform=platform,
-                region=region,
-                region_name=region_name,  # Add region name parameter
+                region=coordinates,
+                region_name=region_name,
                 threshold=threshold,
                 interval_seconds=2.0,  # Check every 2 seconds
                 on_status_update=on_status_update,
@@ -1403,19 +1547,25 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _on_trigger_lockout(self):
         """Manually trigger the lockout sequence."""
-        platform = self.current_platform
+        platform = self.platform_selection_service.get_current_platform()
         duration = self.duration_spin.value()
 
-        # Check if we have flatten regions
-        if not self.flatten_regions:
+        # Get flatten regions
+        regions_result = self.region_service.get_regions_by_platform(platform, "flatten")
+        if regions_result.is_failure:
+            self.log_message(f"Failed to get flatten regions: {regions_result.error}", "ERROR")
+            return
+
+        flatten_regions = regions_result.value
+        if not flatten_regions:
             self.log_message("No flatten regions defined", "ERROR")
             return
 
         # Convert flatten regions to the format expected by lockout service
         flatten_positions = []
-        for region_id, region in self.flatten_regions.items():
-            x, y, w, h = region
-            flatten_positions.append({"coords": (x, y, x + w, y + h)})
+        for region in flatten_regions:
+            x, y, width, height = region.coordinates
+            flatten_positions.append({"coords": (x, y, x + width, y + height)})
 
         self.log_message(f"Triggering lockout for {platform}...", "INFO")
         self.log_message(f"Duration: {duration} minutes", "INFO")
@@ -1541,7 +1691,6 @@ class TradingMonitorTestApp(QMainWindow):
             traceback.print_exc()
 
     def closeEvent(self, event):
-        """Handle application close event."""
         try:
             # Stop monitoring if active
             if self.is_monitoring:
@@ -1551,8 +1700,7 @@ class TradingMonitorTestApp(QMainWindow):
                 except Exception as e:
                     self.logger.error(f"Error stopping monitoring on exit: {e}", exc_info=True)
 
-            # Save regions
-            self._save_platform_regions()
+            # No need to save regions - they're saved as they change
 
             # Cancel all background tasks
             self.thread_service.cancel_all_tasks()
@@ -1563,7 +1711,78 @@ class TradingMonitorTestApp(QMainWindow):
             self.logger.error(f"Error during application shutdown: {e}", exc_info=True)
             event.accept()  # Still close even if there's an error
 
+    def _update_monitoring_dropdown(self):
+        """Update the monitoring region dropdown with current regions."""
+        self.monitor_region_combo.clear()
 
+        current_platform = self.platform_selection_service.get_current_platform()
+
+        # Get monitoring regions
+        result = self.region_service.get_regions_by_platform(current_platform, "monitor")
+        if result.is_success:
+            regions = result.value
+            region_names = [region.name for region in regions]
+            if region_names:
+                self.monitor_region_combo.addItems(region_names)
+                self.monitor_region_combo.setCurrentIndex(0)
+        else:
+            self.log_message(f"Failed to get monitoring regions: {result.error}", "WARNING")
+
+    # Add a new method to test_lockout.py to test the full profile-based OCR process
+    def _test_profile_ocr_pipeline(self):
+        """Test the full OCR pipeline using profiles."""
+        platform = self.platform_selection_service.get_current_platform()
+        if not platform:
+            self.log_message("No platform selected", "WARNING")
+            return
+
+        if not self.captured_screenshot:
+            self.log_message("No screenshot captured", "WARNING")
+            return
+
+        self.log_message(f"Testing full OCR pipeline for {platform}...", "INFO")
+
+        # Get the profile
+        profile_result = self.profile_service.get_profile(platform)
+        if profile_result.is_failure:
+            self.log_message(f"Failed to get profile: {profile_result.error}", "ERROR")
+            return
+
+        profile = profile_result.value
+
+        # Show profile settings
+        ocr = profile.ocr_profile
+        self.log_message(f"Using profile with scale={ocr.scale_factor}, " +
+                         f"block_size={ocr.threshold_block_size}, " +
+                         f"c_value={ocr.threshold_c}, " +
+                         f"invert={ocr.invert_colors}", "INFO")
+
+        # Extract text
+        extract_result = self.ocr_service.extract_text_with_profile(
+            self.captured_screenshot, profile.ocr_profile)
+
+        if extract_result.is_failure:
+            self.log_message(f"Text extraction failed: {extract_result.error}", "ERROR")
+            return
+
+        text = extract_result.value
+        self.log_message(f"Extracted text: {text}", "SUCCESS")
+
+        # Extract values
+        values_result = self.ocr_service.extract_numeric_values_with_patterns(
+            text, profile.numeric_patterns)
+
+        if values_result.is_failure:
+            self.log_message(f"Value extraction failed: {values_result.error}", "ERROR")
+            return
+
+        values = values_result.value
+        if values:
+            min_value = min(values)
+            self.log_message(f"Extracted values: {values}", "SUCCESS")
+            self.log_message(f"Minimum value: {min_value}", "INFO")
+        else:
+            self.log_message("No numeric values extracted", "WARNING")
 # At the top of the main section
 if __name__ == "__main__":
     app = QApplication(sys.argv)

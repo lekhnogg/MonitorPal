@@ -24,6 +24,7 @@ class ProfileService(IProfileService):
         for platform in defaults:
             self.get_profile(platform)  # This will create default if missing
 
+    # In profile_service.py -> get_profile method
     def get_profile(self, platform_name: str) -> Result[PlatformProfile]:
         """Get the profile for a specific platform."""
         try:
@@ -39,6 +40,11 @@ class ProfileService(IProfileService):
 
             # Create profile objects from stored data
             ocr_dict = profile_dict.get("ocr_profile", {})
+
+            # Handle backward compatibility for invert_colors
+            if "invert_colors" not in ocr_dict:
+                ocr_dict["invert_colors"] = False
+
             ocr_profile = OcrProfile(**ocr_dict)
 
             platform_profile = PlatformProfile(
@@ -75,6 +81,7 @@ class ProfileService(IProfileService):
                     "denoise_template_window_size": profile.ocr_profile.denoise_template_window_size,
                     "denoise_search_window_size": profile.ocr_profile.denoise_search_window_size,
                     "tesseract_config": profile.ocr_profile.tesseract_config,
+                    "invert_colors": profile.ocr_profile.invert_colors,  # Add this line
                     "additional_params": profile.ocr_profile.additional_params or {}
                 },
                 "numeric_patterns": profile.numeric_patterns or {},
@@ -115,6 +122,8 @@ class ProfileService(IProfileService):
                 inner_error=e
             ))
 
+    # src/infrastructure/config/profile_service.py
+
     def create_default_profile(self, platform_name: str) -> Result[PlatformProfile]:
         """Create a default profile for a platform."""
         try:
@@ -124,11 +133,13 @@ class ProfileService(IProfileService):
                     scale_factor=2.0,
                     threshold_block_size=11,
                     threshold_c=2,
-                    tesseract_config='--oem 3 --psm 7'  # Single line mode
+                    tesseract_config='--oem 3 --psm 7',  # Single line mode
+                    invert_colors=False  # Usually black text on white background
                 )
                 numeric_patterns = {
                     "dollar": r'\$([\d,]+\.?\d*)',
                     "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
+                    "negative_dash": r'-\$?([\d,]+\.?\d*)',
                     "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
                 }
             elif platform_name == "NinjaTrader":
@@ -136,7 +147,8 @@ class ProfileService(IProfileService):
                     scale_factor=2.5,  # Larger scale for NinjaTrader fonts
                     threshold_block_size=15,
                     threshold_c=3,
-                    tesseract_config='--oem 3 --psm 7'
+                    tesseract_config='--oem 3 --psm 7',
+                    invert_colors=False  # Default setting
                 )
                 numeric_patterns = {
                     "dollar": r'\$([\d,]+\.?\d*)',
@@ -149,12 +161,13 @@ class ProfileService(IProfileService):
                     scale_factor=2.2,
                     threshold_block_size=13,
                     threshold_c=2,
-                    tesseract_config='--oem 3 --psm 7'
+                    tesseract_config='--oem 3 --psm 7',
+                    invert_colors=True  # For dark mode TradingView with light text
                 )
                 numeric_patterns = {
                     "dollar": r'\$([\d,]+\.?\d*)',
                     "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
-                    "minus_dollar": r'-\$[\d,]+\.?\d*',  # TradingView specific
+                    "negative_dash": r'-\$?([\d,]+\.?\d*)',  # TradingView specific
                     "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
                 }
             elif platform_name == "Tradovate":
@@ -162,11 +175,13 @@ class ProfileService(IProfileService):
                     scale_factor=1.8,
                     threshold_block_size=9,
                     threshold_c=2,
-                    tesseract_config='--oem 3 --psm 7'
+                    tesseract_config='--oem 3 --psm 7',
+                    invert_colors=False  # Default setting
                 )
                 numeric_patterns = {
                     "dollar": r'\$([\d,]+\.?\d*)',
                     "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
+                    "negative_dash": r'-\$?([\d,]+\.?\d*)',
                     "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
                 }
             else:
@@ -175,6 +190,7 @@ class ProfileService(IProfileService):
                 numeric_patterns = {
                     "dollar": r'\$([\d,]+\.?\d*)',
                     "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
+                    "negative_dash": r'-\$?([\d,]+\.?\d*)',
                     "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
                 }
 

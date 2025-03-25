@@ -4,25 +4,19 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore.">
-      <change afterPath="$PROJECT_DIR$/src/domain/models/platform_profile.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/domain/services/i_platform_selection_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/domain/services/i_profile_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/platform_selection_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/components/platform_selector_toolbar.py" afterDir="false" />
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Tab switching implemented (cross app) and all thats left is to verify monitoring works. Also fixed the region naming and a few other things">
+      <change afterPath="$PROJECT_DIR$/src/domain/models/region_model.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_region_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/platform/region_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/components/ui_components.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/models/monitoring_result.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/models/monitoring_result.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/models/platform_profile.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/models/platform_profile.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_window_manager_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_window_manager_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ui/qt_ui_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ui/qt_ui_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/test_lockout.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_lockout.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -187,13 +181,22 @@
       <option name="project" value="LOCAL" />
       <updated>1742107547990</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="Tab switching implemented (cross app) and all thats left is to verify monitoring works. Also fixed the region naming and a few other things">
+      <option name="closed" value="true" />
+      <created>1742862108524</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1742862108524</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Foundation and infrrastructure nearly complete, still working on the screenshot business.." />
     <MESSAGE value="Screenshot stuff works. changed the qt_region_selector to fix the coordinate mismatch." />
     <MESSAGE value="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore." />
-    <option name="LAST_COMMIT_MESSAGE" value="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore." />
+    <MESSAGE value="Tab switching implemented (cross app) and all thats left is to verify monitoring works. Also fixed the region naming and a few other things" />
+    <option name="LAST_COMMIT_MESSAGE" value="Tab switching implemented (cross app) and all thats left is to verify monitoring works. Also fixed the region naming and a few other things" />
   </component>
 </project>

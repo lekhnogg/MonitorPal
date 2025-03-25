@@ -13,24 +13,26 @@
         "NinjaTrader": {
             "monitoring_regions": {
                 "P&L_1": [
-                    1867,
-                    122,
-                    92,
-                    36
+                    750,
+                    431,
+                    397,
+                    187
                 ]
             },
             "flatten_regions": {
-                "flatten_1": [
-                    2445,
-                    465,
-                    109,
-                    31
-                ],
-                "flatten_2": [
-                    1259,
-                    129,
-                    114,
-                    31
+                "Flatten_1": [
+                    825,
+                    400,
+                    307,
+                    97
+                ]
+            },
+            "monitor_regions": {
+                "P&L_1": [
+                    2083,
+                    55,
+                    80,
+                    26
                 ]
             }
         },
@@ -55,7 +57,7 @@
     ],
     "stop_loss_threshold": -500.0,
     "lockout_duration": 5,
-    "current_platform": "Tradovate",
+    "current_platform": "NinjaTrader",
     "first_run": true,
     "app_version": "1.0.0",
     "stress_test_1": "2025-03-14T17:53:11.469257",
@@ -94,7 +96,8 @@
                 "denoise_template_window_size": 7,
                 "denoise_search_window_size": 21,
                 "tesseract_config": "--oem 3 --psm 7",
-                "additional_params": {}
+                "additional_params": {},
+                "invert_colors": false
             },
             "numeric_patterns": {
                 "dollar": "\\$([\\d,]+\\.?\\d*)",
@@ -106,13 +109,14 @@
         },
         "NinjaTrader": {
             "ocr_profile": {
-                "scale_factor": 2.5,
-                "threshold_block_size": 15,
+                "scale_factor": 2.0,
+                "threshold_block_size": 5,
                 "threshold_c": 3,
                 "denoise_h": 10,
                 "denoise_template_window_size": 7,
                 "denoise_search_window_size": 21,
                 "tesseract_config": "--oem 3 --psm 7",
+                "invert_colors": true,
                 "additional_params": {}
             },
             "numeric_patterns": {
@@ -132,7 +136,8 @@
                 "denoise_template_window_size": 7,
                 "denoise_search_window_size": 21,
                 "tesseract_config": "--oem 3 --psm 7",
-                "additional_params": {}
+                "additional_params": {},
+                "invert_colors": false
             },
             "numeric_patterns": {
                 "dollar": "\\$([\\d,]+\\.?\\d*)",
@@ -152,7 +157,8 @@
                 "denoise_template_window_size": 7,
                 "denoise_search_window_size": 21,
                 "tesseract_config": "--oem 3 --psm 7",
-                "additional_params": {}
+                "additional_params": {},
+                "invert_colors": false
             },
             "numeric_patterns": {
                 "dollar": "\\$([\\d,]+\\.?\\d*)",

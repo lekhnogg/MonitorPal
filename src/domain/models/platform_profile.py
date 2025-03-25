@@ -13,6 +13,7 @@ class OcrProfile:
     denoise_template_window_size: int = 7
     denoise_search_window_size: int = 21
     tesseract_config: str = '--oem 3 --psm 6'
+    invert_colors: bool = False  # Add this new parameter
     additional_params: Optional[Dict[str, Any]] = None
 
 

@@ -169,15 +169,10 @@ class MonitoringWorker(Worker[bool]):
             return False
 
     def _process_check(self) -> Result[MonitoringResult]:
-        """
-        Process a single monitoring check.
-
-        Returns:
-            Result containing a MonitoringResult if successful
-        """
+        """Process a single monitoring check."""
         screenshot_path = os.path.join(
             self.save_directory,
-            f"{self.region_name}_{self.check_count}_{int(time.time())}.png"
+            f"check_{self.check_count}_{int(time.time())}.png"
         )
 
         self.report_status(f"Capturing screenshot (check #{self.check_count})", "INFO")
@@ -188,35 +183,31 @@ class MonitoringWorker(Worker[bool]):
             self.report_status(f"Failed to capture screenshot: {capture_result.error}", "ERROR")
             return Result.fail(capture_result.error)
 
-        # Get platform profile
+        # Always use profile-based approach - get platform profile first
         profile_result = self.profile_service.get_profile(self.platform)
         if profile_result.is_failure:
-            self.report_status(f"Failed to get platform profile: {profile_result.error}", "WARNING")
-            # Fall back to standard extraction method if profile not available
-            return self._process_check_standard(screenshot_path)
+            self.report_status(f"Failed to get profile: {profile_result.error}", "ERROR")
+            return Result.fail(profile_result.error)
 
         profile = profile_result.value
-        self.report_status(f"Using platform-specific OCR profile for {self.platform}", "INFO")
+        self.report_status(f"Using OCR profile for {self.platform}", "INFO")
 
-        # Extract text from screenshot using profile
+        # Extract text with profile
         image = Image.open(screenshot_path)
         extract_result = self.ocr_service.extract_text_with_profile(image, profile.ocr_profile)
         if extract_result.is_failure:
-            self.report_status(f"Failed to extract text with profile: {extract_result.error}", "WARNING")
-            # Fall back to standard extraction method
-            return self._process_check_standard(screenshot_path)
+            self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
+            return Result.fail(extract_result.error)
 
         extracted_text = extract_result.value
 
-        # Extract numeric values from text using profile patterns
+        # Extract numeric values with profile patterns
         extract_values_result = self.ocr_service.extract_numeric_values_with_patterns(
             extracted_text, profile.numeric_patterns)
 
         if extract_values_result.is_failure:
-            self.report_status(f"Failed to extract numeric values with profile patterns: {extract_values_result.error}",
-                               "WARNING")
-            # Fall back to standard extraction method
-            return self._process_check_standard(screenshot_path)
+            self.report_status(f"Failed to extract numeric values: {extract_values_result.error}", "ERROR")
+            return Result.fail(extract_values_result.error)
 
         values = extract_values_result.value
 
@@ -251,55 +242,77 @@ class MonitoringWorker(Worker[bool]):
 
         return Result.ok(result)
 
+    # In monitoring_service.py -> _process_check_standard method
     def _process_check_standard(self, screenshot_path: str) -> Result[MonitoringResult]:
-        """Fallback method using standard OCR processing."""
-        self.report_status("Falling back to standard OCR processing", "INFO")
+        """Fallback method using standard OCR processing, but with default profile."""
+        self.report_status("Using standard OCR processing with default profile", "INFO")
 
-        # Extract text from screenshot
-        extract_result = self.ocr_service.extract_text_from_file(screenshot_path)
-        if extract_result.is_failure:
-            self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
-            return Result.fail(extract_result.error)
+        try:
+            # Import OcrProfile
+            from src.domain.models.platform_profile import OcrProfile
 
-        extracted_text = extract_result.value
+            # Create a default profile
+            default_profile = OcrProfile()
 
-        # Extract numeric values from text
-        extract_values_result = self.ocr_service.extract_numeric_values(extracted_text)
-        if extract_values_result.is_failure:
-            self.report_status(f"Failed to extract numeric values: {extract_values_result.error}", "ERROR")
-            return Result.fail(extract_values_result.error)
+            # Create default patterns
+            default_patterns = {
+                "dollar": r'\$([\d,]+\.?\d*)',
+                "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
+                "negative_dash": r'-\$?([\d,]+\.?\d*)',
+                "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
+            }
 
-        values = extract_values_result.value
+            # Extract text from screenshot
+            image = Image.open(screenshot_path)
+            extract_result = self.ocr_service.extract_text_with_profile(image, default_profile)
+            if extract_result.is_failure:
+                self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
+                return Result.fail(extract_result.error)
 
-        if len(values) == 0:
-            error = ValidationError(
-                message="No numeric values detected in the OCR text",
-                details={"screenshot_path": screenshot_path}
+            extracted_text = extract_result.value
+
+            # Extract numeric values from text
+            extract_values_result = self.ocr_service.extract_numeric_values_with_patterns(
+                extracted_text, default_patterns)
+            if extract_values_result.is_failure:
+                self.report_status(f"Failed to extract numeric values: {extract_values_result.error}", "ERROR")
+                return Result.fail(extract_values_result.error)
+
+            values = extract_values_result.value
+
+            if len(values) == 0:
+                error = ValidationError(
+                    message="No numeric values detected in the OCR text",
+                    details={"screenshot_path": screenshot_path}
+                )
+                self.report_status("No numeric values detected in the OCR text", "WARNING")
+                return Result.fail(error)
+
+            # Find the minimum value (most negative)
+            min_value = min(values)
+
+            # Check if the loss exceeds the threshold
+            threshold_exceeded = min_value < self.threshold
+
+            # Create result object
+            result = MonitoringResult(
+                values=values,
+                minimum_value=min_value,
+                threshold=self.threshold,
+                threshold_exceeded=threshold_exceeded,
+                raw_text=extracted_text,
+                timestamp=time.time(),
+                screenshot_path=screenshot_path
             )
-            self.report_status("No numeric values detected in the OCR text", "WARNING")
-            return Result.fail(error)
 
-        # Find the minimum value (most negative)
-        min_value = min(values)
+            self.report_status(f"Detected values: {values}", "INFO")
+            self.report_status(f"Current value: ${min_value:.2f}", "INFO")
 
-        # Check if the loss exceeds the threshold
-        threshold_exceeded = min_value < self.threshold
-
-        # Create result object
-        result = MonitoringResult(
-            values=values,
-            minimum_value=min_value,
-            threshold=self.threshold,
-            threshold_exceeded=threshold_exceeded,
-            raw_text=extracted_text,
-            timestamp=time.time(),
-            screenshot_path=screenshot_path
-        )
-
-        self.report_status(f"Detected values: {values}", "INFO")
-        self.report_status(f"Current value: ${min_value:.2f}", "INFO")
-
-        return Result.ok(result)
+            return Result.ok(result)
+        except Exception as e:
+            error_msg = f"Error in standard processing: {str(e)}"
+            self.report_status(error_msg, "ERROR")
+            return Result.fail(error_msg)
 
     def report_status(self, message: str, level: str) -> None:
         """Report a status update."""
