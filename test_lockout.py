@@ -13,17 +13,20 @@ Usage:
     python test_lockout.py
 """
 import os
+import re
 import sys
 import time
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 import traceback
 
-from PySide6 import QtCore
-
-from src.domain.models.platform_profile import PlatformProfile
+from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
 from src.domain.services.i_region_service import IRegionService
-from src.domain.models.region_model import Region
+from src.domain.models.platform_profile import PlatformProfile, OcrProfile
+
+from src.domain.common.result import Result
+from src.domain.common.errors import DomainError, ErrorCategory, ErrorSeverity
+
 
 # Add the project root to the Python path so we can import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,15 +34,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QTextEdit, QMessageBox, QTabWidget, QFileDialog, QLineEdit, QGroupBox, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox
+    QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QScrollArea, QFrame,
+    QButtonGroup, QRadioButton
 )
 from PySide6.QtGui import QPixmap, QColor, QTextCursor
 from PySide6.QtCore import Qt, QSize, QObject, Signal, QThread
 
-# Import application initialization
-from src.application.app import initialize_app, get_container
-
-# Import domain interfaces - only import what we actually use
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_background_task_service import IBackgroundTaskService, Worker
 from src.domain.services.i_window_manager_service import IWindowManager
@@ -87,45 +87,93 @@ class LogDisplay(QTextEdit):
         cursor.movePosition(QTextCursor.End)
         self.setTextCursor(cursor)
 
-
 class RegionEntry(QWidget):
     """Widget for displaying a selected region with options to edit/delete."""
 
     def __init__(self, region_id: str, region: Tuple[int, int, int, int],
-                 on_edit, on_delete, on_view, parent=None):
+                 on_edit, on_delete, parent=None):
         super().__init__(parent)
         self.region_id = region_id
         self.region = region
         self.on_edit = on_edit
         self.on_delete = on_delete
-        self.on_view = on_view
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Use a vertical layout for the whole entry
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Top row with region info and buttons
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
 
         # Region info
         x, y, w, h = region
         label = QLabel(f"{region_id}: ({x}, {y}, {w}, {h})")
-        layout.addWidget(label, 1)
-
-        # View button
-        view_btn = QPushButton("View")
-        view_btn.setMaximumWidth(60)
-        view_btn.clicked.connect(lambda: self.on_view(self.region_id, self.region))
-        layout.addWidget(view_btn)
+        top_layout.addWidget(label, 1)
 
         # Edit button
         edit_btn = QPushButton("Edit")
         edit_btn.setMaximumWidth(60)
         edit_btn.clicked.connect(lambda: self.on_edit(self.region_id, self.region))
-        layout.addWidget(edit_btn)
+        top_layout.addWidget(edit_btn)
 
         # Delete button
         delete_btn = QPushButton("Delete")
         delete_btn.setMaximumWidth(60)
         delete_btn.clicked.connect(lambda: self.on_delete(self.region_id))
-        layout.addWidget(delete_btn)
+        top_layout.addWidget(delete_btn)
 
+        # Add top row to main layout
+        main_layout.addLayout(top_layout)
+
+        # Add screenshot preview label
+        self.screenshot_label = QLabel("No preview available")
+        self.screenshot_label.setAlignment(Qt.AlignCenter)
+        self.screenshot_label.setStyleSheet("border: 1px solid #ddd;")
+        self.screenshot_label.setMinimumHeight(80)
+        self.screenshot_label.setMaximumHeight(120)
+
+        main_layout.addWidget(self.screenshot_label)
+
+class RegionComboBox(QComboBox):
+    """Custom combo box that displays region information."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.regions = []
+        self.setMinimumWidth(250)
+
+    def add_region(self, region, screenshot=None):
+        """Add a region with optional screenshot."""
+        self.regions.append({
+            "region": region,
+            "screenshot": screenshot
+        })
+
+        # Add to combo box
+        x, y, w, h = region.coordinates
+        self.addItem(f"{region.name}: ({x}, {y}, {w}, {h})")
+
+    def get_selected_region(self):
+        """Get the currently selected region object."""
+        idx = self.currentIndex()
+        if idx >= 0 and idx < len(self.regions):
+            return self.regions[idx]["region"]
+        return None
+
+    def get_selected_screenshot_path(self):
+        """Get the screenshot path for the selected region."""
+        region = self.get_selected_region()
+        if region:
+            return region.screenshot_path
+        return None
+
+    def get_selected_screenshot(self):
+        """Get the screenshot for the selected region."""
+        idx = self.currentIndex()
+        if idx >= 0 and idx < len(self.regions):
+            return self.regions[idx]["screenshot"]
+        return None
 
 class TradingMonitorTestApp(QMainWindow):
     """Test application for the Trading Monitor functionality."""
@@ -142,8 +190,12 @@ class TradingMonitorTestApp(QMainWindow):
         self._setup_ui()
 
         # Initialize data
-        self.captured_screenshot = None
         self.is_monitoring = False
+        self.current_image_path = None
+        self.ocr_profile = None
+        self.extracted_text = ""
+        self.patterns = {}
+        self.retry_count = 0
 
         # Populate platform list
         self._populate_platform_list()
@@ -175,6 +227,7 @@ class TradingMonitorTestApp(QMainWindow):
         self.profile_service = self.container.resolve(IProfileService)
         self.platform_selection_service = self.container.resolve(IPlatformSelectionService)
         self.region_service = self.container.resolve(IRegionService)
+        self.ocr_analysis_service = self.container.resolve(IOcrAnalysisService)
 
     def _setup_ui(self):
         """Set up the user interface."""
@@ -189,6 +242,9 @@ class TradingMonitorTestApp(QMainWindow):
         self.tab_widget = QTabWidget()
         main_layout.addWidget(self.tab_widget)
 
+
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
         # Create and add platform selector toolbar
         self.platform_toolbar = PlatformSelectorToolbar(self.platform_selection_service, self)
         self.addToolBar(self.platform_toolbar)
@@ -198,7 +254,6 @@ class TradingMonitorTestApp(QMainWindow):
         self._create_region_tab()
         self._create_verification_tab()
         self._create_lockout_tab()
-        self._create_settings_tab()
         self._create_profile_tab()
 
         # Log area
@@ -246,10 +301,6 @@ class TradingMonitorTestApp(QMainWindow):
         add_monitoring_btn.clicked.connect(lambda: self._on_add_region("monitor"))
         m_btn_layout.addWidget(add_monitoring_btn)
 
-        test_ocr_btn = QPushButton("Test OCR")
-        test_ocr_btn.clicked.connect(self._on_test_ocr)
-        m_btn_layout.addWidget(test_ocr_btn)
-
         m_layout.addLayout(m_btn_layout)
 
         monitoring_layout.addWidget(monitoring_group)
@@ -277,24 +328,6 @@ class TradingMonitorTestApp(QMainWindow):
         splitter.setSizes([500, 500])  # Equal split
 
         layout.addWidget(splitter, 1)
-
-        # Screenshot display
-        screenshot_group = QGroupBox("Screenshot Preview")
-        s_layout = QVBoxLayout(screenshot_group)
-
-        self.screenshot_label = QLabel("No screenshot captured")
-        self.screenshot_label.setAlignment(Qt.AlignCenter)
-        self.screenshot_label.setMinimumHeight(200)
-        self.screenshot_label.setStyleSheet("border: 1px solid #ccc")
-        s_layout.addWidget(self.screenshot_label)
-
-        self.ocr_text = QTextEdit()
-        self.ocr_text.setReadOnly(True)
-        self.ocr_text.setMaximumHeight(100)
-        self.ocr_text.setPlaceholderText("OCR Text will appear here")
-        s_layout.addWidget(self.ocr_text)
-
-        layout.addWidget(screenshot_group)
 
         # Add to tabs
         self.tab_widget.addTab(region_tab, "Region Selection")
@@ -430,70 +463,175 @@ class TradingMonitorTestApp(QMainWindow):
         # Add to tabs
         self.tab_widget.addTab(lockout_tab, "Lockout Testing")
 
-    def _create_settings_tab(self):
-        """Create the settings tab."""
-        settings_tab = QWidget()
-        layout = QVBoxLayout(settings_tab)
-
-        # Global settings
-        global_group = QGroupBox("Global Settings")
-        global_layout = QFormLayout(global_group)
-
-        # Stop loss threshold
-        self.global_threshold_spin = QDoubleSpinBox()
-        self.global_threshold_spin.setRange(-10000, 0)
-        self.global_threshold_spin.setValue(-100)
-        self.global_threshold_spin.setPrefix("$ ")
-        self.global_threshold_spin.setDecimals(2)
-        global_layout.addRow("Stop Loss Threshold:", self.global_threshold_spin)
-
-        # Lockout duration
-        self.global_duration_spin = QSpinBox()
-        self.global_duration_spin.setRange(1, 720)
-        self.global_duration_spin.setValue(15)
-        self.global_duration_spin.setSuffix(" minutes")
-        global_layout.addRow("Lockout Duration:", self.global_duration_spin)
-
-        # Save button
-        save_settings_btn = QPushButton("Save Global Settings")
-        save_settings_btn.clicked.connect(self._on_save_global_settings)
-        global_layout.addRow("", save_settings_btn)
-
-        layout.addWidget(global_group)
-
-        # Test connection buttons
-        conn_group = QGroupBox("Test Connections")
-        conn_layout = QVBoxLayout(conn_group)
-
-        # Buttons for various tests
-        test_ocr_service_btn = QPushButton("Test OCR Service")
-        test_ocr_service_btn.clicked.connect(lambda: self._test_service("ocr"))
-        conn_layout.addWidget(test_ocr_service_btn)
-
-        test_screenshot_btn = QPushButton("Test Screenshot Service")
-        test_screenshot_btn.clicked.connect(lambda: self._test_service("screenshot"))
-        conn_layout.addWidget(test_screenshot_btn)
-
-        test_cold_turkey_btn = QPushButton("Test Cold Turkey Connection")
-        test_cold_turkey_btn.clicked.connect(lambda: self._test_service("coldturkey"))
-        conn_layout.addWidget(test_cold_turkey_btn)
-
-        layout.addWidget(conn_group)
-
-        # Add spacer
-        layout.addStretch(1)
-
-        # Add to tabs
-        self.tab_widget.addTab(settings_tab, "Settings")
-
     def _create_profile_tab(self):
-        """Create the profile management tab."""
+        """Create the profile management tab with integrated auto-detection."""
         profile_tab = QWidget()
         layout = QVBoxLayout(profile_tab)
 
-        # Profile details
-        profile_group = QGroupBox("OCR Profile Settings")
-        profile_layout = QFormLayout(profile_group)
+        # 1. Region Selection Section
+        region_group = QGroupBox("Region Selection")
+        region_layout = QVBoxLayout(region_group)
+
+        region_help = QLabel(
+            "Select a region with P&L values to analyze and detect optimal OCR settings."
+        )
+        region_help.setWordWrap(True)
+        region_layout.addWidget(region_help)
+
+        # Region dropdown row
+        region_row = QHBoxLayout()
+        region_row.addWidget(QLabel("Select region:"))
+
+        # Create the custom region combo box
+        self.profile_region_combo = RegionComboBox()
+        self.profile_region_combo.currentIndexChanged.connect(self._on_profile_region_selected)
+        region_row.addWidget(self.profile_region_combo)
+
+        region_layout.addLayout(region_row)
+
+        # Screenshot preview
+        self.profile_preview_label = QLabel("No preview available")
+        self.profile_preview_label.setAlignment(Qt.AlignCenter)
+        self.profile_preview_label.setStyleSheet("border: 1px solid #ddd;")
+        self.profile_preview_label.setMinimumHeight(100)
+        self.profile_preview_label.setMaximumHeight(150)
+        region_layout.addWidget(self.profile_preview_label)
+
+        # Add Start Detection button
+        self.start_detection_btn = QPushButton("Start Detection")
+        self.start_detection_btn.setStyleSheet(
+            "background-color: #3a7ca5; color: white; padding: 8px 16px; border-radius: 4px;"
+        )
+        self.start_detection_btn.clicked.connect(self._start_profile_detection)
+        region_layout.addWidget(self.start_detection_btn, alignment=Qt.AlignCenter)
+
+        layout.addWidget(region_group)
+
+        # 2. Status Section
+        self.profile_status_label = QLabel("Select a region and click 'Start Detection'")
+        self.profile_status_label.setStyleSheet("font-style: italic;")
+        layout.addWidget(self.profile_status_label)
+
+        # 3. Verification Section
+        self.profile_verification_widget = QWidget()
+        self.profile_verification_widget.setVisible(False)
+        verification_layout = QHBoxLayout(self.profile_verification_widget)
+        verification_layout.setContentsMargins(0, 10, 0, 10)
+
+        verification_label = QLabel("Extracted: ")
+        verification_layout.addWidget(verification_label)
+
+        self.profile_extracted_text_label = QLabel("")
+        self.profile_extracted_text_label.setStyleSheet("font-weight: bold;")
+        self.profile_extracted_text_label.setWordWrap(True)
+        verification_layout.addWidget(self.profile_extracted_text_label, 1)
+
+        self.profile_yes_button = QPushButton("Correct")
+        self.profile_yes_button.setToolTip("The extracted text shows the correct P&L values")
+        self.profile_yes_button.clicked.connect(self._on_profile_text_verified)
+        verification_layout.addWidget(self.profile_yes_button)
+
+        self.profile_no_button = QPushButton("Try Again")
+        self.profile_no_button.setToolTip("The text doesn't accurately show the P&L values")
+        self.profile_no_button.clicked.connect(self._on_profile_text_rejected)
+        verification_layout.addWidget(self.profile_no_button)
+
+        layout.addWidget(self.profile_verification_widget)
+
+        # 4. Pattern Configuration Section
+        self.profile_pattern_group = QGroupBox("P&L Format Configuration")
+        self.profile_pattern_group.setVisible(False)
+        pattern_layout = QVBoxLayout(self.profile_pattern_group)
+
+        # Two-column layout for format options
+        format_layout = QHBoxLayout()
+
+        # Left column
+        left_layout = QVBoxLayout()
+
+        # Dollar sign option
+        self.profile_dollar_check = QCheckBox("Dollar signs ($123.45)")
+        self.profile_dollar_check.setChecked(True)
+        left_layout.addWidget(self.profile_dollar_check)
+
+        # Plain number option
+        self.profile_plain_number_check = QCheckBox("Plain numbers (123.45)")
+        self.profile_plain_number_check.setChecked(True)
+        left_layout.addWidget(self.profile_plain_number_check)
+
+        format_layout.addLayout(left_layout)
+
+        # Right column - other currencies
+        right_layout = QVBoxLayout()
+
+        self.profile_euro_check = QCheckBox("Euro symbol (€123.45)")
+        right_layout.addWidget(self.profile_euro_check)
+
+        self.profile_pound_check = QCheckBox("Pound symbol (£123.45)")
+        right_layout.addWidget(self.profile_pound_check)
+
+        format_layout.addLayout(right_layout)
+        pattern_layout.addLayout(format_layout)
+
+        # Separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        pattern_layout.addWidget(separator)
+
+        # Negative format options in horizontal layout
+        neg_layout = QHBoxLayout()
+        neg_label = QLabel("Negative values appear as:")
+        neg_layout.addWidget(neg_label)
+
+        self.profile_negative_group = QButtonGroup(profile_tab)
+
+        self.profile_negative_minus_radio = QRadioButton("Minus (-$123.45)")
+        self.profile_negative_group.addButton(self.profile_negative_minus_radio)
+        neg_layout.addWidget(self.profile_negative_minus_radio)
+
+        self.profile_negative_parentheses_radio = QRadioButton("Parentheses ($123.45)")
+        self.profile_negative_group.addButton(self.profile_negative_parentheses_radio)
+        neg_layout.addWidget(self.profile_negative_parentheses_radio)
+
+        self.profile_negative_both_radio = QRadioButton("Both formats")
+        self.profile_negative_group.addButton(self.profile_negative_both_radio)
+        self.profile_negative_both_radio.setChecked(True)
+        neg_layout.addWidget(self.profile_negative_both_radio)
+
+        pattern_layout.addLayout(neg_layout)
+
+        # Results and test button in horizontal layout
+        results_layout = QHBoxLayout()
+
+        results_label = QLabel("Detected values:")
+        results_layout.addWidget(results_label)
+
+        self.profile_pattern_results = QLabel("")
+        self.profile_pattern_results.setStyleSheet("font-weight: bold;")
+        results_layout.addWidget(self.profile_pattern_results, 1)
+
+        test_button = QPushButton("Test")
+        test_button.setMaximumWidth(60)
+        test_button.clicked.connect(self._test_profile_patterns)
+        results_layout.addWidget(test_button)
+
+        pattern_layout.addLayout(results_layout)
+
+        layout.addWidget(self.profile_pattern_group)
+
+        # 5. OCR Parameters Section (collapsible)
+        advanced_layout = QHBoxLayout()
+        advanced_layout.addStretch()
+
+        self.advanced_settings_check = QCheckBox("Show Advanced Settings")
+        self.advanced_settings_check.toggled.connect(self._toggle_advanced_settings)
+        advanced_layout.addWidget(self.advanced_settings_check)
+
+        layout.addLayout(advanced_layout)
+
+        self.profile_group = QGroupBox("OCR Profile Settings")
+        profile_layout = QFormLayout(self.profile_group)
 
         # OCR parameters
         self.scale_factor_spin = QDoubleSpinBox()
@@ -522,32 +660,15 @@ class TradingMonitorTestApp(QMainWindow):
         self.config_text.setText("--oem 3 --psm 6")
         profile_layout.addRow("Tesseract Config:", self.config_text)
 
-        layout.addWidget(profile_group)
-
         # Color inversion option
         self.invert_colors_check = QCheckBox("Invert Colors (for light text on dark background)")
         profile_layout.addRow("", self.invert_colors_check)
 
+        # Initially hide advanced settings
+        self.profile_group.setVisible(False)
+        layout.addWidget(self.profile_group)
 
-        # Pattern settings
-        patterns_group = QGroupBox("Regex Patterns")
-        patterns_layout = QFormLayout(patterns_group)
-
-        self.dollar_pattern_text = QLineEdit()
-        self.dollar_pattern_text.setText(r'\$([\d,]+\.?\d*)')
-        patterns_layout.addRow("Dollar Pattern:", self.dollar_pattern_text)
-
-        self.negative_pattern_text = QLineEdit()
-        self.negative_pattern_text.setText(r'\((?:\$)?([\d,]+\.?\d*)\)')
-        patterns_layout.addRow("Negative Pattern:", self.negative_pattern_text)
-
-        self.regular_pattern_text = QLineEdit()
-        self.regular_pattern_text.setText(r'(?<!\$)(-?[\d,]+\.?\d*)')
-        patterns_layout.addRow("Regular Pattern:", self.regular_pattern_text)
-
-        layout.addWidget(patterns_group)
-
-        # Buttons
+        # Buttons for saving/resetting profile
         button_layout = QHBoxLayout()
 
         save_btn = QPushButton("Save Profile")
@@ -558,27 +679,7 @@ class TradingMonitorTestApp(QMainWindow):
         reset_btn.clicked.connect(self._reset_platform_profile)
         button_layout.addWidget(reset_btn)
 
-        test_btn = QPushButton("Test OCR with Profile")
-        test_btn.clicked.connect(self._test_ocr_with_profile)
-        button_layout.addWidget(test_btn)
-
         layout.addLayout(button_layout)
-
-        # In _create_profile_tab method, add this with the other buttons
-        test_pipeline_btn = QPushButton("Test Full OCR Pipeline")
-        test_pipeline_btn.clicked.connect(self._test_profile_ocr_pipeline)
-        button_layout.addWidget(test_pipeline_btn)
-
-        # OCR result display
-        result_group = QGroupBox("OCR Test Results")
-        result_layout = QVBoxLayout(result_group)
-
-        self.profile_ocr_text = QTextEdit()
-        self.profile_ocr_text.setReadOnly(True)
-        self.profile_ocr_text.setPlaceholderText("OCR results will appear here")
-        result_layout.addWidget(self.profile_ocr_text)
-
-        layout.addWidget(result_group, 1)
 
         # Add to tabs
         self.tab_widget.addTab(profile_tab, "Profile Management")
@@ -590,12 +691,14 @@ class TradingMonitorTestApp(QMainWindow):
             # Get supported platforms from platform detection service
             result = self.platform_detection.get_supported_platforms()
 
-            if result.is_success:
-                platforms = list(result.value.keys())
+            platforms = self._handle_result(
+                result,
+                error_message="Failed to get platform list"
+            )
+
+            if platforms:
                 # We only need to update the global platform toolbar
-                self.platform_toolbar.update_platforms(platforms, current_platform)
-            else:
-                self.log_message(f"Failed to get platform list: {result.error}", "ERROR")
+                self.platform_toolbar.update_platforms(list(platforms.keys()), current_platform)
         except Exception as e:
             self.log_message(f"Error populating platform list: {str(e)}", "ERROR")
             self.logger.error(f"Error populating platform list: {e}", exc_info=True)
@@ -611,9 +714,6 @@ class TradingMonitorTestApp(QMainWindow):
             threshold = self.config_repository.get_stop_loss_threshold()
             duration = self.config_repository.get_lockout_duration()
 
-            self.global_threshold_spin.setValue(threshold if threshold < 0 else -threshold)
-            self.global_duration_spin.setValue(duration)
-
             # Copy to lockout tab
             self.threshold_spin.setValue(threshold if threshold < 0 else -threshold)
             self.duration_spin.setValue(duration)
@@ -622,10 +722,14 @@ class TradingMonitorTestApp(QMainWindow):
             current = self.config_repository.get_current_platform()
             if current:
                 # Update toolbar with current platform
-                self.platform_toolbar.update_platforms(
-                    self.platform_detection.get_supported_platforms().value.keys(),
-                    current
-                )
+                platforms_result = self.platform_detection.get_supported_platforms()
+                if platforms_result.is_success:
+                    self.platform_toolbar.update_platforms(
+                        list(platforms_result.value.keys()),
+                        current
+                    )
+                else:
+                    self.log_message(f"Failed to get platforms: {platforms_result.error}", "WARNING")
 
             # Refresh verified blocks
             self._refresh_verified_blocks()
@@ -663,15 +767,10 @@ class TradingMonitorTestApp(QMainWindow):
                 self.c_value_spin.setValue(ocr.threshold_c)
                 self.denoise_h_spin.setValue(ocr.denoise_h)
                 self.config_text.setText(ocr.tesseract_config)
+                self.invert_colors_check.setChecked(ocr.invert_colors)
 
-                # Regex patterns
-                patterns = profile.numeric_patterns
-                if "dollar" in patterns:
-                    self.dollar_pattern_text.setText(patterns["dollar"])
-                if "negative" in patterns:
-                    self.negative_pattern_text.setText(patterns["negative"])
-                if "regular" in patterns:
-                    self.regular_pattern_text.setText(patterns["regular"])
+                # Also load regions for the profile tab
+                self._load_profile_regions()
 
                 self.log_message(f"Profile loaded for {platform}", "SUCCESS")
             else:
@@ -698,15 +797,25 @@ class TradingMonitorTestApp(QMainWindow):
                 threshold_c=self.c_value_spin.value(),
                 denoise_h=self.denoise_h_spin.value(),
                 tesseract_config=self.config_text.text(),
-                invert_colors = self.invert_colors_check.isChecked()
+                invert_colors=self.invert_colors_check.isChecked()
             )
 
-            # Create patterns dictionary
-            patterns = {
-                "dollar": self.dollar_pattern_text.text(),
-                "negative": self.negative_pattern_text.text(),
-                "regular": self.regular_pattern_text.text()
-            }
+            # Get existing profile to preserve existing patterns
+            profile_result = self.profile_service.get_profile(platform)
+            if profile_result.is_success:
+                existing_profile = profile_result.value
+                patterns = existing_profile.numeric_patterns
+            else:
+                # Default patterns as fallback
+                patterns = {
+                    "dollar": r'\$([\d,]+\.?\d*)',
+                    "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
+                    "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
+                }
+
+            # Update patterns if we have generated new ones
+            if hasattr(self, 'patterns') and self.patterns:
+                patterns = self.patterns
 
             # Create profile object
             profile = PlatformProfile(
@@ -747,82 +856,20 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message(f"Error resetting profile: {str(e)}", "ERROR")
             self.logger.error(f"Error resetting profile: {e}", exc_info=True)
 
-    def _test_ocr_with_profile(self):
-        """Test OCR using the current profile settings."""
-        if not self.captured_screenshot:
-            self.log_message("No screenshot captured. Please capture one first.", "WARNING")
-            return
-
-        platform = self.platform_selection_service.get_current_platform()
-        if not platform:
-            self.log_message("No platform selected", "WARNING")
-            return
-
-        try:
-            # Get the current profile
-            profile_result = self.profile_service.get_profile(platform)
-
-            if profile_result.is_failure:
-                self.log_message(f"Failed to get profile: {profile_result.error}", "ERROR")
-                return
-
-            profile = profile_result.value
-
-            # Process the screenshot
-            self.log_message(f"Testing OCR with profile for {platform}...", "INFO")
-
-            # Extract text
-            extract_result = self.ocr_service.extract_text_with_profile(
-                self.captured_screenshot, profile.ocr_profile)
-
-            if extract_result.is_failure:
-                self.log_message(f"Text extraction failed: {extract_result.error}", "ERROR")
-                return
-
-            text = extract_result.value
-
-            # Extract numeric values
-            values_result = self.ocr_service.extract_numeric_values_with_patterns(
-                text, profile.numeric_patterns)
-
-            if values_result.is_failure:
-                self.log_message(f"Value extraction failed: {values_result.error}", "ERROR")
-                self.profile_ocr_text.setText(f"Extracted text:\n{text}\n\nValue extraction failed")
-                return
-
-            values = values_result.value
-
-            # Display results
-            result_text = f"Extracted text:\n{text}\n\n"
-            result_text += f"Numeric values:\n{values}\n\n"
-
-            if values:
-                min_value = min(values)
-                result_text += f"Minimum value (P&L): {min_value}\n"
-                self.log_message(f"OCR test successful. Found values: {values}", "SUCCESS")
-                self.log_message(f"Minimum value: {min_value}", "INFO")
-            else:
-                result_text += "No numeric values found"
-                self.log_message("OCR test completed, but no numeric values found", "WARNING")
-
-            self.profile_ocr_text.setText(result_text)
-
-        except Exception as e:
-            self.log_message(f"Error in OCR test: {str(e)}", "ERROR")
-            self.logger.error(f"Error in OCR test: {e}", exc_info=True)
-
     def _refresh_verified_blocks(self):
         """Refresh the list of verified blocks."""
         try:
             self.verified_list.clear()
 
-            result = self.verification_service.get_verified_blocks()
-            if result.is_success:
-                blocks = result.value
+            blocks = self._handle_result(
+                self.verification_service.get_verified_blocks(),
+                error_message="Failed to get verified blocks"
+            )
+
+            if blocks:
                 for block in blocks:
                     platform = block.get("platform", "Unknown")
                     block_name = block.get("block_name", "Unknown")
-
                     item = QListWidgetItem(f"{platform}: {block_name}")
                     self.verified_list.addItem(item)
 
@@ -831,7 +878,6 @@ class TradingMonitorTestApp(QMainWindow):
 
                 self.log_message(f"Found {len(blocks)} verified blocks", "INFO")
             else:
-                self.log_message(f"Failed to get verified blocks: {result.error}", "ERROR")
                 self.verified_list.addItem("Error loading verified blocks")
         except Exception as e:
             self.log_message(f"Error refreshing verified blocks: {str(e)}", "ERROR")
@@ -839,20 +885,16 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _on_global_platform_changed(self, platform: str) -> None:
         """Handle global platform change."""
-        # No need to check against stored value - service manages that
-
         # Load regions for this platform
         self._load_regions_for_platform()
 
-        # Clear screenshot preview when switching platforms
-        self.captured_screenshot = None
-        self.screenshot_label.setText("No screenshot captured")
-        self.screenshot_label.setPixmap(QPixmap())
-        self.ocr_text.clear()
-        self.profile_ocr_text.clear()
-
         # Load profile for new platform
         self._load_platform_profile(platform)
+
+        # Reset profile tab state
+        self.profile_verification_widget.setVisible(False)
+        self.profile_pattern_group.setVisible(False)
+        self.profile_status_label.setText("Select a region and click 'Start Detection'")
 
         self.log_message(f"Selected platform: {platform}", "INFO")
 
@@ -866,21 +908,26 @@ class TradingMonitorTestApp(QMainWindow):
         current_platform = self.platform_selection_service.get_current_platform()
 
         # Load monitoring regions
-        monitor_result = self.region_service.get_regions_by_platform(current_platform, "monitor")
+        monitor_regions = self._handle_result(
+            self.region_service.get_regions_by_platform(current_platform, "monitor"),
+            error_message="Failed to load monitoring regions",
+            error_level="WARNING"
+        )
 
-        if monitor_result.is_success:
-            for region in monitor_result.value:
+        if monitor_regions:
+            for region in monitor_regions:
                 self._add_region_to_list(region.name, region.coordinates, "monitor")
-        else:
-            self.log_message(f"Failed to load monitoring regions: {monitor_result.error}", "WARNING")
 
         # Load flatten regions
-        flatten_result = self.region_service.get_regions_by_platform(current_platform, "flatten")
-        if flatten_result.is_success:
-            for region in flatten_result.value:
+        flatten_regions = self._handle_result(
+            self.region_service.get_regions_by_platform(current_platform, "flatten"),
+            error_message="Failed to load flatten regions",
+            error_level="WARNING"
+        )
+
+        if flatten_regions:
+            for region in flatten_regions:
                 self._add_region_to_list(region.name, region.coordinates, "flatten")
-        else:
-            self.log_message(f"Failed to load flatten regions: {flatten_result.error}", "WARNING")
 
         # Update monitoring dropdown
         self._update_monitoring_dropdown()
@@ -900,8 +947,11 @@ class TradingMonitorTestApp(QMainWindow):
     def _on_save_ct_path(self):
         """Save the Cold Turkey Blocker path."""
         path = self.ct_path_input.text()
-        if not path:
-            self.log_message("No path specified", "WARNING")
+
+        # Validate the path using our new method
+        validation = self._validate_input(path, "Cold Turkey path")
+        if validation.is_failure:
+            self.log_message(f"Validation error: {validation.error}", "WARNING")
             return
 
         result = self.cold_turkey_service.set_blocker_path(path)
@@ -990,12 +1040,24 @@ class TradingMonitorTestApp(QMainWindow):
         widget = RegionEntry(
             name, region,
             on_edit=lambda id, r: self._on_edit_region(id, r, region_type),
-            on_delete=lambda id: self._on_delete_region(id, region_type),
-            on_view=lambda id, r: self._on_view_region(id, r, region_type)
+            on_delete=lambda id: self._on_delete_region(id, region_type)
         )
         item.setSizeHint(widget.sizeHint())
         list_widget.addItem(item)
         list_widget.setItemWidget(item, widget)
+
+        # Immediately load and display the screenshot
+        current_platform = self.platform_selection_service.get_current_platform()
+        result = self.region_service.get_region(current_platform, region_type, name)
+        if result.is_success:
+            region_obj = result.value
+            if region_obj.screenshot_path:
+                load_result = self.region_service.load_region_screenshot(region_obj)
+                if load_result.is_success:
+                    screenshot = load_result.value
+                    pixmap_result = self.screenshot_service.to_pyside_pixmap(screenshot)
+                    if pixmap_result.is_success:
+                        widget.screenshot_label.setPixmap(pixmap_result.value)
 
     def _on_add_region(self, region_type):
         """Add a new region for monitoring or flatten positions."""
@@ -1048,6 +1110,8 @@ class TradingMonitorTestApp(QMainWindow):
 
             # Check if region with this name already exists
             region_check = self.region_service.get_region(current_platform, region_type, name)
+
+            # If a region with this name already exists
             if region_check.is_success:
                 choice = QMessageBox.question(
                     self,
@@ -1059,6 +1123,22 @@ class TradingMonitorTestApp(QMainWindow):
 
                 if choice != QMessageBox.Yes:
                     continue  # Try again with a different name
+
+                # If user wants to replace existing region, delete the old one first
+                # both from the service and from the UI list
+                delete_result = self.region_service.delete_region(current_platform, region_type, name)
+                if delete_result.is_failure:
+                    self.log_message(f"Failed to delete existing region: {delete_result.error}", "ERROR")
+                    return
+
+                # Also remove from UI list
+                list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
+                for i in range(list_widget.count()):
+                    item = list_widget.item(i)
+                    widget = list_widget.itemWidget(item)
+                    if hasattr(widget, 'region_id') and widget.region_id == name:
+                        list_widget.takeItem(i)
+                        break
 
             # Valid name obtained, break the loop
             break
@@ -1093,38 +1173,15 @@ class TradingMonitorTestApp(QMainWindow):
         # Add to UI list
         self._add_region_to_list(name, coordinates, region_type)
 
+        # WITH THIS:
         self.log_message(f"Added {region_type} region '{name}': {coordinates}", "SUCCESS")
 
-        # If it's a monitoring region, display the screenshot and process OCR
-        if region_type == "monitor":
-            # Load and display the screenshot
-            if region.screenshot_path:
-                load_result = self.region_service.load_region_screenshot(region)
-                if load_result.is_success:
-                    self.captured_screenshot = load_result.value
-                    # Display screenshot and process OCR
-                    pixmap_result = self.screenshot_service.to_pyside_pixmap(self.captured_screenshot)
-                    if pixmap_result.is_success:
-                        pixmap = pixmap_result.value
-                        self.screenshot_label.setPixmap(pixmap.scaled(
-                            self.screenshot_label.width(),
-                            self.screenshot_label.height(),
-                            Qt.KeepAspectRatio
-                        ))
-                        # Run OCR on the screenshot
-                        self._on_test_ocr()
-                    else:
-                        self.log_message(f"Error displaying screenshot: {pixmap_result.error}", "ERROR")
-                else:
-                    self.log_message(f"Error loading screenshot: {load_result.error}", "ERROR")
-
-            # Update the monitoring dropdown
-            self._update_monitoring_dropdown()
+        # Refresh all UI components that depend on region data
+        self._refresh_ui_after_region_change()
 
     def _on_edit_region(self, region_id, current_coords, region_type):
         """Edit an existing region."""
         self.log_message(f"Editing region {region_id}...", "INFO")
-
 
         current_platform = self.platform_selection_service.get_current_platform()
 
@@ -1171,40 +1228,29 @@ class TradingMonitorTestApp(QMainWindow):
             item = list_widget.item(i)
             widget = list_widget.itemWidget(item)
             if hasattr(widget, 'region_id') and widget.region_id == region_id:
+                # Update the widget with new coordinates
                 new_widget = RegionEntry(
                     region_id, new_coordinates,
                     on_edit=lambda id, r: self._on_edit_region(id, r, region_type),
-                    on_delete=lambda id: self._on_delete_region(id, region_type),
-                    on_view=lambda id, r: self._on_view_region(id, r, region_type)
+                    on_delete=lambda id: self._on_delete_region(id, region_type)
                 )
                 item.setSizeHint(new_widget.sizeHint())
                 list_widget.setItemWidget(item, new_widget)
+
+                # Immediately display the updated screenshot
+                if region.screenshot_path:
+                    load_result = self.region_service.load_region_screenshot(region)
+                    if load_result.is_success:
+                        screenshot = load_result.value
+                        pixmap_result = self.screenshot_service.to_pyside_pixmap(screenshot)
+                        if pixmap_result.is_success:
+                            new_widget.screenshot_label.setPixmap(pixmap_result.value)
                 break
 
         self.log_message(f"Updated {region_type} region {region_id}: {new_coordinates}", "SUCCESS")
 
-        # If it's a monitoring region, display the screenshot and process OCR
-        if region_type == "monitor":
-            # Load and display the screenshot
-            if region.screenshot_path:
-                load_result = self.region_service.load_region_screenshot(region)
-                if load_result.is_success:
-                    self.captured_screenshot = load_result.value
-                    # Display screenshot
-                    pixmap_result = self.screenshot_service.to_pyside_pixmap(self.captured_screenshot)
-                    if pixmap_result.is_success:
-                        pixmap = pixmap_result.value
-                        self.screenshot_label.setPixmap(pixmap.scaled(
-                            self.screenshot_label.width(),
-                            self.screenshot_label.height(),
-                            Qt.KeepAspectRatio
-                        ))
-                        # Run OCR on the screenshot
-                        self._on_test_ocr()
-                    else:
-                        self.log_message(f"Error displaying screenshot: {pixmap_result.error}", "ERROR")
-                else:
-                    self.log_message(f"Error loading screenshot: {load_result.error}", "ERROR")
+        # Refresh all UI components that depend on region data
+        self._refresh_ui_after_region_change()
 
     def _on_delete_region(self, region_id, region_type):
         """Delete an existing region."""
@@ -1229,63 +1275,11 @@ class TradingMonitorTestApp(QMainWindow):
 
         self.log_message(f"Deleted {region_type} region {region_id}", "SUCCESS")
 
-        # Update monitoring dropdown if needed
-        if region_type == "monitor":
-            self._update_monitoring_dropdown()
+        # Refresh all UI components that depend on region data
+        self._refresh_ui_after_region_change()
 
-    # In _on_view_region method
-    def _on_view_region(self, region_id, coordinates, region_type):
-        """Display a saved region screenshot."""
-        self.log_message(f"Viewing region {region_id}...", "INFO")
-
-        current_platform = self.platform_selection_service.get_current_platform()
-
-        # Get the region from the service
-        result = self.region_service.get_region(current_platform, region_type, region_id)
-
-        if result.is_failure:
-            self.log_message(f"Failed to get region: {result.error}", "ERROR")
-            return
-
-        region = result.value
-
-        # Load screenshot
-        if region.screenshot_path:
-            load_result = self.region_service.load_region_screenshot(region)
-            if load_result.is_success:
-                # Store the loaded image
-                self.captured_screenshot = load_result.value
-
-                # Display screenshot
-                pixmap_result = self.screenshot_service.to_pyside_pixmap(self.captured_screenshot)
-                if pixmap_result.is_success:
-                    pixmap = pixmap_result.value
-                    self.screenshot_label.setPixmap(pixmap.scaled(
-                        self.screenshot_label.width(),
-                        self.screenshot_label.height(),
-                        Qt.KeepAspectRatio
-                    ))
-                    self.log_message(f"Displayed saved screenshot for {region_id}", "SUCCESS")
-
-                    # Run OCR test with profile if it's a monitoring region
-                    if region_type == "monitor":
-                        self._on_test_ocr()
-                else:
-                    self.log_message(f"Error displaying screenshot: {pixmap_result.error}", "ERROR")
-            else:
-                self.log_message(f"Error loading screenshot: {load_result.error}", "WARNING")
-                # Fall back to capturing new screenshot
-                self._capture_and_process_region(region.coordinates)
-        else:
-            self.log_message(f"No saved screenshot found for {region_id}, capturing new one", "WARNING")
-            self._capture_and_process_region(region.coordinates)
-
-    # In test_lockout.py -> _capture_and_process_region method
-    def _capture_and_process_region(self, region):
-        """Capture and process a region using the current platform profile."""
-        # Get current platform
-        platform = self.platform_selection_service.get_current_platform()
-
+    def _capture_region(self, region):
+        """Capture a region screenshot without OCR processing."""
         # Capture the screenshot
         result = self.screenshot_service.capture_region(region)
 
@@ -1297,71 +1291,25 @@ class TradingMonitorTestApp(QMainWindow):
             pixmap_result = self.screenshot_service.to_pyside_pixmap(self.captured_screenshot)
             if pixmap_result.is_success:
                 pixmap = pixmap_result.value
-                self.screenshot_label.setPixmap(pixmap.scaled(
-                    self.screenshot_label.width(),
-                    self.screenshot_label.height(),
-                    Qt.KeepAspectRatio
-                ))
 
-                # Process OCR using platform profile
-                if platform:
-                    self._on_test_ocr()
-                else:
-                    self.log_message("No platform selected for OCR processing", "WARNING")
+                # Get the size of the parent container
+                container_width = self.screenshot_label.parentWidget().width() - 20
+                container_height = self.screenshot_label.parentWidget().height() - 20
+
+                # Scale image to fit the container while maintaining aspect ratio
+                scaled_pixmap = pixmap.scaled(
+                    container_width,
+                    container_height,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+
+                # Set the pixmap
+                self.screenshot_label.setPixmap(scaled_pixmap)
             else:
                 self.log_message(f"Error converting to pixmap: {pixmap_result.error}", "ERROR")
         else:
             self.log_message(f"Error capturing screenshot: {result.error}", "ERROR")
-
-    def _on_test_ocr(self):
-        """Test OCR on the captured screenshot."""
-        if not self.captured_screenshot:
-            self.log_message("No screenshot captured", "WARNING")
-            return
-
-        self.log_message("Extracting text from screenshot...", "INFO")
-
-        # Get current platform
-        platform = self.platform_selection_service.get_current_platform()
-        if not platform:
-            self.log_message("No platform selected", "WARNING")
-            return
-
-        # Get profile for platform
-        profile_result = self.profile_service.get_profile(platform)
-        if profile_result.is_failure:
-            self.log_message(f"Failed to get profile: {profile_result.error}", "WARNING")
-            # Fall back to default profile if needed
-            from src.domain.models.platform_profile import OcrProfile
-            profile = PlatformProfile(platform_name="Default", ocr_profile=OcrProfile())
-        else:
-            profile = profile_result.value
-
-        # Extract text using OCR with profile
-        result = self.ocr_service.extract_text_with_profile(
-            self.captured_screenshot, profile.ocr_profile)
-
-        if result.is_success:
-            text = result.value
-            self.log_message("Text extracted successfully", "SUCCESS")
-            self.ocr_text.setText(text)
-
-            # Extract numeric values with patterns
-            numbers_result = self.ocr_service.extract_numeric_values_with_patterns(
-                text, profile.numeric_patterns)
-
-            if numbers_result.is_success:
-                numbers = numbers_result.value
-                if numbers:
-                    min_value = min(numbers)
-                    self.log_message(f"Numeric values found: {numbers}", "INFO")
-                    self.log_message(f"Minimum value (P&L): {min_value}", "INFO")
-                else:
-                    self.log_message("No numeric values found in the text", "WARNING")
-            else:
-                self.log_message(f"Error extracting numeric values: {numbers_result.error}", "ERROR")
-        else:
-            self.log_message(f"Error extracting text: {result.error}", "ERROR")
 
     def _on_verify_block(self):
         """Verify the Cold Turkey block configuration."""
@@ -1419,33 +1367,6 @@ class TradingMonitorTestApp(QMainWindow):
                 self._refresh_verified_blocks()
             else:
                 self.log_message(f"Failed to clear verified blocks: {result.error}", "ERROR")
-
-    def _on_save_global_settings(self):
-        """Save global settings."""
-        threshold = self.global_threshold_spin.value()
-        duration = self.global_duration_spin.value()
-
-        # Ensure threshold is negative
-        if threshold > 0:
-            threshold = -threshold
-
-        # Save threshold
-        result1 = self.config_repository.set_stop_loss_threshold(threshold)
-
-        # Save duration
-        result2 = self.config_repository.set_lockout_duration(duration)
-
-        if result1.is_success and result2.is_success:
-            self.log_message("Global settings saved successfully", "SUCCESS")
-
-            # Update lockout tab values
-            self.threshold_spin.setValue(threshold)
-            self.duration_spin.setValue(duration)
-        else:
-            if result1.is_failure:
-                self.log_message(f"Failed to save threshold: {result1.error}", "ERROR")
-            if result2.is_failure:
-                self.log_message(f"Failed to save duration: {result2.error}", "ERROR")
 
     def _on_start_monitoring(self):
         """Start monitoring for P&L losses."""
@@ -1604,68 +1525,6 @@ class TradingMonitorTestApp(QMainWindow):
         else:
             self.log_message(f"Failed to initiate lockout: {result.error}", "ERROR")
 
-    def _test_service(self, service_type):
-        """Test various services for functionality."""
-        if service_type == "ocr":
-            try:
-                test_text = "Sample OCR test"
-                result = self.ocr_service.extract_numeric_values(test_text)
-
-                if result.is_success:
-                    self.log_message("OCR Service is working correctly", "SUCCESS")
-                else:
-                    self.log_message(f"OCR Service test returned error: {result.error}", "WARNING")
-            except Exception as e:
-                self.log_message(f"OCR Service Error: {str(e)}", "ERROR")
-                self.logger.error(f"OCR Service Error: {e}", exc_info=True)
-
-        elif service_type == "screenshot":
-            try:
-                # Try to get screen information using screenshot service
-                app = QApplication.instance()
-                screens = app.screens()
-                screen_info = []
-                for i, screen in enumerate(screens):
-                    geo = screen.geometry()
-                    screen_info.append(f"Screen {i + 1}: {geo.width()}x{geo.height()} at ({geo.x()},{geo.y()})")
-
-                # Try to capture a small region
-                region = (0, 0, 10, 10)  # Small region at top-left
-                capture_result = self.screenshot_service.capture_region(region)
-
-                if capture_result.is_success:
-                    self.log_message(f"Screenshot Service OK ({len(screens)} screens detected)", "SUCCESS")
-                    for info in screen_info:
-                        self.log_message(info, "INFO")
-                else:
-                    self.log_message(f"Screenshot Service Error: {capture_result.error}", "ERROR")
-            except Exception as e:
-                self.log_message(f"Screenshot Service Error: {str(e)}", "ERROR")
-                self.logger.error(f"Screenshot Service Error: {e}", exc_info=True)
-
-        elif service_type == "coldturkey":
-            try:
-                # Check if Cold Turkey path is configured
-                if self.cold_turkey_service.is_blocker_path_configured():
-                    path_result = self.cold_turkey_service.get_blocker_path()
-                    if path_result.is_success:
-                        self.log_message(f"Cold Turkey Service OK (Path: {path_result.value})", "SUCCESS")
-
-                        # Check verified blocks
-                        blocks_result = self.cold_turkey_service.get_verified_blocks()
-                        if blocks_result.is_success:
-                            blocks = blocks_result.value
-                            self.log_message(f"Found {len(blocks)} verified blocks", "INFO")
-                        else:
-                            self.log_message(f"Error checking verified blocks: {blocks_result.error}", "WARNING")
-                    else:
-                        self.log_message(f"Cold Turkey Path Error: {path_result.error}", "ERROR")
-                else:
-                    self.log_message("Cold Turkey Blocker path not configured", "WARNING")
-            except Exception as e:
-                self.log_message(f"Cold Turkey Service Error: {str(e)}", "ERROR")
-                self.logger.error(f"Cold Turkey Service Error: {e}", exc_info=True)
-
     def log_message(self, message, level="INFO"):
         """Log a message to both the UI and the logger."""
         # Map level to logger method
@@ -1728,61 +1587,404 @@ class TradingMonitorTestApp(QMainWindow):
         else:
             self.log_message(f"Failed to get monitoring regions: {result.error}", "WARNING")
 
-    # Add a new method to test_lockout.py to test the full profile-based OCR process
-    def _test_profile_ocr_pipeline(self):
-        """Test the full OCR pipeline using profiles."""
-        platform = self.platform_selection_service.get_current_platform()
-        if not platform:
-            self.log_message("No platform selected", "WARNING")
-            return
+    def _toggle_advanced_settings(self, checked):
+        """Toggle visibility of advanced settings."""
+        self.profile_group.setVisible(checked)
 
-        if not self.captured_screenshot:
-            self.log_message("No screenshot captured", "WARNING")
-            return
+    def _load_profile_regions(self):
+        """Load regions for the profile tab region selector."""
+        # Clear existing combo box
+        self.profile_region_combo.clear()
 
-        self.log_message(f"Testing full OCR pipeline for {platform}...", "INFO")
+        # Reset the internal regions list
+        self.profile_region_combo.regions = []
 
-        # Get the profile
-        profile_result = self.profile_service.get_profile(platform)
-        if profile_result.is_failure:
-            self.log_message(f"Failed to get profile: {profile_result.error}", "ERROR")
-            return
+        # Get current platform
+        current_platform = self.platform_selection_service.get_current_platform()
 
-        profile = profile_result.value
+        # Get monitor regions
+        monitor_result = self.region_service.get_regions_by_platform(current_platform, "monitor")
 
-        # Show profile settings
-        ocr = profile.ocr_profile
-        self.log_message(f"Using profile with scale={ocr.scale_factor}, " +
-                         f"block_size={ocr.threshold_block_size}, " +
-                         f"c_value={ocr.threshold_c}, " +
-                         f"invert={ocr.invert_colors}", "INFO")
+        if monitor_result.is_success and monitor_result.value:
+            regions = monitor_result.value
 
-        # Extract text
-        extract_result = self.ocr_service.extract_text_with_profile(
-            self.captured_screenshot, profile.ocr_profile)
+            # CRITICAL FIX: Ensure the combo box is enabled
+            self.profile_region_combo.setEnabled(True)
 
-        if extract_result.is_failure:
-            self.log_message(f"Text extraction failed: {extract_result.error}", "ERROR")
-            return
+            # Add each region to the combo box
+            for region in regions:
+                # Load the screenshot
+                screenshot = None
+                if region.screenshot_path:
+                    load_result = self.region_service.load_region_screenshot(region)
+                    if load_result.is_success:
+                        screenshot = load_result.value
 
-        text = extract_result.value
-        self.log_message(f"Extracted text: {text}", "SUCCESS")
+                # Add to combo box
+                self.profile_region_combo.add_region(region, screenshot)
 
-        # Extract values
-        values_result = self.ocr_service.extract_numeric_values_with_patterns(
-            text, profile.numeric_patterns)
+            # CRITICAL FIX: Always select the first item by default
+            if len(regions) > 0:
+                self.profile_region_combo.setCurrentIndex(0)
+                self.start_detection_btn.setEnabled(True)
+                self._on_profile_region_selected(0)
+            else:
+                self.profile_region_combo.setCurrentIndex(-1)
+                self.start_detection_btn.setEnabled(False)
 
-        if values_result.is_failure:
-            self.log_message(f"Value extraction failed: {values_result.error}", "ERROR")
-            return
-
-        values = values_result.value
-        if values:
-            min_value = min(values)
-            self.log_message(f"Extracted values: {values}", "SUCCESS")
-            self.log_message(f"Minimum value: {min_value}", "INFO")
+            self.log_message(f"Loaded {len(regions)} regions for profile management", "INFO")
         else:
-            self.log_message("No numeric values extracted", "WARNING")
+            # No regions found - add a message
+            self.profile_region_combo.addItem("No monitoring regions found")
+            self.profile_region_combo.setEnabled(False)
+            self.start_detection_btn.setEnabled(False)
+            self.log_message("No monitoring regions found for profile management", "WARNING")
+
+    def _on_profile_region_selected(self, index):
+        """Handle region selection in profile tab."""
+        if index < 0:
+            self.start_detection_btn.setEnabled(False)
+            self.profile_preview_label.setText("No region selected")
+            return
+
+        # Get selected region and update preview
+        selected_region = self.profile_region_combo.get_selected_region()
+
+        if selected_region:
+            # Update preview with screenshot
+            if selected_region.screenshot_path:
+                load_result = self.region_service.load_region_screenshot(selected_region)
+                if load_result.is_success:
+                    screenshot = load_result.value
+                    pixmap_result = self.screenshot_service.to_pyside_pixmap(screenshot)
+                    if pixmap_result.is_success:
+                        pixmap = pixmap_result.value
+                        # Scale to fit while maintaining aspect ratio
+                        scaled_pixmap = pixmap.scaled(
+                            self.profile_preview_label.width(),
+                            self.profile_preview_label.height(),
+                            Qt.KeepAspectRatio,
+                            Qt.SmoothTransformation
+                        )
+                        self.profile_preview_label.setPixmap(scaled_pixmap)
+                    else:
+                        self.profile_preview_label.setText("Error loading preview")
+                else:
+                    self.profile_preview_label.setText("Screenshot not available")
+
+            # Enable start button if we have a valid screenshot path
+            self.start_detection_btn.setEnabled(bool(selected_region.screenshot_path))
+        else:
+            self.profile_preview_label.setText("No region selected")
+            self.start_detection_btn.setEnabled(False)
+
+    def _start_profile_detection(self):
+        """Start the OCR parameter detection process."""
+        # Get selected region
+        selected_region = self.profile_region_combo.get_selected_region()
+        if not selected_region or not selected_region.screenshot_path:
+            self.log_message("No valid region selected", "WARNING")
+            return
+
+        # Reset UI state
+        self.profile_verification_widget.setVisible(False)
+        self.profile_pattern_group.setVisible(False)
+
+        # Update status
+        self.profile_status_label.setText("Analyzing image and detecting OCR parameters...")
+        QApplication.processEvents()
+
+        # Store path for later use
+        self.current_image_path = selected_region.screenshot_path
+
+        # Detect OCR parameters using OCR Analysis Service
+        ocr_profile_result = self.ocr_analysis_service.detect_optimal_ocr_parameters(selected_region.screenshot_path)
+
+        if ocr_profile_result.is_failure:
+            self.profile_status_label.setText(f"Detection failed: {ocr_profile_result.error}")
+            return
+
+        self.ocr_profile = ocr_profile_result.value
+
+        # Update status
+        self.profile_status_label.setText("Testing OCR with detected parameters...")
+        QApplication.processEvents()
+
+        # Test OCR with detected parameters
+        self._test_profile_ocr_parameters()
+
+        # Show verification widget
+        self.profile_verification_widget.setVisible(True)
+
+        # Update OCR parameter controls
+        self.scale_factor_spin.setValue(self.ocr_profile.scale_factor)
+        self.block_size_spin.setValue(self.ocr_profile.threshold_block_size)
+        self.c_value_spin.setValue(self.ocr_profile.threshold_c)
+        self.denoise_h_spin.setValue(self.ocr_profile.denoise_h)
+        self.config_text.setText(self.ocr_profile.tesseract_config)
+        self.invert_colors_check.setChecked(self.ocr_profile.invert_colors)
+
+        # Show advanced settings
+        self.advanced_settings_check.setChecked(True)
+
+        # Update status
+        self.profile_status_label.setText("Please verify if the extracted text is correct")
+
+    def _test_profile_ocr_parameters(self):
+        """Test OCR with the detected parameters."""
+        try:
+            import PIL.Image
+
+            # Load the image
+            image = PIL.Image.open(self.current_image_path)
+
+            # Extract text using the detected parameters
+            extract_result = self.ocr_service.extract_text_with_profile(image, self.ocr_profile)
+
+            if extract_result.is_success:
+                self.extracted_text = extract_result.value
+
+                # Trim and clean up the text for display
+                display_text = self.extracted_text.strip()
+                # Truncate if too long
+                if len(display_text) > 50:
+                    display_text = display_text[:47] + "..."
+
+                self.profile_extracted_text_label.setText(display_text)
+
+                # Auto-detect likely formats based on the extracted text
+                self._auto_detect_formats()
+            else:
+                self.extracted_text = "Failed to extract text"
+                error_msg = str(extract_result.error)
+                if len(error_msg) > 50:
+                    error_msg = error_msg[:47] + "..."
+                self.profile_extracted_text_label.setText(f"Error: {error_msg}")
+
+        except Exception as e:
+            self.extracted_text = f"Error testing OCR: {e}"
+            error_msg = str(e)
+            if len(error_msg) > 50:
+                error_msg = error_msg[:47] + "..."
+            self.profile_extracted_text_label.setText(f"Error: {error_msg}")
+
+    def _on_profile_text_verified(self):
+        """User confirmed the extracted text is accurate."""
+        # Update UI
+        self.profile_pattern_group.setVisible(True)
+        self.profile_status_label.setText("Analyzing text formats...")
+
+        # Auto-detect formats and run initial pattern test
+        self._auto_detect_formats()
+        self._test_profile_patterns()
+
+    def _on_profile_text_rejected(self):
+        """User rejected the extracted text."""
+        # Adjust parameters slightly
+        if hasattr(self, 'ocr_profile'):
+            # Increase scale factor
+            self.ocr_profile.scale_factor += 0.5
+            if self.ocr_profile.scale_factor > 4.0:
+                self.ocr_profile.scale_factor = 1.5
+
+            # Try inverting colors if retries > 2
+            if hasattr(self, 'retry_count') and self.retry_count > 2:
+                self.ocr_profile.invert_colors = not self.ocr_profile.invert_colors
+
+            # Keep track of retry attempts
+            if not hasattr(self, 'retry_count'):
+                self.retry_count = 1
+            else:
+                self.retry_count += 1
+
+            # Update status
+            self.profile_status_label.setText(f"Retrying with adjusted settings (attempt {self.retry_count})...")
+            QApplication.processEvents()
+
+            # Test again with modified parameters
+            self._test_profile_ocr_parameters()
+
+            # Update OCR parameter controls
+            self.scale_factor_spin.setValue(self.ocr_profile.scale_factor)
+            self.block_size_spin.setValue(self.ocr_profile.threshold_block_size)
+            self.c_value_spin.setValue(self.ocr_profile.threshold_c)
+            self.denoise_h_spin.setValue(self.ocr_profile.denoise_h)
+            self.config_text.setText(self.ocr_profile.tesseract_config)
+            self.invert_colors_check.setChecked(self.ocr_profile.invert_colors)
+
+    def _auto_detect_formats(self):
+        """Auto-detect likely formats from the extracted text and configure the UI accordingly."""
+        if not hasattr(self, 'extracted_text'):
+            return
+
+        text = self.extracted_text
+        formats_detected = []
+
+        # Check for dollar signs
+        has_dollar = '$' in text
+        self.profile_dollar_check.setChecked(has_dollar)
+        if has_dollar:
+            formats_detected.append("dollar sign ($)")
+
+        # Check for Euro signs
+        has_euro = '€' in text
+        self.profile_euro_check.setChecked(has_euro)
+        if has_euro:
+            formats_detected.append("euro symbol (€)")
+
+        # Check for Pound signs
+        has_pound = '£' in text
+        self.profile_pound_check.setChecked(has_pound)
+        if has_pound:
+            formats_detected.append("pound symbol (£)")
+
+        # Check for negative formats
+        has_parentheses = bool(re.search(r'\(\$?[\d,]+\.?\d*\)', text))
+        has_minus = bool(re.search(r'-\$?[\d,]+\.?\d*', text))
+
+        if has_parentheses and has_minus:
+            self.profile_negative_both_radio.setChecked(True)
+            formats_detected.append("both negative formats")
+        elif has_parentheses:
+            self.profile_negative_parentheses_radio.setChecked(True)
+            formats_detected.append("parentheses for negative values")
+        elif has_minus:
+            self.profile_negative_minus_radio.setChecked(True)
+            formats_detected.append("minus signs for negative values")
+        else:
+            # Default if no negatives detected
+            self.profile_negative_both_radio.setChecked(True)
+
+        # Check for plain numbers
+        has_plain = bool(re.search(r'(?<!\$|€|£)(-?[\d,]+\.?\d*)', text))
+        self.profile_plain_number_check.setChecked(has_plain)
+        if has_plain:
+            formats_detected.append("plain numbers")
+
+        # Update status with detected formats
+        if formats_detected:
+            self.profile_status_label.setText(f"Auto-detected formats: {', '.join(formats_detected)}")
+
+    def _test_profile_patterns(self):
+        """Generate and test pattern based on user selections."""
+        # Get pattern dictionary
+        patterns = self._build_profile_custom_pattern()
+        self.patterns = patterns
+
+        # Test pattern extraction
+        test_result = self.ocr_analysis_service.test_pattern_extraction(self.extracted_text, patterns)
+
+        if test_result.is_success:
+            values = test_result.value
+
+            if values:
+                # Remove duplicates and sort values
+                unique_values = []
+                for value in values:
+                    # Round to 2 decimal places for comparison
+                    rounded = round(value, 2)
+                    if rounded not in [round(v, 2) for v in unique_values]:
+                        unique_values.append(value)
+
+                # Sort values (usually we want the lowest/negative value first for P&L)
+                unique_values.sort()
+
+                # Format results
+                results_text = ""
+                for value in unique_values:
+                    results_text += f"{value:.2f}, "
+
+                # Remove trailing comma and space
+                if results_text:
+                    results_text = results_text[:-2]
+
+                self.profile_pattern_results.setText(results_text)
+
+                # If we found a single value, highlight it as the likely P&L
+                if len(unique_values) == 1:
+                    self.profile_status_label.setText(f"Detected P&L value: {unique_values[0]:.2f}")
+                elif len(unique_values) > 0:
+                    min_value = min(unique_values)
+                    self.profile_status_label.setText(f"Multiple values found. Minimum (likely P&L): {min_value:.2f}")
+            else:
+                self.profile_pattern_results.setText("No values detected")
+                self.profile_status_label.setText("No numeric values detected with current pattern settings")
+        else:
+            error_msg = str(test_result.error)
+            if len(error_msg) > 30:
+                error_msg = error_msg[:27] + "..."
+            self.profile_pattern_results.setText(f"Error: {error_msg}")
+
+    def _build_profile_custom_pattern(self):
+        """Build pattern dictionary based on user selections."""
+        # Start with a pattern type based on selected currency
+        pattern_type = "regular"
+        pattern = None
+
+        # Determine pattern type and base pattern
+        if self.profile_dollar_check.isChecked():
+            pattern_type = "dollar"
+            pattern = r'\$([\d,]+\.?\d*)'
+        elif self.profile_euro_check.isChecked():
+            pattern_type = "euro"
+            pattern = r'€([\d,]+\.?\d*)'
+        elif self.profile_pound_check.isChecked():
+            pattern_type = "pound"
+            pattern = r'£([\d,]+\.?\d*)'
+        elif self.profile_plain_number_check.isChecked():
+            pattern = r'(?<!\$|€|£)(-?[\d,]+\.?\d*)'
+        else:
+            # Fallback pattern
+            pattern = r'(-?[\d,]+\.?\d*)'
+
+        # Return a dictionary with single entry
+        return {pattern_type: pattern}
+
+    def _refresh_ui_after_region_change(self):
+        """Refresh all UI components that depend on region data."""
+        try:
+            # Update monitoring dropdown in lockout tab
+            self._update_monitoring_dropdown()
+
+            # Update profile tab's region combo
+            self._load_profile_regions()
+
+            # Allow UI to update
+            QApplication.processEvents()
+        except Exception as e:
+            self.log_message(f"Error refreshing UI: {str(e)}", "ERROR")
+            self.logger.error(f"Error in UI refresh: {e}", exc_info=True)
+
+    def _on_tab_changed(self, index):
+        """Handle tab changes by refreshing data as needed."""
+        tab_name = self.tab_widget.tabText(index)
+        if tab_name == "Lockout Testing":
+            self._update_monitoring_dropdown()
+        elif tab_name == "Profile Management":
+            self._load_profile_regions()
+
+    def _handle_result(self, result: Result, success_message=None, error_message="Operation failed",
+                       error_level="ERROR"):
+        """Standard handler for Result objects."""
+        if result.is_success:
+            if success_message:
+                self.log_message(success_message, "SUCCESS")
+            return result.value
+        else:
+            self.log_message(f"{error_message}: {result.error}", error_level)
+            return None
+
+    def _validate_input(self, input_value: str, field_name: str) -> Result:
+        """Validate user input and return a Result object."""
+        if not input_value or not input_value.strip():
+            error = DomainError(
+                message=f"{field_name} cannot be empty",
+                category=ErrorCategory.VALIDATION,
+                severity=ErrorSeverity.WARNING
+            )
+            return Result.fail(error)
+        return Result.ok(input_value)
+
 # At the top of the main section
 if __name__ == "__main__":
     app = QApplication(sys.argv)

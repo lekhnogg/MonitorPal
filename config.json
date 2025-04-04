@@ -21,24 +21,32 @@
             },
             "flatten_regions": {
                 "Flatten_1": [
-                    825,
-                    400,
-                    307,
-                    97
+                    578,
+                    485,
+                    211,
+                    49
                 ]
             },
             "monitor_regions": {
                 "P&L_1": [
-                    2083,
-                    55,
-                    80,
-                    26
+                    2087,
+                    56,
+                    60,
+                    24
                 ]
             }
         },
         "TradingView": {
             "monitoring_regions": {},
-            "flatten_regions": {}
+            "flatten_regions": {},
+            "monitor_regions": {
+                "P&L_1": [
+                    500,
+                    524,
+                    334,
+                    88
+                ]
+            }
         },
         "Tradovate": {
             "monitoring_regions": {},
@@ -47,12 +55,16 @@
     },
     "cold_turkey_blocker": "C:/Program Files/Cold Turkey/Cold Turkey Blocker.exe",
     "block_settings": {
-        "NinjaTrader": "Ninja"
+        "NinjaTrader": "Quantower"
     },
     "verified_blocks": [
         {
             "platform": "NinjaTrader",
             "block_name": "Ninja"
+        },
+        {
+            "platform": "NinjaTrader",
+            "block_name": "Quantower"
         }
     ],
     "stop_loss_threshold": -500.0,
@@ -109,8 +121,8 @@
         },
         "NinjaTrader": {
             "ocr_profile": {
-                "scale_factor": 2.0,
-                "threshold_block_size": 5,
+                "scale_factor": 3.0,
+                "threshold_block_size": 11,
                 "threshold_c": 3,
                 "denoise_h": 10,
                 "denoise_template_window_size": 7,
@@ -120,9 +132,7 @@
                 "additional_params": {}
             },
             "numeric_patterns": {
-                "dollar": "\\$([\\d,]+\\.?\\d*)",
-                "negative": "\\((?:\\$)?([\\d,]+\\.?\\d*)\\)",
-                "regular": "(?<!\\$)(-?[\\d,]+\\.?\\d*)"
+                "dollar": "\\$([\\d,]+\\.?\\d*)"
             },
             "is_enabled": true,
             "additional_settings": {}

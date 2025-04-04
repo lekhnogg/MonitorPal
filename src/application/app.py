@@ -20,6 +20,7 @@ from src.domain.services.i_ui_service import IUIService
 from src.domain.services.i_profile_service import IProfileService
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
 from src.domain.services.i_region_service import IRegionService
+from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
 
 from src.infrastructure.logging.logger_service import ConsoleLoggerService
 from src.infrastructure.threading.qt_background_task_service import QtBackgroundTaskService
@@ -36,6 +37,7 @@ from src.infrastructure.ui.qt_ui_service import QtUIService
 from src.infrastructure.config.profile_service import ProfileService
 from src.infrastructure.platform.platform_selection_service import PlatformSelectionService
 from src.infrastructure.platform.region_service import RegionService
+from src.infrastructure.ocr.ocr_analysis_service import OcrAnalysisService
 
 def initialize_app() -> DIContainer:
     container = DIContainer()
@@ -73,6 +75,14 @@ def initialize_app() -> DIContainer:
         lambda: TesseractOcrService(container.resolve(ILoggerService))
     )
 
+    # Register the OCR analysis service
+    container.register_factory(
+        IOcrAnalysisService,
+        lambda: OcrAnalysisService(
+            logger=container.resolve(ILoggerService)
+        )
+    )
+
     container.register_factory(
         IRegionService,
         lambda: RegionService(
@@ -95,7 +105,8 @@ def initialize_app() -> DIContainer:
         IProfileService,
         lambda: ProfileService(
             config_repository=container.resolve(IConfigRepository),
-            logger=container.resolve(ILoggerService)
+            logger=container.resolve(ILoggerService),
+            ocr_analysis_service=container.resolve(IOcrAnalysisService)
         )
     )
 
@@ -151,7 +162,7 @@ def initialize_app() -> DIContainer:
             platform_detection_service=container.resolve(IPlatformDetectionService),
             config_repository=container.resolve(IConfigRepository),
             logger=container.resolve(ILoggerService),
-            profile_service = container.resolve(IProfileService)
+            profile_service=container.resolve(IProfileService),
         )
     )
 

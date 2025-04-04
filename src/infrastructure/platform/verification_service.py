@@ -50,9 +50,7 @@ class VerificationWorker(Worker[bool]):
             self.check_cancellation()
 
             if verify_result.is_failure:
-                error_message = str(verify_result.error)
-                self.logger.error(f"Verification failed: {error_message}")
-                self.report_error(error_message)
+                self.report_error(str(verify_result.error))
                 return False
 
             return verify_result.value

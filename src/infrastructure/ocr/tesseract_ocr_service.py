@@ -185,21 +185,73 @@ class TesseractOcrService(IOcrService):
             return Result.fail(error)
 
     def _preprocess_with_profile(self, image: Image.Image, profile: OcrProfile) -> Result[Image.Image]:
-        """Preprocess an image using profile parameters."""
+        """Preprocess an image using profile parameters with improved handling for colored text."""
         try:
             self.logger.debug("Preprocessing image with profile parameters")
 
-            # Convert to numpy, grayscale
+            # Convert to numpy
             img_np = np.array(image)
-            if len(img_np.shape) == 3 and img_np.shape[2] >= 3:
-                img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            else:
-                img_gray = img_np
 
-            # Apply color inversion if specified in profile
-            if profile.invert_colors:
+            # Check if the image is color (has 3 channels)
+            is_color = len(img_np.shape) == 3 and img_np.shape[2] >= 3
+
+            # Special handling for red text on dark background
+            if is_color:
+                # Calculate channel averages to detect dominant colors
+                r_avg = np.mean(img_np[:, :, 0])
+                g_avg = np.mean(img_np[:, :, 1])
+                b_avg = np.mean(img_np[:, :, 2])
+
+                # Check if red is the dominant color (red higher than other channels)
+                is_red_dominant = r_avg > g_avg * 1.5 and r_avg > b_avg * 1.5
+
+                # Check if background is dark
+                brightness = (r_avg + g_avg + b_avg) / 3
+                is_dark_bg = brightness < 128
+
+                # For red text on dark background, use red channel with enhanced contrast
+                if is_red_dominant and is_dark_bg:
+                    self.logger.debug("Detected red text on dark background, applying special processing")
+
+                    # Extract just the red channel
+                    red_channel = img_np[:, :, 0].copy()
+
+                    # Apply contrast enhancement to the red channel
+                    # Stretch the histogram to improve contrast
+                    min_val = np.percentile(red_channel, 5)  # 5th percentile for black level
+                    max_val = np.percentile(red_channel, 95)  # 95th percentile for white level
+
+                    # Ensure we don't divide by zero
+                    if max_val > min_val:
+                        # Stretch the histogram
+                        red_channel = np.clip((red_channel - min_val) * (255.0 / (max_val - min_val)), 0, 255).astype(
+                            np.uint8)
+
+                    # Apply morphological operations to enhance thin lines (like - and $)
+                    kernel = np.ones((2, 2), np.uint8)
+                    red_channel = cv2.dilate(red_channel, kernel, iterations=1)
+
+                    # Set this as our grayscale image
+                    img_gray = red_channel
+
+                    # Force inversion for this case, since we're looking for red text
+                    img_gray = cv2.bitwise_not(img_gray)
+
+                    # Skip the standard inversion logic below since we've handled it
+                    skip_standard_inversion = True
+                else:
+                    # Standard grayscale conversion for non-red-text cases
+                    img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+                    skip_standard_inversion = False
+            else:
+                # Non-color image, use as is
+                img_gray = img_np
+                skip_standard_inversion = False
+
+            # Apply color inversion if specified in profile and not already handled
+            if profile.invert_colors and not skip_standard_inversion:
                 self.logger.debug("Inverting image colors")
-                img_gray = cv2.bitwise_not(img_gray)  # Add this line
+                img_gray = cv2.bitwise_not(img_gray)
 
             # Apply profile parameters
             h, w = img_gray.shape
@@ -209,29 +261,32 @@ class TesseractOcrService(IOcrService):
                 interpolation=cv2.INTER_CUBIC
             )
 
+            # For better OCR of financial symbols, we need to adjust the threshold parameters
+            threshold_block_size = profile.threshold_block_size
+            threshold_c = profile.threshold_c
+
+            # Ensure block size is odd
+            if threshold_block_size % 2 == 0:
+                threshold_block_size += 1
+
             img_thresh = cv2.adaptiveThreshold(
                 img_resized,
                 255,
                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                 cv2.THRESH_BINARY,
-                profile.threshold_block_size,
-                profile.threshold_c
+                threshold_block_size,
+                threshold_c
             )
 
+            # Apply less aggressive denoising to preserve thin lines
+            reduced_h = max(5, profile.denoise_h // 2)  # Reduce strength of denoising
             img_denoised = cv2.fastNlMeansDenoising(
                 img_thresh,
                 None,
-                profile.denoise_h,
+                reduced_h,
                 profile.denoise_template_window_size,
                 profile.denoise_search_window_size
             )
-
-            # Apply any additional processing from profile
-            if profile.additional_params:
-                # Example: Apply additional blur if specified
-                if profile.additional_params.get("apply_blur", False):
-                    blur_size = profile.additional_params.get("blur_kernel_size", 3)
-                    img_denoised = cv2.GaussianBlur(img_denoised, (blur_size, blur_size), 0)
 
             # Convert back to PIL Image
             processed_image = Image.fromarray(img_denoised)
@@ -253,6 +308,9 @@ class TesseractOcrService(IOcrService):
 
             # Preprocessing - replace common OCR errors
             text = text.replace(';', '.')  # Replace semicolons with periods (common OCR error)
+
+            # CRITICAL: Always treat tilde as negative sign
+            text = text.replace('~', '-')  # Replace tilde with minus sign
 
             # List to store extracted values
             values = []

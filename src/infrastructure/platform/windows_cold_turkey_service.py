@@ -180,12 +180,11 @@ class WindowsColdTurkeyService(IColdTurkeyService):
 
             return Result.ok(True)
         else:
-            error_msg = (
-                f"Found Cold Turkey window but couldn't find block named '{block_name}' with active blocking. "
-                f"Please check that the block name exactly matches your Cold Turkey configuration."
+            error = PlatformError(
+                message=f"Found Cold Turkey window but couldn't find block named '{block_name}'...",
+                details={"block_name": block_name}
             )
-            self.logger.error(error_msg)
-            return Result.fail(error_msg)
+            return Result.fail(error)
 
     def _safely_activate_window(self, hwnd: int) -> bool:
         """

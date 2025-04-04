@@ -170,14 +170,14 @@ class MonitoringWorker(Worker[bool]):
 
     def _process_check(self) -> Result[MonitoringResult]:
         """Process a single monitoring check."""
-        screenshot_path = os.path.join(
-            self.save_directory,
-            f"check_{self.check_count}_{int(time.time())}.png"
-        )
+        # Generate a consistent filename for this platform/region combination
+        # This will overwrite the previous screenshot each time
+        screenshot_filename = f"{self.platform}_{self.region_name}_current.png"
+        screenshot_path = os.path.join(self.save_directory, screenshot_filename)
 
         self.report_status(f"Capturing screenshot (check #{self.check_count})", "INFO")
 
-        # Capture screenshot
+        # Capture screenshot - overwrites the existing file
         capture_result = self.screenshot_service.capture_and_save(self.region, screenshot_path)
         if capture_result.is_failure:
             self.report_status(f"Failed to capture screenshot: {capture_result.error}", "ERROR")
@@ -225,6 +225,19 @@ class MonitoringWorker(Worker[bool]):
         # Check if the loss exceeds the threshold
         threshold_exceeded = min_value < self.threshold
 
+        # If threshold was exceeded, save an additional timestamped screenshot for historical reference
+        if threshold_exceeded:
+            timestamp_filename = f"{self.platform}_{self.region_name}_{int(time.time())}_exceeded.png"
+            timestamped_path = os.path.join(self.save_directory, timestamp_filename)
+            # Copy the current screenshot instead of capturing again
+            import shutil
+            shutil.copy2(screenshot_path, timestamped_path)
+            # Use the timestamped path in the result for historical reference
+            result_screenshot_path = timestamped_path
+        else:
+            # Use the regular screenshot path for non-exceeded results
+            result_screenshot_path = screenshot_path
+
         # Create result object
         result = MonitoringResult(
             values=values,
@@ -233,86 +246,14 @@ class MonitoringWorker(Worker[bool]):
             threshold_exceeded=threshold_exceeded,
             raw_text=extracted_text,
             timestamp=time.time(),
-            region_name=self.region_name,  # Add the region name
-            screenshot_path=screenshot_path
+            region_name=self.region_name,
+            screenshot_path=result_screenshot_path
         )
 
         self.report_status(f"Detected values: {values}", "INFO")
         self.report_status(f"Current value: ${min_value:.2f}", "INFO")
 
         return Result.ok(result)
-
-    # In monitoring_service.py -> _process_check_standard method
-    def _process_check_standard(self, screenshot_path: str) -> Result[MonitoringResult]:
-        """Fallback method using standard OCR processing, but with default profile."""
-        self.report_status("Using standard OCR processing with default profile", "INFO")
-
-        try:
-            # Import OcrProfile
-            from src.domain.models.platform_profile import OcrProfile
-
-            # Create a default profile
-            default_profile = OcrProfile()
-
-            # Create default patterns
-            default_patterns = {
-                "dollar": r'\$([\d,]+\.?\d*)',
-                "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
-                "negative_dash": r'-\$?([\d,]+\.?\d*)',
-                "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
-            }
-
-            # Extract text from screenshot
-            image = Image.open(screenshot_path)
-            extract_result = self.ocr_service.extract_text_with_profile(image, default_profile)
-            if extract_result.is_failure:
-                self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
-                return Result.fail(extract_result.error)
-
-            extracted_text = extract_result.value
-
-            # Extract numeric values from text
-            extract_values_result = self.ocr_service.extract_numeric_values_with_patterns(
-                extracted_text, default_patterns)
-            if extract_values_result.is_failure:
-                self.report_status(f"Failed to extract numeric values: {extract_values_result.error}", "ERROR")
-                return Result.fail(extract_values_result.error)
-
-            values = extract_values_result.value
-
-            if len(values) == 0:
-                error = ValidationError(
-                    message="No numeric values detected in the OCR text",
-                    details={"screenshot_path": screenshot_path}
-                )
-                self.report_status("No numeric values detected in the OCR text", "WARNING")
-                return Result.fail(error)
-
-            # Find the minimum value (most negative)
-            min_value = min(values)
-
-            # Check if the loss exceeds the threshold
-            threshold_exceeded = min_value < self.threshold
-
-            # Create result object
-            result = MonitoringResult(
-                values=values,
-                minimum_value=min_value,
-                threshold=self.threshold,
-                threshold_exceeded=threshold_exceeded,
-                raw_text=extracted_text,
-                timestamp=time.time(),
-                screenshot_path=screenshot_path
-            )
-
-            self.report_status(f"Detected values: {values}", "INFO")
-            self.report_status(f"Current value: ${min_value:.2f}", "INFO")
-
-            return Result.ok(result)
-        except Exception as e:
-            error_msg = f"Error in standard processing: {str(e)}"
-            self.report_status(error_msg, "ERROR")
-            return Result.fail(error_msg)
 
     def report_status(self, message: str, level: str) -> None:
         """Report a status update."""
@@ -345,7 +286,7 @@ class MonitoringService(IMonitoringService):
         self.platform_detection_service = platform_detection_service
         self.config_repository = config_repository
         self.logger = logger
-        self.profile_service = profile_service  # Add this line
+        self.profile_service = profile_service
 
         # Internal state
         self.monitoring_active = False
@@ -427,7 +368,7 @@ class MonitoringService(IMonitoringService):
             worker = MonitoringWorker(
                 platform=platform,
                 region=region,
-                region_name=region_name,  # Add this parameter
+                region_name=region_name,
                 threshold=threshold,
                 interval_seconds=interval_seconds,
                 screenshot_service=self.screenshot_service,
