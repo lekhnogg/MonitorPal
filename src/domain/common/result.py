@@ -6,10 +6,11 @@ Result pattern implementation for error handling.
 The Result pattern allows methods to return either a success value or a failure with an error message,
 avoiding the need for exceptions for expected error conditions.
 """
-from typing import TypeVar, Generic, Optional, Union, Any, Callable, Dict
+from typing import TypeVar, Generic, Optional, Union, Any, Callable, Dict, List
 
-# Import the new domain error types
+# Import the domain error types
 from src.domain.common.errors import DomainError
+from src.domain.services.i_logger_service import ILoggerService
 
 T = TypeVar('T')
 U = TypeVar('U')
@@ -173,6 +174,28 @@ class Result(Generic[T]):
             action(self._error)
         return self
 
+    def on_either(self,
+                  success_action: Optional[Callable[[T], None]] = None,
+                  failure_action: Optional[Callable[[DomainError], None]] = None) -> 'Result[T]':
+        """
+        Execute success or failure action, whichever is appropriate.
+
+        This is a convenience method that combines on_success and on_failure.
+
+        Args:
+            success_action: Action to execute on success
+            failure_action: Action to execute on failure
+
+        Returns:
+            Self for method chaining
+        """
+        if self.is_success and success_action:
+            success_action(self._value)
+        elif self.is_failure and failure_action:
+            failure_action(self._error)
+
+        return self
+
     def and_then(self, func: Callable[[T], 'Result[U]']) -> 'Result[U]':
         """
         Chain another operation that returns a Result.
@@ -187,6 +210,120 @@ class Result(Generic[T]):
             return func(self._value)
         else:
             return Result.fail(self._error)
+
+    def with_logging(self,
+                     logger: ILoggerService,
+                     success_message: Optional[str] = None,
+                     error_message: Optional[str] = None,
+                     context: Optional[str] = None) -> 'Result[T]':
+        """
+        Log success or failure with custom messages.
+
+        Args:
+            logger: Logger for error reporting
+            success_message: Optional custom success message
+            error_message: Optional custom error message
+            context: Optional context information for error messages
+
+        Returns:
+            Self for method chaining
+        """
+        context_str = f"[{context}] " if context else ""
+
+        if self.is_success:
+            if success_message:
+                logger.info(f"{context_str}{success_message}")
+        else:
+            msg = error_message or f"Operation failed: {self._error}"
+            logger.error(f"{context_str}{msg}")
+
+        return self
+
+    def with_ui_feedback(self,
+                         ui_feedback_func: Callable[[str, str], None],
+                         success_message: Optional[str] = None,
+                         error_message: Optional[str] = None,
+                         success_level: str = "SUCCESS",
+                         error_level: str = "ERROR",
+                         context: Optional[str] = None) -> 'Result[T]':
+        """
+        Provide UI feedback based on result status.
+
+        Args:
+            ui_feedback_func: Function that takes (message, level) for UI feedback
+            success_message: Optional custom success message
+            error_message: Optional custom error message
+            success_level: Level indicator for success messages
+            error_level: Level indicator for error messages
+            context: Optional context information for error messages
+
+        Returns:
+            Self for method chaining
+        """
+        context_str = f"[{context}] " if context else ""
+
+        if self.is_success:
+            if success_message:
+                ui_feedback_func(f"{context_str}{success_message}", success_level)
+        else:
+            msg = error_message or f"Operation failed: {self._error}"
+            ui_feedback_func(f"{context_str}{msg}", error_level)
+
+        return self
+
+    def handle_ui_state(self,
+                        success_state_updater: Optional[Callable[[], None]] = None,
+                        failure_state_updater: Optional[Callable[[], None]] = None) -> 'Result[T]':
+        """
+        Update UI state based on result status.
+
+        Args:
+            success_state_updater: Function to update UI state on success
+            failure_state_updater: Function to update UI state on failure
+
+        Returns:
+            Self for method chaining
+        """
+        if self.is_success and success_state_updater:
+            success_state_updater()
+        elif self.is_failure and failure_state_updater:
+            failure_state_updater()
+
+        return self
+
+    def unwrap_or(self, default: U) -> Union[T, U]:
+        """
+        Get the value or a default if the result is a failure.
+
+        Args:
+            default: Default value to return on failure
+
+        Returns:
+            The success value or the default value
+        """
+        if self.is_success:
+            return self._value
+        return default
+
+    def unwrap_or_raise(self) -> T:
+        """
+        Get the value or raise an exception if the result is a failure.
+
+        Returns:
+            The success value
+
+        Raises:
+            Exception: The error wrapped in the result if it's a failure
+        """
+        if self.is_success:
+            return self._value
+
+        # If the error is already an exception, raise it directly
+        if isinstance(self._error, Exception):
+            raise self._error
+
+        # Otherwise convert to an exception
+        raise Exception(str(self._error))
 
     @classmethod
     def from_operation(cls, operation_func, logger, error_type, error_message, **kwargs):
@@ -300,3 +437,49 @@ class Result(Generic[T]):
             return cls.ok(data.get("value"))
         else:
             return cls.fail(data.get("error", "Unknown error"))
+
+    @classmethod
+    def handle_ui_result(cls,
+                         result: 'Result[T]',
+                         logger: ILoggerService,
+                         ui_feedback_func: Callable[[str, str], None],
+                         success_message: Optional[str] = None,
+                         error_message: Optional[str] = None,
+                         context: Optional[str] = None,
+                         on_success: Optional[Callable[[T], Any]] = None,
+                         on_failure: Optional[Callable[[DomainError], Any]] = None) -> Optional[Any]:
+        """
+        Standardized method for handling results in UI contexts.
+
+        Args:
+            result: The Result object to handle
+            logger: Logger for error reporting
+            ui_feedback_func: Function to log messages to the UI
+            success_message: Optional custom success message
+            error_message: Optional custom error message
+            context: Optional context information for error messages
+            on_success: Optional callback for success case
+            on_failure: Optional callback for failure case
+
+        Returns:
+            The result value if successful and no on_success callback is provided,
+            otherwise the return value of the callback or None on failure
+        """
+        context_str = f"[{context}] " if context else ""
+
+        if result.is_success:
+            if success_message:
+                ui_feedback_func(f"{context_str}{success_message}", "SUCCESS")
+                logger.info(f"{context_str}{success_message}")
+
+            if on_success:
+                return on_success(result.value)
+            return result.value
+        else:
+            msg = error_message or f"Operation failed: {result.error}"
+            ui_feedback_func(f"{context_str}{msg}", "ERROR")
+            logger.error(f"{context_str}{msg}")
+
+            if on_failure:
+                return on_failure(result.error)
+            return None

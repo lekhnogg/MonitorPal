@@ -753,31 +753,33 @@ class TradingMonitorTestApp(QMainWindow):
         try:
             self.log_message(f"Loading profile for {platform}...", "INFO")
 
-            # Get profile from service
-            result = self.profile_service.get_profile(platform)
-
-            if result.is_success:
-                profile = result.value
-
-                # Update UI with profile values
-                # OCR profile
-                ocr = profile.ocr_profile
-                self.scale_factor_spin.setValue(ocr.scale_factor)
-                self.block_size_spin.setValue(ocr.threshold_block_size)
-                self.c_value_spin.setValue(ocr.threshold_c)
-                self.denoise_h_spin.setValue(ocr.denoise_h)
-                self.config_text.setText(ocr.tesseract_config)
-                self.invert_colors_check.setChecked(ocr.invert_colors)
-
-                # Also load regions for the profile tab
-                self._load_profile_regions()
-
-                self.log_message(f"Profile loaded for {platform}", "SUCCESS")
-            else:
-                self.log_message(f"Failed to load profile: {result.error}", "ERROR")
+            # Use static handler for cleaner code
+            Result.handle_ui_result(
+                result=self.profile_service.get_profile(platform),
+                logger=self.logger,
+                ui_feedback_func=self.log_message,
+                success_message=f"Profile loaded for {platform}",
+                error_message=f"Failed to load profile for {platform}",
+                context="Profile loading",
+                on_success=self._update_profile_ui
+            )
         except Exception as e:
             self.log_message(f"Error loading profile: {str(e)}", "ERROR")
             self.logger.error(f"Error loading profile: {e}", exc_info=True)
+
+    def _update_profile_ui(self, profile):
+        """Update UI with profile values."""
+        # OCR profile
+        ocr = profile.ocr_profile
+        self.scale_factor_spin.setValue(ocr.scale_factor)
+        self.block_size_spin.setValue(ocr.threshold_block_size)
+        self.c_value_spin.setValue(ocr.threshold_c)
+        self.denoise_h_spin.setValue(ocr.denoise_h)
+        self.config_text.setText(ocr.tesseract_config)
+        self.invert_colors_check.setChecked(ocr.invert_colors)
+
+        # Also load regions for the profile tab
+        self._load_profile_regions()
 
     def _save_platform_profile(self):
         """Save the current profile settings."""
@@ -861,27 +863,34 @@ class TradingMonitorTestApp(QMainWindow):
         try:
             self.verified_list.clear()
 
-            blocks = self._handle_result(
-                self.verification_service.get_verified_blocks(),
-                error_message="Failed to get verified blocks"
+            # Use direct result handling
+            Result.handle_ui_result(
+                result=self.verification_service.get_verified_blocks(),
+                logger=self.logger,
+                ui_feedback_func=self.log_message,
+                error_message="Failed to get verified blocks",
+                context="Blocks refresh",
+                on_success=self._update_verified_blocks_list
             )
-
-            if blocks:
-                for block in blocks:
-                    platform = block.get("platform", "Unknown")
-                    block_name = block.get("block_name", "Unknown")
-                    item = QListWidgetItem(f"{platform}: {block_name}")
-                    self.verified_list.addItem(item)
-
-                if not blocks:
-                    self.verified_list.addItem("No verified blocks found")
-
-                self.log_message(f"Found {len(blocks)} verified blocks", "INFO")
-            else:
-                self.verified_list.addItem("Error loading verified blocks")
         except Exception as e:
             self.log_message(f"Error refreshing verified blocks: {str(e)}", "ERROR")
             self.logger.error(f"Error refreshing verified blocks: {e}", exc_info=True)
+
+    def _update_verified_blocks_list(self, blocks):
+        """Update the verified blocks list with data."""
+        if blocks:
+            for block in blocks:
+                platform = block.get("platform", "Unknown")
+                block_name = block.get("block_name", "Unknown")
+                item = QListWidgetItem(f"{platform}: {block_name}")
+                self.verified_list.addItem(item)
+
+            if not blocks:
+                self.verified_list.addItem("No verified blocks found")
+
+            self.log_message(f"Found {len(blocks)} verified blocks", "INFO")
+        else:
+            self.verified_list.addItem("No blocks found")
 
     def _on_global_platform_changed(self, platform: str) -> None:
         """Handle global platform change."""
@@ -934,15 +943,17 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _on_browse_ct_path(self):
         """Browse for Cold Turkey Blocker executable."""
-        result = self.ui_service.select_file(
+        self.ui_service.select_file(
             "Select Cold Turkey Blocker Executable",
             "Executables (*.exe);;All Files (*)"
+        ).on_success(
+            lambda file_path: self._update_ct_path(file_path) if file_path else None
         )
 
-        if result.is_success and result.value:
-            file_path = result.value
-            self.ct_path_input.setText(file_path)
-            self.log_message(f"Selected Cold Turkey path: {file_path}", "INFO")
+    def _update_ct_path(self, file_path):
+        """Update the CT path input field."""
+        self.ct_path_input.setText(file_path)
+        self.log_message(f"Selected Cold Turkey path: {file_path}", "INFO")
 
     def _on_save_ct_path(self):
         """Save the Cold Turkey Blocker path."""
@@ -954,11 +965,11 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message(f"Validation error: {validation.error}", "WARNING")
             return
 
-        result = self.cold_turkey_service.set_blocker_path(path)
-        if result.is_success:
-            self.log_message("Cold Turkey path saved successfully", "SUCCESS")
-        else:
-            self.log_message(f"Failed to save path: {result.error}", "ERROR")
+        self.cold_turkey_service.set_blocker_path(path).with_ui_feedback(
+            ui_feedback_func=self.log_message,
+            success_message="Cold Turkey path saved successfully",
+            error_message="Failed to save path"
+        )
 
     def _on_detect_platform(self):
         """Detect platform in background thread but keep activation on UI thread."""
@@ -1331,23 +1342,28 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message("Cold Turkey Blocker path not configured", "ERROR")
             return
 
-        # Run verification with cancellable=False to wait for completion
-        # This is for testing purposes - in a production app, you might want to keep it cancellable
-        result = self.verification_service.verify_platform_block(
+        # Run verification with proper boolean result handling
+        self.verification_service.verify_platform_block(
             platform=platform,
             block_name=block_name,
-            cancellable=False  # Changed to False to wait for completion
+            cancellable=False
+        ).on_success(
+            # This function receives the boolean value indicating if verification worked
+            lambda verification_succeeded:
+            # If verification truly succeeded (the boolean is True)
+            self._handle_successful_verification(block_name)
+            if verification_succeeded else
+            # If Result is success but verification didn't work (boolean is False)
+            self.log_message("Verification completed but did not succeed.", "WARNING")
+        ).on_failure(
+            # Handle case where Result itself failed (error occurred)
+            lambda error: self.log_message(f"Verification failed: {error}", "ERROR")
         )
 
-        if result.is_success:
-            if result.value:
-                self.log_message(f"Verification successful! Block '{block_name}' is correctly configured.", "SUCCESS")
-                # Refresh the verified blocks list
-                self._refresh_verified_blocks()
-            else:
-                self.log_message("Verification completed but did not succeed.", "WARNING")
-        else:
-            self.log_message(f"Verification failed: {result.error}", "ERROR")
+    def _handle_successful_verification(self, block_name):
+        """Handle a successful verification."""
+        self.log_message(f"Verification successful! Block '{block_name}' is correctly configured.", "SUCCESS")
+        self._refresh_verified_blocks()
 
     def _on_clear_verified_blocks(self):
         """Clear all verified blocks."""
@@ -1360,18 +1376,17 @@ class TradingMonitorTestApp(QMainWindow):
         )
 
         if confirm == QMessageBox.Yes:
-            result = self.verification_service.clear_verified_blocks()
-
-            if result.is_success:
-                self.log_message("All verified blocks cleared", "SUCCESS")
-                self._refresh_verified_blocks()
-            else:
-                self.log_message(f"Failed to clear verified blocks: {result.error}", "ERROR")
+            self.verification_service.clear_verified_blocks().with_ui_feedback(
+                ui_feedback_func=self.log_message,
+                success_message="All verified blocks cleared",
+                error_message="Failed to clear verified blocks"
+            ).on_success(
+                lambda _: self._refresh_verified_blocks()
+            )
 
     def _on_start_monitoring(self):
         """Start monitoring for P&L losses."""
         platform = self.platform_selection_service.get_current_platform()
-
         threshold = self.threshold_spin.value()
 
         # Ensure threshold is negative
@@ -1384,13 +1399,17 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message("No monitoring region selected", "ERROR")
             return
 
-        # Get region details
-        region_result = self.region_service.get_region(platform, "monitor", region_name)
-        if region_result.is_failure:
-            self.log_message(f"Failed to get region: {region_result.error}", "ERROR")
-            return
+        # Get region details with enhanced result handling
+        self.region_service.get_region(platform, "monitor", region_name).with_ui_feedback(
+            ui_feedback_func=self.log_message,
+            error_message=f"Failed to get region: {region_name}",
+            context="Monitoring setup"
+        ).on_success(
+            lambda region: self._start_monitoring_with_region(platform, region, region_name, threshold)
+        )
 
-        region = region_result.value
+    def _start_monitoring_with_region(self, platform, region, region_name, threshold):
+        """Start monitoring with retrieved region."""
         coordinates = region.coordinates
 
         self.log_message(f"Starting monitoring for {platform} with region '{region_name}'...", "INFO")
@@ -1410,36 +1429,40 @@ class TradingMonitorTestApp(QMainWindow):
             self.lockout_status.append(f"Threshold exceeded! Detected value: ${result.minimum_value}")
 
             # Update UI state
-            self.start_monitor_btn.setEnabled(True)
-            self.stop_monitor_btn.setEnabled(False)
-            self.is_monitoring = False
+            self._update_monitoring_state(False)
 
             # Automatically trigger lockout
             self._on_trigger_lockout()
 
-        # Start monitoring
+        # Start monitoring with enhanced result handling
         try:
-            result = self.monitoring_service.start_monitoring(
+            self.monitoring_service.start_monitoring(
                 platform=platform,
                 region=coordinates,
                 region_name=region_name,
                 threshold=threshold,
-                interval_seconds=2.0,  # Check every 2 seconds
+                interval_seconds=2.0,
                 on_status_update=on_status_update,
                 on_threshold_exceeded=on_threshold_exceeded,
                 on_error=lambda msg: self.log_message(f"Error: {msg}", "ERROR")
+            ).with_ui_feedback(
+                ui_feedback_func=self.log_message,
+                success_message="Monitoring started successfully",
+                error_message="Failed to start monitoring"
+            ).handle_ui_state(
+                success_state_updater=lambda: self._update_monitoring_state(True),
+                failure_state_updater=lambda: self._update_monitoring_state(False)
             )
-
-            if result.is_success:
-                self.is_monitoring = True
-                self.start_monitor_btn.setEnabled(False)
-                self.stop_monitor_btn.setEnabled(True)
-                self.log_message("Monitoring started successfully", "SUCCESS")
-            else:
-                self.log_message(f"Failed to start monitoring: {result.error}", "ERROR")
         except Exception as e:
             self.log_message(f"Error starting monitoring: {str(e)}", "ERROR")
             self.logger.error(f"Error starting monitoring: {e}", exc_info=True)
+            self._update_monitoring_state(False)
+
+    def _update_monitoring_state(self, is_active):
+        """Update UI state based on monitoring activity."""
+        self.is_monitoring = is_active
+        self.start_monitor_btn.setEnabled(not is_active)
+        self.stop_monitor_btn.setEnabled(is_active)
 
     def _on_stop_monitoring(self):
         """Stop monitoring for P&L losses."""
@@ -1448,36 +1471,34 @@ class TradingMonitorTestApp(QMainWindow):
             return
 
         try:
-            result = self.monitoring_service.stop_monitoring()
-
-            if result.is_success:
-                self.log_message("Monitoring stopped", "INFO")
-                self.is_monitoring = False
-                self.start_monitor_btn.setEnabled(True)
-                self.stop_monitor_btn.setEnabled(False)
-            else:
-                self.log_message(f"Failed to stop monitoring: {result.error}", "ERROR")
+            self.monitoring_service.stop_monitoring().with_ui_feedback(
+                ui_feedback_func=self.log_message,
+                success_message="Monitoring stopped",
+                error_message="Failed to stop monitoring"
+            ).handle_ui_state(
+                success_state_updater=lambda: self._update_monitoring_state(False),
+                failure_state_updater=lambda: self._update_monitoring_state(False)
+                # Always update UI state even on failure
+            )
         except Exception as e:
             self.log_message(f"Error stopping monitoring: {str(e)}", "ERROR")
             self.logger.error(f"Error stopping monitoring: {e}", exc_info=True)
-
-            # Ensure UI is in a consistent state even if error occurs
-            self.is_monitoring = False
-            self.start_monitor_btn.setEnabled(True)
-            self.stop_monitor_btn.setEnabled(False)
+            self._update_monitoring_state(False)  # Ensure UI consistency
 
     def _on_trigger_lockout(self):
         """Manually trigger the lockout sequence."""
         platform = self.platform_selection_service.get_current_platform()
         duration = self.duration_spin.value()
 
-        # Get flatten regions
-        regions_result = self.region_service.get_regions_by_platform(platform, "flatten")
-        if regions_result.is_failure:
-            self.log_message(f"Failed to get flatten regions: {regions_result.error}", "ERROR")
-            return
+        # Get flatten regions with enhanced result handling
+        self.region_service.get_regions_by_platform(platform, "flatten").with_ui_feedback(
+            ui_feedback_func=self.log_message,
+            error_message="Failed to get flatten regions",
+            context="Lockout preparation"
+        ).on_success(lambda regions: self._prepare_lockout(platform, regions, duration))
 
-        flatten_regions = regions_result.value
+    def _prepare_lockout(self, platform, flatten_regions, duration):
+        """Prepare lockout with retrieved flatten regions."""
         if not flatten_regions:
             self.log_message("No flatten regions defined", "ERROR")
             return
@@ -1512,18 +1533,17 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message(message, level)
             self.lockout_status.append(f"[{level}] {message}")
 
-        # Execute lockout
-        result = self.lockout_service.perform_lockout(
+        # Execute lockout with enhanced result handling
+        self.lockout_service.perform_lockout(
             platform=platform,
             flatten_positions=flatten_positions,
             lockout_duration=duration,
             on_status_update=on_status_update
+        ).with_ui_feedback(
+            ui_feedback_func=self.log_message,
+            success_message="Lockout sequence initiated",
+            error_message="Failed to initiate lockout"
         )
-
-        if result.is_success:
-            self.log_message("Lockout sequence initiated", "SUCCESS")
-        else:
-            self.log_message(f"Failed to initiate lockout: {result.error}", "ERROR")
 
     def log_message(self, message, level="INFO"):
         """Log a message to both the UI and the logger."""
@@ -1966,13 +1986,14 @@ class TradingMonitorTestApp(QMainWindow):
     def _handle_result(self, result: Result, success_message=None, error_message="Operation failed",
                        error_level="ERROR"):
         """Standard handler for Result objects."""
-        if result.is_success:
-            if success_message:
-                self.log_message(success_message, "SUCCESS")
-            return result.value
-        else:
-            self.log_message(f"{error_message}: {result.error}", error_level)
-            return None
+        return Result.handle_ui_result(
+            result=result,
+            logger=self.logger,
+            ui_feedback_func=self.log_message,
+            success_message=success_message,
+            error_message=error_message,
+            context=None
+        )
 
     def _validate_input(self, input_value: str, field_name: str) -> Result:
         """Validate user input and return a Result object."""
