@@ -19,7 +19,7 @@ import time
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 import traceback
-
+import dataclasses
 from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
 from src.domain.services.i_region_service import IRegionService
 from src.domain.models.platform_profile import PlatformProfile, OcrProfile
@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QTextEdit, QMessageBox, QTabWidget, QFileDialog, QLineEdit, QGroupBox, QComboBox,
     QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QScrollArea, QFrame,
-    QButtonGroup, QRadioButton
+    QButtonGroup, QRadioButton, QProgressBar
 )
 from PySide6.QtGui import QPixmap, QColor, QTextCursor
 from PySide6.QtCore import Qt, QSize, QObject, Signal, QThread
@@ -175,6 +175,316 @@ class RegionComboBox(QComboBox):
             return self.regions[idx]["screenshot"]
         return None
 
+
+class CalibrationWorker(Worker[Dict[str, Any]]):
+    """Worker that attempts to find OCR parameters that match an expected value."""
+
+    def __init__(self,
+                 image_path: str,
+                 expected_value: str,
+                 ocr_service: IOcrService,
+                 ocr_analysis_service: IOcrAnalysisService,
+                 logger: ILoggerService):
+        super().__init__()
+        self.image_path = image_path
+        self.expected_value = expected_value
+        self.ocr_service = ocr_service
+        self.ocr_analysis_service = ocr_analysis_service
+        self.logger = logger
+
+        # For progress reporting - will be calculated
+        self.total_attempts = 0
+        self.current_attempt = 0
+
+    def execute(self) -> Optional[Dict[str, Any]]:
+        """Try different OCR parameters and patterns until expected value is found."""
+        self.report_started()
+        self.report_progress(0, "Starting calibration...")
+
+        # Clean the expected value once
+        try:
+            clean_expected_str = self._clean_numeric_string(self.expected_value)
+            target_value = float(clean_expected_str)
+            self.logger.info(f"Cleaned expected value: '{self.expected_value}' -> Target float: {target_value}")
+        except ValueError:
+            self.report_error(f"Invalid expected value entered: {self.expected_value}")
+            return None
+
+        # Load the image
+        try:
+            import PIL.Image
+            image = PIL.Image.open(self.image_path)
+        except Exception as e:
+            self.report_error(f"Failed to load image: {e}")
+            return None
+
+        # Phase 1: Get baseline OCR parameters
+        self.report_progress(5, "Detecting baseline OCR parameters...")
+        ocr_result = self.ocr_analysis_service.detect_optimal_ocr_parameters(self.image_path)
+        if ocr_result.is_failure:
+            self.report_error(f"Failed to detect baseline OCR parameters: {ocr_result.error}")
+            # Optionally, create a very basic default profile to continue?
+            # base_profile = OcrProfile()
+            # self.logger.warning("Using default OCR profile as baseline detection failed.")
+            # Or simply fail:
+            return None
+        base_profile = ocr_result.value
+        self.logger.info(f"Baseline OCR profile detected: {base_profile}")
+
+        # Phase 2: Generate OCR Profile Variations to Test
+        profiles_to_try = self._generate_ocr_profile_variations(base_profile)
+        self.logger.info(f"Generated {len(profiles_to_try)} OCR profile variations to test.")
+
+        # Phase 3: Generate Robust Pattern Sets
+        patterns_to_try = self._generate_pattern_variations() # Use enhanced version
+        self.logger.info(f"Generated {len(patterns_to_try)} pattern set variations to test.")
+
+        # Calculate total attempts for progress bar
+        self.total_attempts = len(profiles_to_try) * len(patterns_to_try)
+        if self.total_attempts == 0:
+            self.report_error("No OCR profiles or pattern sets generated to test.")
+            return None
+
+        # Phase 4: Nested Loop Testing
+        best_match_info = None
+        min_difference = float('inf')
+        self.current_attempt = 0
+
+        for i, current_profile in enumerate(profiles_to_try):
+            self.logger.debug(f"Testing OCR Profile {i+1}/{len(profiles_to_try)}: {current_profile}")
+
+            # Run OCR with the current profile variation
+            # Use a copy of the image for each OCR attempt if preprocessing modifies it in place
+            image_copy = image.copy()
+            extract_result = self.ocr_service.extract_text_with_profile(image_copy, current_profile)
+
+            if extract_result.is_failure:
+                self.logger.warning(f"OCR failed for profile {i+1}: {extract_result.error}")
+                # Increment attempt count even on OCR failure for progress calculation
+                self.current_attempt += len(patterns_to_try)
+                continue # Skip to next profile if OCR itself fails
+
+            extracted_text = extract_result.value
+            self.logger.debug(f"  Profile {i+1} Extracted text: '{extracted_text}'")
+
+            if not extracted_text or not extracted_text.strip():
+                 self.logger.debug("  Skipping pattern matching for empty/whitespace text.")
+                 self.current_attempt += len(patterns_to_try)
+                 continue
+
+            for j, pattern_set in enumerate(patterns_to_try):
+                self.current_attempt += 1
+                # Avoid division by zero if total_attempts is somehow 0
+                progress_pct = int((self.current_attempt / self.total_attempts) * 90) + 5 if self.total_attempts > 0 else 5 # Scale 5-95%
+                self.report_progress(progress_pct, f"Testing profile {i+1}, pattern set {j+1}...")
+
+                if self.cancel_requested:
+                    self.report_error("Calibration cancelled")
+                    return None
+
+                # Extract numeric values using the current patterns AND improved cleaning (Step 2)
+                # This call relies on your OcrService having the improved cleaning logic
+                numeric_result = self.ocr_service.extract_numeric_values_with_patterns(extracted_text, pattern_set)
+
+                if numeric_result.is_success and numeric_result.value:
+                    extracted_values = numeric_result.value
+                    self.logger.debug(f"    Pattern set {j+1} extracted: {extracted_values}")
+
+                    for value in extracted_values:
+                        difference = abs(value - target_value)
+
+                        # Exact match?
+                        if difference < 0.001: # Allow tiny float differences
+                            self.report_progress(100, f"Found exact match: {value}")
+                            self.logger.info(f"Exact match found with profile {i+1} and pattern set {j+1}")
+                            return {
+                                "ocr_profile": current_profile,
+                                "patterns": pattern_set,
+                                "extracted_text": extracted_text,
+                                "matched_value": value
+                            }
+
+                        # Track closest match
+                        if difference < min_difference:
+                             self.logger.debug(f"      New best match: {value} (Diff: {difference}, Prev Diff: {min_difference})")
+                             min_difference = difference
+                             best_match_info = {
+                                 "ocr_profile": current_profile,
+                                 "patterns": pattern_set,
+                                 "extracted_text": extracted_text,
+                                 "matched_value": value,
+                                 "difference": difference
+                             }
+                elif numeric_result.is_failure:
+                     self.logger.debug(f"    Pattern set {j+1} extraction failed: {numeric_result.error}")
+                else: # Success but no values found
+                    self.logger.debug(f"    Pattern set {j+1} extracted no values.")
+
+
+        # Phase 5: No Exact Match Found - Return Best Attempt?
+        if best_match_info and min_difference < 1.0: # Use tolerance (e.g., $1.00)
+            self.report_progress(95, f"Found close match: {best_match_info['matched_value']} (diff: {min_difference:.2f})")
+            self.logger.info(f"Using closest match (difference {min_difference:.2f}) found with profile variation and pattern set.")
+            return best_match_info
+        elif best_match_info:
+             self.logger.warning(f"Closest match found had difference {min_difference:.2f} (Tolerance: 1.0). Failing calibration.")
+
+
+        self.report_error("Could not find matching OCR profile and pattern combination.")
+        self.logger.error("Calibration failed: No suitable combination found after trying variations.")
+        return None
+
+    def _clean_numeric_string(self, value_str: str) -> str:
+        """Remove non-numeric characters except for decimal point and negative sign."""
+        if not isinstance(value_str, str):
+            return ""
+        # Handle parentheses for negative values
+        temp_str = value_str.strip()
+        is_negative_paren = False
+        if temp_str.startswith('(') and temp_str.endswith(')'):
+            is_negative_paren = True
+            temp_str = temp_str[1:-1] # Remove parens
+
+        # Remove currency symbols, thousands separators (commas NOT next to digits), whitespace
+        # Be careful not to remove comma if it's the decimal separator yet
+        cleaned = re.sub(r'[^\d.,~–—-]+', '', temp_str) # Allow range of dashes
+
+        # Standardize decimal separator to '.'
+        cleaned = cleaned.replace(',', '.')
+
+        # Prepend '-' if it was negative
+        if is_negative_paren or value_str.strip().startswith(('-', '~', '–', '—')):
+             if not cleaned.startswith('-'):
+                  cleaned = '-' + cleaned
+
+        # Ensure only one decimal point if multiple resulted from replace
+        if cleaned.count('.') > 1:
+            parts = cleaned.split('.')
+            cleaned = parts[0] + '.' + "".join(parts[1:])
+
+        # Remove leading/trailing non-numerics that might remain
+        cleaned = re.sub(r'^[^\d-]+', '', cleaned) # Remove leading non-digit except '-'
+        cleaned = re.sub(r'[^\d]+$', '', cleaned) # Remove trailing non-digit
+
+        return cleaned
+
+
+    def _generate_pattern_variations(self) -> List[Dict[str, str]]:
+        """Generate different pattern variations to try (NOW MORE ROBUST)."""
+        variations = []
+        # Define base patterns with flexibility
+        base = {
+            # Optional $ or §, digits/commas, optional . or ,, digits
+            "dollar": r'[$§]?([\d,]+(?:[.,]\d+)?)', # Simplified: require decimal only if digits follow
+            # Negative via parens, allow optional $ or § inside
+            "negative": r'\((?:[$§]?)([\d,]+(?:[.,]\d+)?)\)',
+            # Negative via dash/tilde/etc., allow optional $ or §
+            "negative_dash": r'[-~–—]\s*[$§]?([\d,]+(?:[.,]\d+)?)', # Added optional space after sign
+            # Regular number, allow leading sign, ensure not preceded by $ or §
+            "regular": r'(?<![$§])([-~–—]?[\d,]+(?:[.,]\d+)?)'
+        }
+
+        # Add variations (e.g., individual patterns, combined patterns)
+        # Individual attempts might be faster if only one format exists
+        variations.append({"dollar": base["dollar"]})
+        variations.append({"negative": base["negative"]})
+        variations.append({"negative_dash": base["negative_dash"]})
+        variations.append({"regular": base["regular"]})
+        variations.append(base.copy()) # Add the combined set
+
+        # Add platform-specific patterns if needed (can be refined)
+        # Example: Detect platform based on expected value format? Or pass platform context?
+        # if '@' in self.expected_value: # Simple heuristic
+        #      base_ninja = base.copy()
+        #      base_ninja["ninja_at"] = r'@\s*([-~–—]?[\d,]+(?:[.,]\d+)?)'
+        #      variations.append(base_ninja)
+        # if 'PNL' in self.expected_value:
+        #     base_tv = base.copy()
+        #     base_tv["pnl_label"] = r'PNL[:\s]+([-~–—]?[\d,]+(?:[.,]\d+)?)'
+        #     variations.append(base_tv)
+
+        return variations
+
+
+    def _generate_ocr_profile_variations(self, base_profile: OcrProfile) -> List[OcrProfile]:
+        """Generate a list of OCR profiles to try, based on the baseline."""
+        # Use dataclasses.replace for easy modification
+        variations = [base_profile] # Start with the baseline
+
+        # --- Define ranges/options to try ---
+        # Use sets to avoid duplicates easily
+        scale_factors = {base_profile.scale_factor,
+                         max(1.0, base_profile.scale_factor - 0.5),
+                         base_profile.scale_factor + 0.5,
+                         base_profile.scale_factor + 1.0}
+        denoise_hs = {base_profile.denoise_h,
+                      max(1, base_profile.denoise_h - 5), # Wider range
+                      base_profile.denoise_h + 5}
+        invert_options = {base_profile.invert_colors, not base_profile.invert_colors}
+
+        # Thresholds: Try baseline and one/two alternatives +/- 4 or 2
+        threshold_sets = {(base_profile.threshold_block_size, base_profile.threshold_c)}
+        alt_block1 = base_profile.threshold_block_size + 4
+        alt_block2 = base_profile.threshold_block_size - 4
+        alt_c1 = base_profile.threshold_c + 2
+        alt_c2 = base_profile.threshold_c - 2
+        if alt_block1 % 2 != 0 and alt_block1 > 1: threshold_sets.add((alt_block1, base_profile.threshold_c))
+        if alt_block2 % 2 != 0 and alt_block2 > 1: threshold_sets.add((alt_block2, base_profile.threshold_c))
+        if alt_c1 >= 0: threshold_sets.add((base_profile.threshold_block_size, alt_c1))
+        if alt_c2 >= 0: threshold_sets.add((base_profile.threshold_block_size, alt_c2))
+
+
+        psm_options = {base_profile.tesseract_config} # Start with base config
+        base_psm_match = re.search(r'--psm\s+(\d+)', base_profile.tesseract_config)
+        base_psm = int(base_psm_match.group(1)) if base_psm_match else 6 # Default to 6 if not found
+
+        # Add common alternatives if different from base
+        for psm_val in [6, 7, 11, 13]:
+            if psm_val != base_psm:
+                psm_options.add(f"--oem 3 --psm {psm_val}")
+
+
+        # --- Create combinations ---
+        # Keep it relatively simple first: vary one parameter at a time from baseline
+        generated_profiles = {base_profile} # Use set to avoid duplicates
+
+        # Vary scale factor
+        for sf in scale_factors:
+            if sf != base_profile.scale_factor:
+                generated_profiles.add(dataclasses.replace(base_profile, scale_factor=sf))
+
+        # Vary denoise_h
+        for dh in denoise_hs:
+             if dh != base_profile.denoise_h:
+                 generated_profiles.add(dataclasses.replace(base_profile, denoise_h=dh))
+
+        # Vary invert_colors
+        for inv in invert_options:
+             if inv != base_profile.invert_colors:
+                 generated_profiles.add(dataclasses.replace(base_profile, invert_colors=inv))
+
+        # Vary threshold sets
+        for block, c_val in threshold_sets:
+             if block != base_profile.threshold_block_size or c_val != base_profile.threshold_c:
+                  generated_profiles.add(dataclasses.replace(base_profile, threshold_block_size=block, threshold_c=c_val))
+
+        # Vary PSM
+        for psm_config in psm_options:
+             if psm_config != base_profile.tesseract_config:
+                 generated_profiles.add(dataclasses.replace(base_profile, tesseract_config=psm_config))
+
+        # Optional: Combine Invert + one other change (can increase combinations significantly)
+        # temp_profiles = set(generated_profiles) # Copy current
+        # for prof in temp_profiles:
+        #     if prof.invert_colors != (not base_profile.invert_colors): # If not already the inverted version
+        #         generated_profiles.add(dataclasses.replace(prof, invert_colors=not base_profile.invert_colors))
+
+
+        self.logger.info(f"Generated {len(generated_profiles)} unique OCR profile variations.")
+        # Limit the number if it gets too large?
+        # return list(generated_profiles)[:30] # Example limit
+        return list(generated_profiles)
+
 class TradingMonitorTestApp(QMainWindow):
     """Test application for the Trading Monitor functionality."""
 
@@ -194,7 +504,6 @@ class TradingMonitorTestApp(QMainWindow):
         self.current_image_path = None
         self.ocr_profile = None
         self.extracted_text = ""
-        self.patterns = {}
         self.retry_count = 0
 
         # Populate platform list
@@ -220,7 +529,7 @@ class TradingMonitorTestApp(QMainWindow):
         self.screenshot_service = self.container.resolve(IScreenshotService)
         self.ocr_service = self.container.resolve(IOcrService)
         self.platform_detection = self.container.resolve(IPlatformDetectionService)
-        self.cold_turkey = self.container.resolve(IColdTurkeyService)
+        self.cold_turkey_service = self.container.resolve(IColdTurkeyService)
         self.verification_service = self.container.resolve(IVerificationService)
         self.lockout_service = self.container.resolve(ILockoutService)
         self.monitoring_service = self.container.resolve(IMonitoringService)
@@ -464,23 +773,23 @@ class TradingMonitorTestApp(QMainWindow):
         self.tab_widget.addTab(lockout_tab, "Lockout Testing")
 
     def _create_profile_tab(self):
-        """Create the profile management tab with integrated auto-detection."""
+        """Create the profile management tab with integrated auto-calibration."""
         profile_tab = QWidget()
         layout = QVBoxLayout(profile_tab)
 
         # 1. Region Selection Section
-        region_group = QGroupBox("Region Selection")
+        region_group = QGroupBox("Region Selection for Calibration")  # Slightly clearer title
         region_layout = QVBoxLayout(region_group)
 
         region_help = QLabel(
-            "Select a region with P&L values to analyze and detect optimal OCR settings."
+            "Select a region screenshot containing a P&L value to analyze and automatically detect optimal OCR settings."
         )
         region_help.setWordWrap(True)
         region_layout.addWidget(region_help)
 
         # Region dropdown row
         region_row = QHBoxLayout()
-        region_row.addWidget(QLabel("Select region:"))
+        region_row.addWidget(QLabel("Select region screenshot:"))  # Updated label
 
         # Create the custom region combo box
         self.profile_region_combo = RegionComboBox()
@@ -492,196 +801,150 @@ class TradingMonitorTestApp(QMainWindow):
         # Screenshot preview
         self.profile_preview_label = QLabel("No preview available")
         self.profile_preview_label.setAlignment(Qt.AlignCenter)
-        self.profile_preview_label.setStyleSheet("border: 1px solid #ddd;")
+        self.profile_preview_label.setStyleSheet(
+            "border: 1px solid #ddd; background-color: #f0f0f0;")  # Added background
         self.profile_preview_label.setMinimumHeight(100)
         self.profile_preview_label.setMaximumHeight(150)
         region_layout.addWidget(self.profile_preview_label)
 
-        # Add Start Detection button
-        self.start_detection_btn = QPushButton("Start Detection")
-        self.start_detection_btn.setStyleSheet(
-            "background-color: #3a7ca5; color: white; padding: 8px 16px; border-radius: 4px;"
-        )
-        self.start_detection_btn.clicked.connect(self._start_profile_detection)
-        region_layout.addWidget(self.start_detection_btn, alignment=Qt.AlignCenter)
-
         layout.addWidget(region_group)
 
-        # 2. Status Section
-        self.profile_status_label = QLabel("Select a region and click 'Start Detection'")
-        self.profile_status_label.setStyleSheet("font-style: italic;")
-        layout.addWidget(self.profile_status_label)
+        # 2. Value Calibration Section
+        value_group = QGroupBox("Value Calibration Input")  # Clearer title
+        value_layout = QVBoxLayout(value_group)
 
-        # 3. Verification Section
-        self.profile_verification_widget = QWidget()
-        self.profile_verification_widget.setVisible(False)
-        verification_layout = QHBoxLayout(self.profile_verification_widget)
-        verification_layout.setContentsMargins(0, 10, 0, 10)
+        # Instructions
+        instructions = QLabel(
+            "Enter the exact P&L value (including signs like $, -, or parentheses) exactly as shown in the selected region's screenshot above:")
+        instructions.setWordWrap(True)
+        value_layout.addWidget(instructions)
 
-        verification_label = QLabel("Extracted: ")
-        verification_layout.addWidget(verification_label)
+        # Horizontal layout for input and button
+        input_layout = QHBoxLayout()
 
-        self.profile_extracted_text_label = QLabel("")
-        self.profile_extracted_text_label.setStyleSheet("font-weight: bold;")
-        self.profile_extracted_text_label.setWordWrap(True)
-        verification_layout.addWidget(self.profile_extracted_text_label, 1)
+        # Input field for expected value
+        self.expected_value_input = QLineEdit()
+        self.expected_value_input.setPlaceholderText(
+            "e.g., -$123.45 or ($123.45) or 123.45 or @ -100.00")  # Added examples
+        input_layout.addWidget(self.expected_value_input)
 
-        self.profile_yes_button = QPushButton("Correct")
-        self.profile_yes_button.setToolTip("The extracted text shows the correct P&L values")
-        self.profile_yes_button.clicked.connect(self._on_profile_text_verified)
-        verification_layout.addWidget(self.profile_yes_button)
+        # Calibrate button
+        self.calibrate_btn = QPushButton("Calibrate OCR")  # Updated button text
+        self.calibrate_btn.clicked.connect(self._start_calibration)
+        self.calibrate_btn.setStyleSheet("background-color: #3a7ca5; color: white; padding: 5px;")  # Added padding
+        self.calibrate_btn.setEnabled(False)  # Initially disabled until region selected
+        input_layout.addWidget(self.calibrate_btn)
 
-        self.profile_no_button = QPushButton("Try Again")
-        self.profile_no_button.setToolTip("The text doesn't accurately show the P&L values")
-        self.profile_no_button.clicked.connect(self._on_profile_text_rejected)
-        verification_layout.addWidget(self.profile_no_button)
+        value_layout.addLayout(input_layout)
 
-        layout.addWidget(self.profile_verification_widget)
+        # Progress and status area
+        self.calibration_status = QLabel(
+            "Select a region screenshot above and enter the value you see.")  # Updated text
+        self.calibration_status.setStyleSheet("font-style: italic; color: #555;")  # Adjusted style
+        value_layout.addWidget(self.calibration_status)
 
-        # 4. Pattern Configuration Section
-        self.profile_pattern_group = QGroupBox("P&L Format Configuration")
-        self.profile_pattern_group.setVisible(False)
-        pattern_layout = QVBoxLayout(self.profile_pattern_group)
+        self.calibration_progress = QProgressBar()
+        self.calibration_progress.setVisible(False)  # Start hidden
+        self.calibration_progress.setTextVisible(False)  # Hide percentage text
+        value_layout.addWidget(self.calibration_progress)
 
-        # Two-column layout for format options
-        format_layout = QHBoxLayout()
+        layout.addWidget(value_group)
 
-        # Left column
-        left_layout = QVBoxLayout()
-
-        # Dollar sign option
-        self.profile_dollar_check = QCheckBox("Dollar signs ($123.45)")
-        self.profile_dollar_check.setChecked(True)
-        left_layout.addWidget(self.profile_dollar_check)
-
-        # Plain number option
-        self.profile_plain_number_check = QCheckBox("Plain numbers (123.45)")
-        self.profile_plain_number_check.setChecked(True)
-        left_layout.addWidget(self.profile_plain_number_check)
-
-        format_layout.addLayout(left_layout)
-
-        # Right column - other currencies
-        right_layout = QVBoxLayout()
-
-        self.profile_euro_check = QCheckBox("Euro symbol (€123.45)")
-        right_layout.addWidget(self.profile_euro_check)
-
-        self.profile_pound_check = QCheckBox("Pound symbol (£123.45)")
-        right_layout.addWidget(self.profile_pound_check)
-
-        format_layout.addLayout(right_layout)
-        pattern_layout.addLayout(format_layout)
-
-        # Separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        pattern_layout.addWidget(separator)
-
-        # Negative format options in horizontal layout
-        neg_layout = QHBoxLayout()
-        neg_label = QLabel("Negative values appear as:")
-        neg_layout.addWidget(neg_label)
-
-        self.profile_negative_group = QButtonGroup(profile_tab)
-
-        self.profile_negative_minus_radio = QRadioButton("Minus (-$123.45)")
-        self.profile_negative_group.addButton(self.profile_negative_minus_radio)
-        neg_layout.addWidget(self.profile_negative_minus_radio)
-
-        self.profile_negative_parentheses_radio = QRadioButton("Parentheses ($123.45)")
-        self.profile_negative_group.addButton(self.profile_negative_parentheses_radio)
-        neg_layout.addWidget(self.profile_negative_parentheses_radio)
-
-        self.profile_negative_both_radio = QRadioButton("Both formats")
-        self.profile_negative_group.addButton(self.profile_negative_both_radio)
-        self.profile_negative_both_radio.setChecked(True)
-        neg_layout.addWidget(self.profile_negative_both_radio)
-
-        pattern_layout.addLayout(neg_layout)
-
-        # Results and test button in horizontal layout
-        results_layout = QHBoxLayout()
-
-        results_label = QLabel("Detected values:")
-        results_layout.addWidget(results_label)
-
-        self.profile_pattern_results = QLabel("")
-        self.profile_pattern_results.setStyleSheet("font-weight: bold;")
-        results_layout.addWidget(self.profile_pattern_results, 1)
-
-        test_button = QPushButton("Test")
-        test_button.setMaximumWidth(60)
-        test_button.clicked.connect(self._test_profile_patterns)
-        results_layout.addWidget(test_button)
-
-        pattern_layout.addLayout(results_layout)
-
-        layout.addWidget(self.profile_pattern_group)
-
-        # 5. OCR Parameters Section (collapsible)
+        # 3. Advanced Settings Section (collapsible)
         advanced_layout = QHBoxLayout()
         advanced_layout.addStretch()
 
-        self.advanced_settings_check = QCheckBox("Show Advanced Settings")
+        self.advanced_settings_check = QCheckBox("Show Advanced OCR Settings")  # Updated text
         self.advanced_settings_check.toggled.connect(self._toggle_advanced_settings)
         advanced_layout.addWidget(self.advanced_settings_check)
 
         layout.addLayout(advanced_layout)
 
-        self.profile_group = QGroupBox("OCR Profile Settings")
+        self.profile_group = QGroupBox("Advanced OCR Profile Settings (Calibrated)")  # Updated title
         profile_layout = QFormLayout(self.profile_group)
 
         # OCR parameters
         self.scale_factor_spin = QDoubleSpinBox()
         self.scale_factor_spin.setRange(1.0, 5.0)
         self.scale_factor_spin.setSingleStep(0.1)
-        self.scale_factor_spin.setValue(2.0)
+        self.scale_factor_spin.setDecimals(1)  # One decimal place often sufficient
         profile_layout.addRow("Scale Factor:", self.scale_factor_spin)
 
         self.block_size_spin = QSpinBox()
-        self.block_size_spin.setRange(3, 21)
+        self.block_size_spin.setRange(3, 31)  # Wider range maybe
         self.block_size_spin.setSingleStep(2)  # Must be odd
-        self.block_size_spin.setValue(11)
         profile_layout.addRow("Threshold Block Size:", self.block_size_spin)
 
         self.c_value_spin = QSpinBox()
-        self.c_value_spin.setRange(0, 10)
-        self.c_value_spin.setValue(2)
+        self.c_value_spin.setRange(0, 15)  # Wider range maybe
         profile_layout.addRow("Threshold C Value:", self.c_value_spin)
 
         self.denoise_h_spin = QSpinBox()
         self.denoise_h_spin.setRange(1, 30)
-        self.denoise_h_spin.setValue(10)
-        profile_layout.addRow("Denoise H:", self.denoise_h_spin)
+        profile_layout.addRow("Denoise Strength (h):", self.denoise_h_spin)  # Clarified label
 
         self.config_text = QLineEdit()
-        self.config_text.setText("--oem 3 --psm 6")
+        # self.config_text.setText("--oem 3 --psm 6") # Remove default text, let calibration set it
+        self.config_text.setPlaceholderText("e.g., --oem 3 --psm 7 (Auto-set by calibration)")
         profile_layout.addRow("Tesseract Config:", self.config_text)
 
         # Color inversion option
-        self.invert_colors_check = QCheckBox("Invert Colors (for light text on dark background)")
+        self.invert_colors_check = QCheckBox(
+            "Invert Colors (Needed for light text on dark background)")  # Clarified label
         profile_layout.addRow("", self.invert_colors_check)
 
         # Initially hide advanced settings
         self.profile_group.setVisible(False)
         layout.addWidget(self.profile_group)
 
-        # Buttons for saving/resetting profile
+        # 4. Detected Formats Section (Replaces old pattern display)
+        self.pattern_group = QGroupBox("Detected Number Formats (Read-Only)")  # Updated title
+        pattern_layout = QVBoxLayout(self.pattern_group)
+
+        # Create and store checkboxes in a dictionary for easy access
+        self.pattern_checkboxes = {}
+
+        # Define the patterns and their user-friendly descriptions/examples
+        # The keys MUST match the keys used in CalibrationWorker._generate_pattern_variations
+        patterns_info = {
+            "dollar": "Positive Currency ($123.45, $1,234.56)",
+            "negative": "Negative in Parens ((123.45), ($1,234.56))",
+            "negative_dash": "Negative with Dash (-123.45, -$1,234.56, ~123.45)",
+            "regular": "Plain Numbers (123.45, -123.45, 1234)"
+            # --- Add other platform-specific patterns here if needed ---
+            # "ninja_at": "NinjaTrader '@' Prefix (@ -100.00)"
+        }
+
+        # Create checkboxes based on the defined patterns
+        for key, description in patterns_info.items():
+            checkbox = QCheckBox(description)
+            checkbox.setEnabled(False)  # Make them read-only displays
+            # Style to hide indicator unless checked (will be set in on_completed)
+            checkbox.setStyleSheet("QCheckBox::indicator { width: 0px; }")
+            self.pattern_checkboxes[key] = checkbox
+            pattern_layout.addWidget(checkbox)
+
+        # Initially hide the pattern group
+        self.pattern_group.setVisible(False)
+        layout.addWidget(self.pattern_group)
+
+        # 5. Buttons for saving/resetting
         button_layout = QHBoxLayout()
+        self.save_profile_button = QPushButton("Save Calibrated Profile")  # More specific text
+        self.save_profile_button.clicked.connect(self._save_calibrated_profile)
+        self.save_profile_button.setEnabled(False)  # Disable until calibration succeeds
+        self.save_profile_button.setStyleSheet("background-color: #5cb85c; color: white; padding: 5px;")  # Green color
+        button_layout.addWidget(self.save_profile_button)
 
-        save_btn = QPushButton("Save Profile")
-        save_btn.clicked.connect(self._save_platform_profile)
-        button_layout.addWidget(save_btn)
-
-        reset_btn = QPushButton("Reset to Default")
-        reset_btn.clicked.connect(self._reset_platform_profile)
-        button_layout.addWidget(reset_btn)
+        self.reset_profile_button = QPushButton("Reset Profile to Default")
+        self.reset_profile_button.clicked.connect(self._reset_platform_profile)
+        self.reset_profile_button.setStyleSheet(
+            "background-color: #f0ad4e; color: white; padding: 5px;")  # Orange color
+        button_layout.addWidget(self.reset_profile_button)
 
         layout.addLayout(button_layout)
 
-        # Add to tabs
+        # Add the finished tab to the main tab widget
         self.tab_widget.addTab(profile_tab, "Profile Management")
 
     def _populate_platform_list(self):
@@ -815,10 +1078,6 @@ class TradingMonitorTestApp(QMainWindow):
                     "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
                 }
 
-            # Update patterns if we have generated new ones
-            if hasattr(self, 'patterns') and self.patterns:
-                patterns = self.patterns
-
             # Create profile object
             profile = PlatformProfile(
                 platform_name=platform,
@@ -899,11 +1158,7 @@ class TradingMonitorTestApp(QMainWindow):
 
         # Load profile for new platform
         self._load_platform_profile(platform)
-
-        # Reset profile tab state
-        self.profile_verification_widget.setVisible(False)
-        self.profile_pattern_group.setVisible(False)
-        self.profile_status_label.setText("Select a region and click 'Start Detection'")
+        self.calibration_status.setText("Select a region and enter the value you see")
 
         self.log_message(f"Selected platform: {platform}", "INFO")
 
@@ -1643,322 +1898,65 @@ class TradingMonitorTestApp(QMainWindow):
                 # Add to combo box
                 self.profile_region_combo.add_region(region, screenshot)
 
-            # CRITICAL FIX: Always select the first item by default
-            if len(regions) > 0:
-                self.profile_region_combo.setCurrentIndex(0)
-                self.start_detection_btn.setEnabled(True)
-                self._on_profile_region_selected(0)
-            else:
-                self.profile_region_combo.setCurrentIndex(-1)
-                self.start_detection_btn.setEnabled(False)
-
             self.log_message(f"Loaded {len(regions)} regions for profile management", "INFO")
         else:
             # No regions found - add a message
             self.profile_region_combo.addItem("No monitoring regions found")
             self.profile_region_combo.setEnabled(False)
-            self.start_detection_btn.setEnabled(False)
             self.log_message("No monitoring regions found for profile management", "WARNING")
 
     def _on_profile_region_selected(self, index):
-        """Handle region selection in profile tab."""
+        """Handle region selection in profile tab and update preview."""
+        # Reset state first
+        self.profile_preview_label.setText("No preview available")
+        self.profile_preview_label.setPixmap(QPixmap())  # Clear pixmap
+        self.calibrate_btn.setEnabled(False)
+        self.save_profile_button.setEnabled(False)
+        self.pattern_group.setVisible(False)
+        self.calibration_status.setText("Select a region screenshot above and enter the value you see.")
+        self.calibration_status.setStyleSheet("font-style: italic; color: #555;")
+
         if index < 0:
-            self.start_detection_btn.setEnabled(False)
-            self.profile_preview_label.setText("No region selected")
+            # This case might happen if the combo box is cleared
             return
 
-        # Get selected region and update preview
+        # Get selected region object and screenshot path
         selected_region = self.profile_region_combo.get_selected_region()
+        screenshot_path = self.profile_region_combo.get_selected_screenshot_path()
 
-        if selected_region:
-            # Update preview with screenshot
-            if selected_region.screenshot_path:
-                load_result = self.region_service.load_region_screenshot(selected_region)
-                if load_result.is_success:
-                    screenshot = load_result.value
-                    pixmap_result = self.screenshot_service.to_pyside_pixmap(screenshot)
-                    if pixmap_result.is_success:
-                        pixmap = pixmap_result.value
-                        # Scale to fit while maintaining aspect ratio
-                        scaled_pixmap = pixmap.scaled(
-                            self.profile_preview_label.width(),
-                            self.profile_preview_label.height(),
-                            Qt.KeepAspectRatio,
-                            Qt.SmoothTransformation
-                        )
-                        self.profile_preview_label.setPixmap(scaled_pixmap)
-                    else:
-                        self.profile_preview_label.setText("Error loading preview")
+        if selected_region and screenshot_path and os.path.exists(screenshot_path):
+            # Load the screenshot image for preview
+            try:
+                pixmap = QPixmap(screenshot_path)
+                if not pixmap.isNull():
+                    # Scale pixmap to fit the label while keeping aspect ratio
+                    scaled_pixmap = pixmap.scaled(
+                        self.profile_preview_label.width() - 10,  # Add padding
+                        self.profile_preview_label.height() - 10,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                    self.profile_preview_label.setPixmap(scaled_pixmap)
+                    # Enable the calibrate button only if a valid region/screenshot is selected
+                    self.calibrate_btn.setEnabled(True)
+                    self.calibration_status.setText(
+                        "Region selected. Enter the exact value shown above and click Calibrate.")
                 else:
-                    self.profile_preview_label.setText("Screenshot not available")
+                    self.profile_preview_label.setText("Error: Could not load preview.")
+                    self.log_message(f"Failed to load QPixmap for preview: {screenshot_path}", "ERROR")
 
-            # Enable start button if we have a valid screenshot path
-            self.start_detection_btn.setEnabled(bool(selected_region.screenshot_path))
+            except Exception as e:
+                self.profile_preview_label.setText("Error loading preview.")
+                self.log_message(f"Exception loading preview pixmap: {e}", "ERROR")
+
+        elif selected_region:
+            # Region selected but screenshot missing/invalid
+            self.profile_preview_label.setText("Screenshot not found or invalid.")
+            self.log_message(
+                f"Screenshot path missing or invalid for region '{selected_region.name}': {screenshot_path}", "WARNING")
         else:
-            self.profile_preview_label.setText("No region selected")
-            self.start_detection_btn.setEnabled(False)
-
-    def _start_profile_detection(self):
-        """Start the OCR parameter detection process."""
-        # Get selected region
-        selected_region = self.profile_region_combo.get_selected_region()
-        if not selected_region or not selected_region.screenshot_path:
-            self.log_message("No valid region selected", "WARNING")
-            return
-
-        # Reset UI state
-        self.profile_verification_widget.setVisible(False)
-        self.profile_pattern_group.setVisible(False)
-
-        # Update status
-        self.profile_status_label.setText("Analyzing image and detecting OCR parameters...")
-        QApplication.processEvents()
-
-        # Store path for later use
-        self.current_image_path = selected_region.screenshot_path
-
-        # Detect OCR parameters using OCR Analysis Service
-        ocr_profile_result = self.ocr_analysis_service.detect_optimal_ocr_parameters(selected_region.screenshot_path)
-
-        if ocr_profile_result.is_failure:
-            self.profile_status_label.setText(f"Detection failed: {ocr_profile_result.error}")
-            return
-
-        self.ocr_profile = ocr_profile_result.value
-
-        # Update status
-        self.profile_status_label.setText("Testing OCR with detected parameters...")
-        QApplication.processEvents()
-
-        # Test OCR with detected parameters
-        self._test_profile_ocr_parameters()
-
-        # Show verification widget
-        self.profile_verification_widget.setVisible(True)
-
-        # Update OCR parameter controls
-        self.scale_factor_spin.setValue(self.ocr_profile.scale_factor)
-        self.block_size_spin.setValue(self.ocr_profile.threshold_block_size)
-        self.c_value_spin.setValue(self.ocr_profile.threshold_c)
-        self.denoise_h_spin.setValue(self.ocr_profile.denoise_h)
-        self.config_text.setText(self.ocr_profile.tesseract_config)
-        self.invert_colors_check.setChecked(self.ocr_profile.invert_colors)
-
-        # Show advanced settings
-        self.advanced_settings_check.setChecked(True)
-
-        # Update status
-        self.profile_status_label.setText("Please verify if the extracted text is correct")
-
-    def _test_profile_ocr_parameters(self):
-        """Test OCR with the detected parameters."""
-        try:
-            import PIL.Image
-
-            # Load the image
-            image = PIL.Image.open(self.current_image_path)
-
-            # Extract text using the detected parameters
-            extract_result = self.ocr_service.extract_text_with_profile(image, self.ocr_profile)
-
-            if extract_result.is_success:
-                self.extracted_text = extract_result.value
-
-                # Trim and clean up the text for display
-                display_text = self.extracted_text.strip()
-                # Truncate if too long
-                if len(display_text) > 50:
-                    display_text = display_text[:47] + "..."
-
-                self.profile_extracted_text_label.setText(display_text)
-
-                # Auto-detect likely formats based on the extracted text
-                self._auto_detect_formats()
-            else:
-                self.extracted_text = "Failed to extract text"
-                error_msg = str(extract_result.error)
-                if len(error_msg) > 50:
-                    error_msg = error_msg[:47] + "..."
-                self.profile_extracted_text_label.setText(f"Error: {error_msg}")
-
-        except Exception as e:
-            self.extracted_text = f"Error testing OCR: {e}"
-            error_msg = str(e)
-            if len(error_msg) > 50:
-                error_msg = error_msg[:47] + "..."
-            self.profile_extracted_text_label.setText(f"Error: {error_msg}")
-
-    def _on_profile_text_verified(self):
-        """User confirmed the extracted text is accurate."""
-        # Update UI
-        self.profile_pattern_group.setVisible(True)
-        self.profile_status_label.setText("Analyzing text formats...")
-
-        # Auto-detect formats and run initial pattern test
-        self._auto_detect_formats()
-        self._test_profile_patterns()
-
-    def _on_profile_text_rejected(self):
-        """User rejected the extracted text."""
-        # Adjust parameters slightly
-        if hasattr(self, 'ocr_profile'):
-            # Increase scale factor
-            self.ocr_profile.scale_factor += 0.5
-            if self.ocr_profile.scale_factor > 4.0:
-                self.ocr_profile.scale_factor = 1.5
-
-            # Try inverting colors if retries > 2
-            if hasattr(self, 'retry_count') and self.retry_count > 2:
-                self.ocr_profile.invert_colors = not self.ocr_profile.invert_colors
-
-            # Keep track of retry attempts
-            if not hasattr(self, 'retry_count'):
-                self.retry_count = 1
-            else:
-                self.retry_count += 1
-
-            # Update status
-            self.profile_status_label.setText(f"Retrying with adjusted settings (attempt {self.retry_count})...")
-            QApplication.processEvents()
-
-            # Test again with modified parameters
-            self._test_profile_ocr_parameters()
-
-            # Update OCR parameter controls
-            self.scale_factor_spin.setValue(self.ocr_profile.scale_factor)
-            self.block_size_spin.setValue(self.ocr_profile.threshold_block_size)
-            self.c_value_spin.setValue(self.ocr_profile.threshold_c)
-            self.denoise_h_spin.setValue(self.ocr_profile.denoise_h)
-            self.config_text.setText(self.ocr_profile.tesseract_config)
-            self.invert_colors_check.setChecked(self.ocr_profile.invert_colors)
-
-    def _auto_detect_formats(self):
-        """Auto-detect likely formats from the extracted text and configure the UI accordingly."""
-        if not hasattr(self, 'extracted_text'):
-            return
-
-        text = self.extracted_text
-        formats_detected = []
-
-        # Check for dollar signs
-        has_dollar = '$' in text
-        self.profile_dollar_check.setChecked(has_dollar)
-        if has_dollar:
-            formats_detected.append("dollar sign ($)")
-
-        # Check for Euro signs
-        has_euro = '€' in text
-        self.profile_euro_check.setChecked(has_euro)
-        if has_euro:
-            formats_detected.append("euro symbol (€)")
-
-        # Check for Pound signs
-        has_pound = '£' in text
-        self.profile_pound_check.setChecked(has_pound)
-        if has_pound:
-            formats_detected.append("pound symbol (£)")
-
-        # Check for negative formats
-        has_parentheses = bool(re.search(r'\(\$?[\d,]+\.?\d*\)', text))
-        has_minus = bool(re.search(r'-\$?[\d,]+\.?\d*', text))
-
-        if has_parentheses and has_minus:
-            self.profile_negative_both_radio.setChecked(True)
-            formats_detected.append("both negative formats")
-        elif has_parentheses:
-            self.profile_negative_parentheses_radio.setChecked(True)
-            formats_detected.append("parentheses for negative values")
-        elif has_minus:
-            self.profile_negative_minus_radio.setChecked(True)
-            formats_detected.append("minus signs for negative values")
-        else:
-            # Default if no negatives detected
-            self.profile_negative_both_radio.setChecked(True)
-
-        # Check for plain numbers
-        has_plain = bool(re.search(r'(?<!\$|€|£)(-?[\d,]+\.?\d*)', text))
-        self.profile_plain_number_check.setChecked(has_plain)
-        if has_plain:
-            formats_detected.append("plain numbers")
-
-        # Update status with detected formats
-        if formats_detected:
-            self.profile_status_label.setText(f"Auto-detected formats: {', '.join(formats_detected)}")
-
-    def _test_profile_patterns(self):
-        """Generate and test pattern based on user selections."""
-        # Get pattern dictionary
-        patterns = self._build_profile_custom_pattern()
-        self.patterns = patterns
-
-        # Test pattern extraction
-        test_result = self.ocr_analysis_service.test_pattern_extraction(self.extracted_text, patterns)
-
-        if test_result.is_success:
-            values = test_result.value
-
-            if values:
-                # Remove duplicates and sort values
-                unique_values = []
-                for value in values:
-                    # Round to 2 decimal places for comparison
-                    rounded = round(value, 2)
-                    if rounded not in [round(v, 2) for v in unique_values]:
-                        unique_values.append(value)
-
-                # Sort values (usually we want the lowest/negative value first for P&L)
-                unique_values.sort()
-
-                # Format results
-                results_text = ""
-                for value in unique_values:
-                    results_text += f"{value:.2f}, "
-
-                # Remove trailing comma and space
-                if results_text:
-                    results_text = results_text[:-2]
-
-                self.profile_pattern_results.setText(results_text)
-
-                # If we found a single value, highlight it as the likely P&L
-                if len(unique_values) == 1:
-                    self.profile_status_label.setText(f"Detected P&L value: {unique_values[0]:.2f}")
-                elif len(unique_values) > 0:
-                    min_value = min(unique_values)
-                    self.profile_status_label.setText(f"Multiple values found. Minimum (likely P&L): {min_value:.2f}")
-            else:
-                self.profile_pattern_results.setText("No values detected")
-                self.profile_status_label.setText("No numeric values detected with current pattern settings")
-        else:
-            error_msg = str(test_result.error)
-            if len(error_msg) > 30:
-                error_msg = error_msg[:27] + "..."
-            self.profile_pattern_results.setText(f"Error: {error_msg}")
-
-    def _build_profile_custom_pattern(self):
-        """Build pattern dictionary based on user selections."""
-        # Start with a pattern type based on selected currency
-        pattern_type = "regular"
-        pattern = None
-
-        # Determine pattern type and base pattern
-        if self.profile_dollar_check.isChecked():
-            pattern_type = "dollar"
-            pattern = r'\$([\d,]+\.?\d*)'
-        elif self.profile_euro_check.isChecked():
-            pattern_type = "euro"
-            pattern = r'€([\d,]+\.?\d*)'
-        elif self.profile_pound_check.isChecked():
-            pattern_type = "pound"
-            pattern = r'£([\d,]+\.?\d*)'
-        elif self.profile_plain_number_check.isChecked():
-            pattern = r'(?<!\$|€|£)(-?[\d,]+\.?\d*)'
-        else:
-            # Fallback pattern
-            pattern = r'(-?[\d,]+\.?\d*)'
-
-        # Return a dictionary with single entry
-        return {pattern_type: pattern}
+            # No region selected (shouldn't happen if index >= 0 but handle defensively)
+            self.profile_preview_label.setText("No region selected.")
 
     def _refresh_ui_after_region_change(self):
         """Refresh all UI components that depend on region data."""
@@ -2006,6 +2004,194 @@ class TradingMonitorTestApp(QMainWindow):
             return Result.fail(error)
         return Result.ok(input_value)
 
+    def _start_calibration(self):
+        """Start the auto-calibration process."""
+        # Get selected region
+        selected_region = self.profile_region_combo.get_selected_region()
+        screenshot_path = self.profile_region_combo.get_selected_screenshot_path()  # Get path explicitly
+
+        if not selected_region or not screenshot_path or not os.path.exists(screenshot_path):
+            self.log_message("No valid region screenshot selected for calibration.", "ERROR")
+            QMessageBox.warning(self, "Region Needed",
+                                "Please select a valid region screenshot from the dropdown above.")
+            return
+
+        # Get expected value
+        expected_value = self.expected_value_input.text().strip()
+        if not expected_value:
+            self.log_message("Please enter the expected value shown in the image.", "ERROR")
+            QMessageBox.warning(self, "Missing Value",
+                                "Please enter the exact value shown in the image into the input field.")
+            return
+
+        # --- UI Updates Before Starting ---
+        self.calibrate_btn.setEnabled(False)  # Disable button during calibration
+        self.save_profile_button.setEnabled(False)  # Disable save button
+        self.pattern_group.setVisible(False)  # Hide old results
+        # Reset checkboxes styling
+        for checkbox in self.pattern_checkboxes.values():
+            if checkbox:
+                checkbox.setChecked(False)
+                font = checkbox.font()
+                font.setBold(False)
+                checkbox.setFont(font)
+                checkbox.setStyleSheet("QCheckBox::indicator { width: 0px; }")
+
+        self.calibration_progress.setVisible(True)
+        self.calibration_progress.setValue(0)
+        self.calibration_status.setText(f"Starting calibration for '{expected_value}'...")
+        # --- End UI Updates ---
+
+        # Create worker
+        worker = CalibrationWorker(
+            image_path=screenshot_path,  # Use the verified path
+            expected_value=expected_value,
+            ocr_service=self.ocr_service,
+            ocr_analysis_service=self.ocr_analysis_service,
+            logger=self.logger
+        )
+
+        # --- Define Callbacks ---
+        def on_progress(percent, message):
+            self.calibration_progress.setValue(percent)
+            self.calibration_status.setText(message)
+
+        def on_completed(result):
+            self.calibration_progress.setVisible(False)
+            self.calibrate_btn.setEnabled(True)  # Re-enable calibrate button
+
+            if result:
+                # Calibration succeeded
+                self.log_message("Calibration successful!", "SUCCESS")
+
+                # Update OCR parameter UI elements
+                ocr_profile = result["ocr_profile"]
+                self.scale_factor_spin.setValue(ocr_profile.scale_factor)
+                self.block_size_spin.setValue(ocr_profile.threshold_block_size)
+                self.c_value_spin.setValue(ocr_profile.threshold_c)
+                self.denoise_h_spin.setValue(ocr_profile.denoise_h)
+                self.config_text.setText(ocr_profile.tesseract_config)
+                self.invert_colors_check.setChecked(ocr_profile.invert_colors)
+
+                # Store the detected patterns dictionary
+                self.detected_patterns = result.get("patterns", {})  # Use .get for safety
+
+                # Update Checkbox UI based on detected patterns
+                self.logger.debug(
+                    f"Updating pattern checkboxes based on detected keys: {list(self.detected_patterns.keys())}")
+                any_format_detected = False
+                for key, checkbox in self.pattern_checkboxes.items():
+                    if checkbox:  # Ensure the checkbox widget exists
+                        is_detected = key in self.detected_patterns
+                        checkbox.setChecked(is_detected)
+                        # Visually distinguish detected formats
+                        font = checkbox.font()
+                        font.setBold(is_detected)
+                        checkbox.setFont(font)
+                        # Show the check indicator only if detected
+                        checkbox.setStyleSheet("QCheckBox::indicator { width: %spx; }" % ("13" if is_detected else "0"))
+
+                        if is_detected:
+                            any_format_detected = True
+                            self.logger.debug(f"  Checkbox '{key}' set to checked.")
+
+                if any_format_detected:
+                    self.pattern_group.setVisible(True)  # Show the formats section
+                    self.pattern_group.setTitle("Detected Number Formats (Read-Only)")
+                else:
+                    self.logger.warning("Calibration succeeded but no known pattern keys found in result.")
+                    self.pattern_group.setVisible(False)
+
+                # Update status label
+                status_msg = f"Calibration successful! Detected value: {result.get('matched_value', 'N/A')}"
+                if result.get('difference', 0) > 0.001:  # Check if it was a close match
+                    status_msg += f" (Note: Matched within ${result.get('difference', 0):.2f} tolerance)"
+                self.calibration_status.setText(status_msg)
+                self.calibration_status.setStyleSheet("color: green;")  # Success color
+
+                # Enable saving
+                self.save_profile_button.setEnabled(True)
+
+                # Auto-show advanced settings
+                self.advanced_settings_check.setChecked(True)
+
+                # Optional: Ask to save immediately
+                # response = QMessageBox.question(...) # Keep your existing save prompt logic if desired
+
+            else:
+                # Calibration failed
+                self.log_message("Calibration failed.", "ERROR")
+                self.pattern_group.setVisible(False)  # Ensure pattern group is hidden
+                self.calibration_status.setText(
+                    "Calibration failed. Suggestions: Try a different region screenshot, check the entered value, or adjust advanced settings manually.")
+                self.calibration_status.setStyleSheet("color: red;")  # Failure color
+                self.save_profile_button.setEnabled(False)  # Ensure save is disabled
+
+        def on_error(error_msg):
+            self.calibration_progress.setVisible(False)
+            self.calibrate_btn.setEnabled(True)  # Re-enable calibrate button
+            self.save_profile_button.setEnabled(False)  # Ensure save is disabled
+            self.pattern_group.setVisible(False)  # Hide pattern group
+            self.calibration_status.setText(f"Calibration Error: {error_msg}")
+            self.calibration_status.setStyleSheet("color: red;")
+            self.log_message(f"Calibration error reported: {error_msg}", "ERROR")
+
+        # --- End Callbacks ---
+
+        # Set callbacks on worker
+        worker.set_on_progress(on_progress)
+        worker.set_on_completed(on_completed)
+        worker.set_on_error(on_error)
+
+        # Start the worker thread
+        self.log_message(
+            f"Executing calibration task for image '{os.path.basename(screenshot_path)}' and value '{expected_value}'...",
+            "INFO")
+        task_result = self.thread_service.execute_task_with_auto_cleanup("calibration", worker)
+        if task_result.is_failure:
+            self.log_message(f"Failed to start calibration task: {task_result.error}", "ERROR")
+            # Reset UI elements if task fails to start
+            on_error(f"Failed to start task: {task_result.error}")
+
+    def _save_calibrated_profile(self):
+        """Save the profile with calibrated parameters and patterns."""
+        platform = self.platform_selection_service.get_current_platform()
+        if not platform:
+            self.log_message("No platform selected", "WARNING")
+            return
+
+        if not hasattr(self, 'detected_patterns') or not self.detected_patterns:
+            self.log_message("No patterns detected to save", "ERROR")
+            return
+
+        try:
+            # Create OCR profile from UI values (should be updated by calibration)
+            ocr = OcrProfile(
+                scale_factor=self.scale_factor_spin.value(),
+                threshold_block_size=self.block_size_spin.value(),
+                threshold_c=self.c_value_spin.value(),
+                denoise_h=self.denoise_h_spin.value(),
+                tesseract_config=self.config_text.text(),
+                invert_colors=self.invert_colors_check.isChecked()
+            )
+
+            # Create profile object with detected patterns
+            profile = PlatformProfile(
+                platform_name=platform,
+                ocr_profile=ocr,
+                numeric_patterns=self.detected_patterns
+            )
+
+            # Save profile
+            result = self.profile_service.save_profile(profile)
+
+            if result.is_success:
+                self.log_message(f"Calibrated profile saved for {platform}", "SUCCESS")
+            else:
+                self.log_message(f"Failed to save profile: {result.error}", "ERROR")
+        except Exception as e:
+            self.log_message(f"Error saving profile: {str(e)}", "ERROR")
+            self.logger.error(f"Error saving profile: {e}", exc_info=True)
 # At the top of the main section
 if __name__ == "__main__":
     app = QApplication(sys.argv)

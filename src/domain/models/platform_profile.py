@@ -1,9 +1,12 @@
 # src/domain/models/platform_profile.py
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
+import numpy as np # Import numpy if needed for type hints like np.bool_
+
+# Decorator modification here VVVV
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class OcrProfile:
     """OCR-specific parameters for a platform."""
     scale_factor: float = 2.0

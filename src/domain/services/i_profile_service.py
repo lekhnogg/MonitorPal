@@ -29,7 +29,3 @@ class IProfileService(ABC):
         """Create a default profile for a platform."""
         pass
 
-    @abstractmethod
-    def test_pattern_extraction(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
-        """Test pattern extraction on sample text."""
-        pass

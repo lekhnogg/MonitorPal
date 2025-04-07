@@ -4,21 +4,16 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Fixed redundant extract_text using ocr without profile. now everything should use profile set by the user for each platform. next step is get rid of regex pattern in the test app so it more user friendly..">
-      <change afterPath="$PROJECT_DIR$/src/domain/services/i_ocr_analysis_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/ocr/ocr_analysis_service.py" afterDir="false" />
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Many changes have been made, OCR detection and regex help through detection.. some stuff still needs cleaning.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/data/screenshots/NinjaTrader/flatten/NinjaTrader_flatten_Flatten_1.png" beforeDir="false" afterPath="$PROJECT_DIR$/data/screenshots/NinjaTrader/flatten/NinjaTrader_flatten_Flatten_1.png" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/data/screenshots/NinjaTrader/monitor/NinjaTrader_monitor_P&amp;L_1.png" beforeDir="false" afterPath="$PROJECT_DIR$/data/screenshots/NinjaTrader/monitor/NinjaTrader_monitor_P&amp;L_1.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/models/platform_profile.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/models/platform_profile.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_ocr_analysis_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_ocr_analysis_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/services/i_profile_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_profile_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/ocr_analysis_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/ocr_analysis_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/test_lockout.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_lockout.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -35,6 +30,11 @@
   </component>
   <component name="Git.Settings">
     <option name="PUSH_AUTO_UPDATE" value="true" />
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="master" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="GitHubPullRequestSearchHistory">{
@@ -79,7 +79,7 @@
     "Python.verification_test.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master",
+    "git-widget-placeholder": "NewRevision",
     "settings.editor.selected.configurable": "ml.llm.LLMConfigurable"
   }
 }]]></component>
@@ -91,7 +91,7 @@
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Python.test_di">
     <configuration name="test_di" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="MonitorPal" />
       <option name="ENV_FILES" value="" />
@@ -200,7 +200,15 @@
       <option name="project" value="LOCAL" />
       <updated>1742944288392</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="Many changes have been made, OCR detection and regex help through detection.. some stuff still needs cleaning.">
+      <option name="closed" value="true" />
+      <created>1743903132878</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1743903132878</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -209,6 +217,7 @@
     <MESSAGE value="verification works now, fixed issue where not everything was refactored from old project like the clicking sequence and the correct wind32gui 9 isntead of SW_restore." />
     <MESSAGE value="Tab switching implemented (cross app) and all thats left is to verify monitoring works. Also fixed the region naming and a few other things" />
     <MESSAGE value="Fixed redundant extract_text using ocr without profile. now everything should use profile set by the user for each platform. next step is get rid of regex pattern in the test app so it more user friendly.." />
-    <option name="LAST_COMMIT_MESSAGE" value="Fixed redundant extract_text using ocr without profile. now everything should use profile set by the user for each platform. next step is get rid of regex pattern in the test app so it more user friendly.." />
+    <MESSAGE value="Many changes have been made, OCR detection and regex help through detection.. some stuff still needs cleaning." />
+    <option name="LAST_COMMIT_MESSAGE" value="Many changes have been made, OCR detection and regex help through detection.. some stuff still needs cleaning." />
   </component>
 </project>

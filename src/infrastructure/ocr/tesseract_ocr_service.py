@@ -8,7 +8,7 @@ import re
 import sys
 import cv2
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Optional
 from PIL import Image, ImageEnhance
 
 # Import Tesseract binding
@@ -302,80 +302,203 @@ class TesseractOcrService(IOcrService):
             return Result.fail(error)
 
     def extract_numeric_values_with_patterns(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
-        """Extract numeric values from text using custom regex patterns."""
+        """Extract numeric values from text using custom regex patterns and robust cleaning."""
         try:
             self.logger.debug("Extracting numeric values with custom patterns")
 
-            # Preprocessing - replace common OCR errors
-            text = text.replace(';', '.')  # Replace semicolons with periods (common OCR error)
+            if not text:
+                self.logger.debug("Input text is empty, cannot extract values.")
+                return Result.ok([])
 
-            # CRITICAL: Always treat tilde as negative sign
-            text = text.replace('~', '-')  # Replace tilde with minus sign
+            # Preprocessing - replace common OCR errors NOT handled by regex/cleaning yet
+            processed_text = text.replace(';', '.')  # Common Tesseract error
+            processed_text = processed_text.replace(' ',
+                                                    '')  # Remove spaces to help regex matching adjacent items sometimes
 
-            # List to store extracted values
-            values = []
+            self.logger.debug(f"Preprocessed text for pattern matching: '{processed_text[:100]}...'")
+
+            # List to store extracted values and set to track unique rounded values
+            extracted_values = []
+            seen_rounded_values = set()
 
             # Process each pattern
             for pattern_name, pattern in patterns.items():
                 self.logger.debug(f"Processing pattern '{pattern_name}': {pattern}")
+                try:
+                    # Use re.finditer to get match objects (includes full match context)
+                    for match in re.finditer(pattern, processed_text):
+                        full_match_text = match.group(0)  # Get the whole matched string
+                        captured_group = None
 
-                matches = re.findall(pattern, text)
-                for match in matches:
-                    try:
-                        # Remove commas and convert to float
-                        clean_value = match.replace(',', '')
+                        # Find the primary captured group (usually the number part)
+                        if match.groups():
+                            # Iterate through captured groups, find the first non-None one
+                            for group in match.groups():
+                                if group is not None:
+                                    captured_group = group
+                                    break  # Use the first one found
 
-                        # Handle negative values in patterns
-                        if pattern_name == "negative":
-                            value = -float(clean_value)
-                        elif pattern_name == "negative_dash" or pattern_name == "minus_dollar":
-                            value = -float(clean_value)
-                        else:
-                            value = float(clean_value)
+                        if captured_group:
+                            # Use the robust cleaning and conversion helper function
+                            numeric_value = self._clean_and_convert_value(captured_group, full_match_text)
 
-                        values.append(value)
-                        self.logger.debug(f"Extracted value: {value} from match: {match}")
-                    except ValueError:
-                        self.logger.debug(f"Failed to convert match to float: {match}")
-                        continue
+                            if numeric_value is not None:
+                                # Check for uniqueness based on rounded value (e.g., 2 decimal places)
+                                rounded = round(numeric_value, 2)
+                                if rounded not in seen_rounded_values:
+                                    extracted_values.append(numeric_value)
+                                    seen_rounded_values.add(rounded)
+                                    self.logger.debug(
+                                        f"  Added value {numeric_value} (Rounded: {rounded}) using pattern '{pattern_name}' from match '{full_match_text}'")
+                                # else: # Optional: Log if duplicate found
+                                #    self.logger.debug(f"  Duplicate value {numeric_value} (Rounded: {rounded}) ignored.")
+                        # else: # Optional: Log if pattern matched but captured no group
+                        #    self.logger.debug(f"Pattern '{name}' matched '{full_match_text}' but captured no group (or group was None).")
 
-            # Apply the same post-processing logic as in the original method
-            if len(values) > 1 and not any('$' in text for _ in text):
-                # Check for cases like "96062.0, 50.0" which should be "96062.50"
-                reconstructed = False
-                for i in range(len(values) - 1):
-                    v1_str = str(values[i])
-                    v2_str = str(values[i + 1])
-                    # If v1 is a whole number and v2 is a small decimal
-                    if v1_str.endswith('.0') and 0 < values[i + 1] < 1:
-                        try:
-                            # Reconstruct like "96062" + ".50"
-                            full_value = float(v1_str[:-2] + '.' + v2_str.split('.')[-1])
-                            values = [full_value]  # Replace with the reconstructed value
-                            reconstructed = True
-                            break
-                        except:
-                            pass
+                except re.error as e:
+                    self.logger.error(f"Regex error processing pattern '{pattern_name}': {e}")
+                except Exception as e:
+                    self.logger.error(f"Unexpected error processing pattern '{pattern_name}': {e}", exc_info=True)
 
-                # If no reconstruction worked, look for decimal fragments
-                if not reconstructed:
-                    # If we have values like [96062.0, 50.0], try to see if they should be 96062.50
-                    for i in range(len(values)):
-                        if i < len(values) - 1 and values[i] > 100 and values[i + 1] < 100:
-                            # This might be a split decimal - check the original text
-                            # to see if they appear next to each other
-                            v1_pos = text.find(str(int(values[i])))
-                            v2_pos = text.find(str(int(values[i + 1])))
-                            if v1_pos != -1 and v2_pos != -1 and 0 < v2_pos - v1_pos < 20:
-                                # They're close in the text, likely a split value
-                                combined = float(f"{int(values[i])}.{int(values[i + 1])}")
-                                values = [combined]
-                                break
+            # Remove the old post-processing logic here - it's less reliable than robust cleaning
+            # OLD LOGIC REMOVED:
+            # if len(values) > 1 and not any('$' in text for _ in text):
+            #     ... (removed reconstruction logic) ...
 
-            self.logger.debug(f"Extracted numeric values with patterns: {values}")
-            return Result.ok(values)
+            # Filter out potential outliers if needed? (Optional, complex)
+            # E.g., if you extract [ -500.0, 1000000.0 ], the second might be noise.
+            # This requires domain knowledge or statistical methods. Keep it simple for now.
+
+            self.logger.debug(f"Final extracted numeric values: {extracted_values}")
+            return Result.ok(extracted_values)
 
         except Exception as e:
+            # Log general exceptions during the process
             error_msg = f"Numeric value extraction with patterns failed: {str(e)}"
-            self.logger.error(error_msg)
+            self.logger.error(error_msg, exc_info=True)  # Include stack trace
             return Result.fail(error_msg)
+
+    def _clean_and_convert_value(self, value_str: str, full_match: str) -> Optional[float]:
+        """
+        Cleans the extracted string value and converts it to a float.
+        Handles different signs, decimal separators, and thousands separators.
+        """
+        # Ensure value_str is a string, sometimes regex might capture non-strings if pattern is odd
+        if not isinstance(value_str, str):
+            self.logger.debug(f"Cleaning skipped: Captured group '{value_str}' is not a string.")
+            return None
+        if not value_str:
+            self.logger.debug("Cleaning skipped: Input captured group is empty.")
+            return None
+
+        # Use the original full match for robust sign detection
+        original_match_text = full_match.strip() if isinstance(full_match, str) else ""
+
+        try:
+            # 1. Detect sign from the *original full match* for robustness
+            is_negative = original_match_text.startswith(('-', '~', '–', '—')) or \
+                          (original_match_text.startswith('(') and original_match_text.endswith(')'))
+            self.logger.debug(
+                f"Cleaning captured group '{value_str}' from match '{original_match_text}'. Detected negative: {is_negative}")
+
+            # 2. Initial cleanup: Remove known non-numeric noise
+            # Includes currency, common symbols, whitespace. Add platform specifics if needed.
+            noise_chars = r'[$§@\s]+'
+            clean = re.sub(noise_chars, '', value_str.strip())
+            # Also replace common misinterpretations if not handled by regex
+            clean = clean.replace('l', '1').replace('O', '0').replace('S', '5').replace('B', '8')
+            self.logger.debug(f"  After removing noise/misinterpretations: '{clean}'")
+
+            # Handle edge case where cleaning leaves nothing
+            if not clean:
+                self.logger.debug("  Cleaning resulted in empty string.")
+                return None
+
+            # 3. Handle decimal separator intelligently (comma vs period)
+            has_period = '.' in clean
+            has_comma = ',' in clean
+
+            if has_period and has_comma:
+                # Both present: Assume period is decimal, remove comma as thousands separator
+                clean = clean.replace(',', '')
+                self.logger.debug(f"  Both separators found. Removed comma: '{clean}'")
+            elif has_comma and not has_period:
+                # Only comma present: Assume it's the decimal, replace with period
+                clean = clean.replace(',', '.')
+                self.logger.debug(f"  Only comma found. Replaced with period: '{clean}'")
+            # Case: Only period -> do nothing
+            # Case: Neither -> do nothing
+
+            # 4. Remove any remaining commas ONLY if a decimal point exists now
+            if '.' in clean:
+                parts = clean.split('.')
+                if len(parts) >= 2:  # Should be 2, but handle >2 defensively
+                    # Remove thousands separators from the integer part only
+                    parts[0] = re.sub(r',', '', parts[0])
+                    # Join back, keeping only the first decimal part
+                    clean = parts[0] + '.' + parts[1]
+                    self.logger.debug(f"  Removed remaining thousands commas (if any): '{clean}'")
+                else:  # Only integer part after split (e.g., "1,000.")
+                    clean = re.sub(r',', '', parts[0])
+                    self.logger.debug(f"  Removed thousands commas from integer-only part: '{clean}'")
+            else:
+                # No decimal point, remove all commas (they must be thousands separators)
+                clean = re.sub(r',', '', clean)
+                self.logger.debug(f"  No decimal, removed all commas: '{clean}'")
+
+            # 5. Final cleanup: Remove any non-digit characters except leading '-' and single '.'
+            leading_dash = ''
+            # Standardize recognized negative indicators to '-'
+            if clean.startswith(('-', '~', '–', '—')):
+                leading_dash = '-'
+            clean = re.sub(r'^[-~–—]+', '', clean)  # Remove sign for processing digits
+
+            # Keep only digits and the first decimal point
+            final_clean = ""
+            decimal_found = False
+            for char in clean:
+                if char.isdigit():
+                    final_clean += char
+                elif char == '.' and not decimal_found:
+                    final_clean += char
+                    decimal_found = True
+                # else: discard char
+
+            # Handle empty string after cleanup
+            if not final_clean:
+                self.logger.debug(f"  Final cleanup resulted in empty string.")
+                return None
+
+            clean = leading_dash + final_clean
+            self.logger.debug(f"  After final digit/decimal cleanup: '{clean}'")
+
+            # 6. Convert to float
+            if clean == '-':  # Handle just a dash remaining
+                return None
+            value = float(clean)
+
+            # 7. Apply sign consistently
+            # Ensure value is negative if a negative sign/parens were detected originally
+            if is_negative and value >= 0:
+                value = -abs(value)
+            # Ensure value is positive if no negative sign/parens were detected originally
+            # (Unless the number itself starts with '-', e.g. matched by 'regular')
+            elif not is_negative and value < 0 and not original_match_text.startswith(('-', '~', '–', '—')):
+                # This case means 'regular' pattern matched a negative number like '-500'
+                # but the original match wasn't explicitly negative via () or leading sign variation.
+                # Here, we trust the extracted number's sign.
+                pass  # Allow negative if number itself is negative and no positive indicator
+                # Alternative: force positive: value = abs(value) if strict needed
+
+            self.logger.debug(f"  Successfully cleaned and converted to: {value}")
+            return value
+
+        except (ValueError, TypeError) as e:
+            self.logger.warning(
+                f"Could not convert cleaned value '{clean}' (from group '{value_str}', match '{original_match_text}') to float: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(
+                f"Unexpected error during cleaning/conversion for '{value_str}' / '{original_match_text}': {e}",
+                exc_info=True)
+            return None
