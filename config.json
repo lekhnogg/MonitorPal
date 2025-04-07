@@ -1,0 +1,133 @@
+{
+    "default_platforms": [
+        "Quantower",
+        "NinjaTrader",
+        "Tradovate",
+        "TradingView"
+    ],
+    "platforms": {
+        "NinjaTrader": {
+            "monitor_regions": {
+                "P&L_1": [
+                    2086,
+                    57,
+                    69,
+                    21
+                ],
+                "P&L_2": [
+                    -901,
+                    316,
+                    174,
+                    21
+                ]
+            },
+            "flatten_regions": {
+                "Flatten_1": [
+                    -520,
+                    884,
+                    142,
+                    53
+                ]
+            }
+        }
+    },
+    "cold_turkey_blocker": "C:/Program Files/Cold Turkey/Cold Turkey Blocker.exe",
+    "block_settings": {
+        "NinjaTrader": "Ninja"
+    },
+    "verified_blocks": [
+        {
+            "platform": "NinjaTrader",
+            "block_name": "Ninja"
+        }
+    ],
+    "stop_loss_threshold": 0.0,
+    "lockout_duration": 15,
+    "current_platform": "NinjaTrader",
+    "first_run": true,
+    "app_version": "1.0.0",
+    "platform_profiles": {
+        "Quantower": {
+            "ocr_profile": {
+                "scale_factor": 2.0,
+                "threshold_block_size": 11,
+                "threshold_c": 2,
+                "denoise_h": 10,
+                "denoise_template_window_size": 7,
+                "denoise_search_window_size": 21,
+                "tesseract_config": "--oem 3 --psm 7",
+                "invert_colors": false,
+                "additional_params": {}
+            },
+            "numeric_patterns": {
+                "dollar": "\\$([\\d,]+\\.?\\d*)",
+                "negative": "\\((?:\\$)?([\\d,]+\\.?\\d*)\\)",
+                "negative_dash": "[-~]\\$?([\\d,]+\\.?\\d*)",
+                "regular": "(?<!\\$)(-?[\\d,]+\\.?\\d*)"
+            },
+            "is_enabled": true,
+            "additional_settings": {}
+        },
+        "NinjaTrader": {
+            "ocr_profile": {
+                "scale_factor": 3.0,
+                "threshold_block_size": 15,
+                "threshold_c": 4,
+                "denoise_h": 7,
+                "denoise_template_window_size": 7,
+                "denoise_search_window_size": 21,
+                "tesseract_config": "--oem 3 --psm 7",
+                "invert_colors": true,
+                "additional_params": {}
+            },
+            "numeric_patterns": {
+                "negative_dash": "[-~\u2013\u2014]\\s*[$\u00a7]?([\\d,]+(?:[.,]\\d+)?)"
+            },
+            "is_enabled": true,
+            "additional_settings": {}
+        },
+        "TradingView": {
+            "ocr_profile": {
+                "scale_factor": 2.2,
+                "threshold_block_size": 13,
+                "threshold_c": 2,
+                "denoise_h": 10,
+                "denoise_template_window_size": 7,
+                "denoise_search_window_size": 21,
+                "tesseract_config": "--oem 3 --psm 7",
+                "invert_colors": true,
+                "additional_params": {}
+            },
+            "numeric_patterns": {
+                "dollar": "\\$([\\d,]+\\.?\\d*)",
+                "negative": "\\((?:\\$)?([\\d,]+\\.?\\d*)\\)",
+                "negative_dash": "[-~]\\$?([\\d,]+\\.?\\d*)",
+                "regular": "(?<!\\$)(-?[\\d,]+\\.?\\d*)",
+                "pnl_label": "PNL[:\\s]+([-~\\d.,]+)"
+            },
+            "is_enabled": true,
+            "additional_settings": {}
+        },
+        "Tradovate": {
+            "ocr_profile": {
+                "scale_factor": 1.8,
+                "threshold_block_size": 9,
+                "threshold_c": 2,
+                "denoise_h": 10,
+                "denoise_template_window_size": 7,
+                "denoise_search_window_size": 21,
+                "tesseract_config": "--oem 3 --psm 7",
+                "invert_colors": false,
+                "additional_params": {}
+            },
+            "numeric_patterns": {
+                "dollar": "\\$([\\d,]+\\.?\\d*)",
+                "negative": "\\((?:\\$)?([\\d,]+\\.?\\d*)\\)",
+                "negative_dash": "[-~]\\$?([\\d,]+\\.?\\d*)",
+                "regular": "(?<!\\$)(-?[\\d,]+\\.?\\d*)"
+            },
+            "is_enabled": true,
+            "additional_settings": {}
+        }
+    }
+}
