@@ -1289,7 +1289,7 @@ class TradingMonitorTestApp(QMainWindow):
         worker = DetectionWorker(self.platform_detection, platform, self.logger)
         worker.set_on_completed(on_detection_complete)
 
-        result = self.thread_service.execute_task_with_auto_cleanup(f"detect_{platform}", worker)
+        result = self.thread_service.execute_task_and_restore_result(f"detect_{platform}", worker)
         if result.is_failure:
             self.log_message(f"Error starting detection: {result.error}", "ERROR")
 
@@ -1803,7 +1803,8 @@ class TradingMonitorTestApp(QMainWindow):
             platform=platform,
             flatten_positions=flatten_positions,
             lockout_duration=duration,
-            on_status_update=on_status_update
+            on_status_update=on_status_update,
+            fullscreen = True  # New parameter
         ).with_ui_feedback(
             ui_feedback_func=self.log_message,
             success_message="Lockout sequence initiated",
@@ -2157,7 +2158,7 @@ class TradingMonitorTestApp(QMainWindow):
         self.log_message(
             f"Executing calibration task for image '{os.path.basename(screenshot_path)}' and value '{expected_value}'...",
             "INFO")
-        task_result = self.thread_service.execute_task_with_auto_cleanup("calibration", worker)
+        task_result = self.thread_service.execute_task_and_restore_result("calibration", worker)
         if task_result.is_failure:
             self.log_message(f"Failed to start calibration task: {task_result.error}", "ERROR")
             # Reset UI elements if task fails to start
@@ -2206,15 +2207,21 @@ class TradingMonitorTestApp(QMainWindow):
     def event(self, event):
         """Handle custom events."""
         if event.type() == _ThresholdExceededEvent.EVENT_TYPE:
-            # Now we're on the UI thread - safe to update UI
+            self.log_message("!!! _ThresholdExceededEvent Received !!!", "ERROR")  # Keep this
+
+            # --- RESTORE THESE LINES ---
             self.lockout_status.append(f"Threshold exceeded! Detected value: ${event.result.minimum_value}")
-
-            # Update UI state
             self._update_monitoring_state(False)
+            self.log_message("--- Calling _on_trigger_lockout ---", "DEBUG")  # Add log before call
+            self._on_trigger_lockout(automatic=True)  # <--- UNCOMMENT THIS
+            self.log_message("--- Returned from _on_trigger_lockout call ---", "DEBUG")  # Add log after call
+            # --- END OF RESTORED LINES ---
 
-            # Trigger lockout automatically
-            self._on_trigger_lockout(automatic=True)
-            return True
+            # Remove the test QMessageBox and logging related to it
+            # QMessageBox.information(...)
+            # self.log_message("!!! Lockout Trigger Postponed for Test !!!", "ERROR")
+
+            return True  # Indicate event was handled
         return super().event(event)
 
 # At the top of the main section

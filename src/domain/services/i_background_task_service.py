@@ -234,7 +234,7 @@ class IBackgroundTaskService(ABC):
         pass
 
     @abstractmethod
-    def execute_task_with_auto_cleanup(self, task_id: str, worker: Worker[T]) -> Result[bool]:
+    def execute_task_and_restore_result(self, task_id: str, worker: Worker[T]) -> Result[bool]:
         """
         Execute a task that will be automatically cleaned up when completed.
 

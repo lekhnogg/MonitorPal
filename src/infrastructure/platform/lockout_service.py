@@ -8,7 +8,7 @@ and executes Cold Turkey Blocker commands to lock out trading platforms.
 """
 import time
 from typing import List, Dict, Any, Optional, Callable, Tuple
-
+import uuid
 from src.domain.services.i_lockout_service import ILockoutService
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_background_task_service import Worker, IBackgroundTaskService
@@ -33,7 +33,8 @@ class LockoutWorker(Worker[bool]):
                  ui_service: IUIService,
                  cold_turkey_service: IColdTurkeyService,
                  logger: ILoggerService,
-                 on_status_update: Optional[Callable[[str, str], None]] = None):
+                 on_status_update: Optional[Callable[[str, str], None]] = None,
+                 fullscreen: bool = False):  # Add this parameter with default value
         """Initialize the lockout worker."""
         super().__init__()
         self.platform = platform
@@ -45,7 +46,7 @@ class LockoutWorker(Worker[bool]):
         self.cold_turkey_service = cold_turkey_service
         self.logger = logger
         self.on_status_update = on_status_update
-
+        self.fullscreen = fullscreen
         # Mapping from platform name to Cold Turkey block name (customizable)
         self.platform_mapping = {
             "NinjaTrader": "Ninja",
@@ -81,8 +82,21 @@ class LockoutWorker(Worker[bool]):
             import ctypes
             import win32con
             user32 = ctypes.windll.user32
-            scr_w = user32.GetSystemMetrics(win32con.SM_CXSCREEN)
-            scr_h = user32.GetSystemMetrics(win32con.SM_CYSCREEN)
+
+            if self.fullscreen:
+                # Get dimensions of ALL monitors (virtual screen)
+                x_pos = user32.GetSystemMetrics(win32con.SM_XVIRTUALSCREEN)
+                y_pos = user32.GetSystemMetrics(win32con.SM_YVIRTUALSCREEN)
+                scr_w = user32.GetSystemMetrics(win32con.SM_CXVIRTUALSCREEN)
+                scr_h = user32.GetSystemMetrics(win32con.SM_CYVIRTUALSCREEN)
+                self.report_status(f"Creating overlay across all monitors: {scr_w}x{scr_h} at ({x_pos},{y_pos})",
+                                   "INFO")
+            else:
+                # Original code for primary monitor only
+                x_pos = 0
+                y_pos = 0
+                scr_w = user32.GetSystemMetrics(win32con.SM_CXSCREEN)
+                scr_h = user32.GetSystemMetrics(win32con.SM_CYSCREEN)
 
             # Convert flatten positions format
             click_through_regions = []
@@ -97,7 +111,7 @@ class LockoutWorker(Worker[bool]):
             # Create the overlay window using the window manager
             overlay_result = self.window_manager.create_transparent_overlay(
                 size=(scr_w, scr_h),
-                position=(0, 0),
+                position=(x_pos, y_pos),
                 click_through_regions=click_through_regions
             )
 
@@ -151,6 +165,22 @@ class LockoutWorker(Worker[bool]):
 
             # Get platform command
             platform_cmd = self._get_platform_cmd(self.platform)
+
+            self.logger.debug(
+                f"Worker: Preparing to execute Cold Turkey command: '{platform_cmd}' for {self.lockout_duration} mins")
+            block_result = None  # Initialize result variable
+            try:
+                block_result = self.cold_turkey_service.execute_block_command(
+                    platform_cmd, self.lockout_duration
+                )
+                self.logger.debug(f"Worker: Cold Turkey command finished. Result: {block_result}")
+            except Exception as ct_err:
+                self.logger.error(f"Worker: Error during cold_turkey_service.execute_block_command: {ct_err}",
+                                  exc_info=True)
+                self.report_error(f"Failed to execute Cold Turkey block: {ct_err}")
+                # Maybe return False here, as the block likely failed
+                return False
+
 
             # Execute block command
             block_result = self.cold_turkey_service.execute_block_command(
@@ -213,12 +243,12 @@ class WindowsLockoutService(ILockoutService):
         self.ui_service = ui_service
         self.cold_turkey_service = cold_turkey_service
         self.thread_service = thread_service
-        self.lockout_task_id = "lockout_sequence"
 
     def perform_lockout(self,
                         platform: str,
                         flatten_positions: List[Dict[str, Any]],
                         lockout_duration: int,
+                        fullscreen: bool = False,  # Add this parameter
                         on_status_update: Optional[Callable[[str, str], None]] = None) -> Result[bool]:
         """Perform the lockout sequence for a trading platform."""
         try:
@@ -246,7 +276,12 @@ class WindowsLockoutService(ILockoutService):
                 )
                 return Result.fail(error)
 
-            # Create worker
+
+            # Generate a unique ID for this specific lockout instance
+            task_id = f"lockout_{platform.replace(' ', '_')}_{uuid.uuid4()}" # Generate unique ID
+            self.logger.debug(f"Assigning unique task ID: {task_id}") # Log the new ID
+
+            # Create worker (keep this part)
             worker = LockoutWorker(
                 platform=platform,
                 flatten_positions=flatten_positions,
@@ -256,11 +291,13 @@ class WindowsLockoutService(ILockoutService):
                 ui_service=self.ui_service,
                 cold_turkey_service=self.cold_turkey_service,
                 logger=self.logger,
+                fullscreen=fullscreen,  # Pass the parameter
                 on_status_update=on_status_update
             )
 
+
             # Execute in background thread
-            return self.thread_service.execute_task_with_auto_cleanup(self.lockout_task_id, worker)
+            return self.thread_service.execute_task_and_restore_result(task_id, worker)
 
         except Exception as e:
             error = PlatformError(

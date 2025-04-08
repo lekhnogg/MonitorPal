@@ -260,7 +260,7 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             # Locker unlocks automatically
             pass  # QMutexLocker handles unlock
 
-    def execute_task_with_auto_cleanup(self, task_id: str, worker: Worker[T]) -> Result[bool]:
+    def execute_task_and_restore_result(self, task_id: str, worker: Worker[T]) -> Result[bool]:
         """
         Execute a task that will be automatically cleaned up when completed.
         (Cleanup now primarily means calling the original callback,
@@ -331,7 +331,7 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             worker.set_on_completed(wrapped_callback)
 
             # Execute the task with auto cleanup
-            return self.execute_task_with_auto_cleanup(task_id, worker)
+            return self.execute_task_and_restore_result(task_id, worker)
         except Exception as e:
             error_message = f"Error executing UI task '{task_id}': {e}"
             self.logger.error(error_message)
