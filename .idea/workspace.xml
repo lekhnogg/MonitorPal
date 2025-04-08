@@ -4,16 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Many changes have been made, OCR detection and regex help through detection.. some stuff still needs cleaning.">
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="REMOVED THE OCR/REGEX USER CHOOSING STUFF TOO COMPLICATED AND LEAPS IN LOGIC. NOW THERES A SIMPLE CALIBRATION SYSTEM, USER SELECTS REGION, ENTERS IN TEXT THE P&amp;L IN THE IMAGE, BRAIN CALIBRATES IT OPTIMIZES OCR FOR IMAGE AND CONSEQEUENTLY ADJUSTS THE &quot;MAGNIFYING GLASS&quot;. NEXT STEP IS FIGURE OUT MONITORING THREADING (APP CRASHES IF NOT MANUALLY TRIGGERED) AND MANUAL TRIGGERING DIALOG POPUS WHEN ITS MONITORING-INDUCED LOCKOUT..">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/screenshots/NinjaTrader/flatten/NinjaTrader_flatten_Flatten_1.png" beforeDir="false" afterPath="$PROJECT_DIR$/data/screenshots/NinjaTrader/flatten/NinjaTrader_flatten_Flatten_1.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data/screenshots/NinjaTrader/monitor/NinjaTrader_monitor_P&amp;L_1.png" beforeDir="false" afterPath="$PROJECT_DIR$/data/screenshots/NinjaTrader/monitor/NinjaTrader_monitor_P&amp;L_1.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/models/platform_profile.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/models/platform_profile.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_ocr_analysis_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_ocr_analysis_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_profile_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_profile_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/ocr_analysis_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/ocr_analysis_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/test_lockout.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_lockout.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -61,28 +56,28 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python tests.Python tests in GeminiThreadTest.py.executor": "Run",
-    "Python.ThreadTestMar14.executor": "Run",
-    "Python.ThreadingTest.executor": "Run",
-    "Python.main.executor": "Run",
-    "Python.simple_test_app.executor": "Run",
-    "Python.test_app.executor": "Run",
-    "Python.test_appOLD.executor": "Run",
-    "Python.test_detect.executor": "Run",
-    "Python.test_di.executor": "Run",
-    "Python.test_lockout.executor": "Run",
-    "Python.test_platform_detection.executor": "Run",
-    "Python.test_screenshots.executor": "Run",
-    "Python.verification_service.executor": "Debug",
-    "Python.verification_test.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "NewRevision",
-    "settings.editor.selected.configurable": "ml.llm.LLMConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python tests.Python tests in GeminiThreadTest.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python.ThreadTestMar14.executor&quot;: &quot;Run&quot;,
+    &quot;Python.ThreadingTest.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.simple_test_app.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_app.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_appOLD.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_detect.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_di.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_lockout.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_platform_detection.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_screenshots.executor&quot;: &quot;Run&quot;,
+    &quot;Python.verification_service.executor&quot;: &quot;Debug&quot;,
+    &quot;Python.verification_test.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;NewRevision&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.LLMConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\ui" />
@@ -91,7 +86,7 @@
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.test_di">
+  <component name="RunManager">
     <configuration name="test_di" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="MonitorPal" />
       <option name="ENV_FILES" value="" />
@@ -208,7 +203,23 @@
       <option name="project" value="LOCAL" />
       <updated>1743903132878</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="REMOVED THE OCR/REGEX USER CHOOSING STUFF TOO COMPLICATED AND LEAPS IN LOGIC. NOW THERES A SIMPLE CALIBRATION SYSTEM, USER SELECTS REGION, ENTERS IN TEXT THE P&amp;L IN THE IMAGE, BRAIN CALIBRATES IT OPTIMIZES OCR FOR IMAGE AND CONSEQEUENTLY ADJUSTS THE &quot;MAGNIFYING GLASS&quot;. NEXT STEP IS FIGURE OUT MONITORING THREADING (APP CRASHES IF NOT MANUALLY TRIGGERED) AND MANUAL TRIGGERING DIALOG POPUS WHEN ITS MONITORING-INDUCED LOCKOUT..">
+      <option name="closed" value="true" />
+      <created>1743989272157</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1743989272157</updated>
+    </task>
+    <task id="LOCAL-00009" summary="REMOVED THE OCR/REGEX USER CHOOSING STUFF TOO COMPLICATED AND LEAPS IN LOGIC. NOW THERES A SIMPLE CALIBRATION SYSTEM, USER SELECTS REGION, ENTERS IN TEXT THE P&amp;L IN THE IMAGE, BRAIN CALIBRATES IT OPTIMIZES OCR FOR IMAGE AND CONSEQEUENTLY ADJUSTS THE &quot;MAGNIFYING GLASS&quot;. NEXT STEP IS FIGURE OUT MONITORING THREADING (APP CRASHES IF NOT MANUALLY TRIGGERED) AND MANUAL TRIGGERING DIALOG POPUS WHEN ITS MONITORING-INDUCED LOCKOUT..">
+      <option name="closed" value="true" />
+      <created>1743989309223</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1743989309223</updated>
+    </task>
+    <option name="localTasksCounter" value="10" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -218,6 +229,7 @@
     <MESSAGE value="Tab switching implemented (cross app) and all thats left is to verify monitoring works. Also fixed the region naming and a few other things" />
     <MESSAGE value="Fixed redundant extract_text using ocr without profile. now everything should use profile set by the user for each platform. next step is get rid of regex pattern in the test app so it more user friendly.." />
     <MESSAGE value="Many changes have been made, OCR detection and regex help through detection.. some stuff still needs cleaning." />
-    <option name="LAST_COMMIT_MESSAGE" value="Many changes have been made, OCR detection and regex help through detection.. some stuff still needs cleaning." />
+    <MESSAGE value="REMOVED THE OCR/REGEX USER CHOOSING STUFF TOO COMPLICATED AND LEAPS IN LOGIC. NOW THERES A SIMPLE CALIBRATION SYSTEM, USER SELECTS REGION, ENTERS IN TEXT THE P&amp;L IN THE IMAGE, BRAIN CALIBRATES IT OPTIMIZES OCR FOR IMAGE AND CONSEQEUENTLY ADJUSTS THE &quot;MAGNIFYING GLASS&quot;. NEXT STEP IS FIGURE OUT MONITORING THREADING (APP CRASHES IF NOT MANUALLY TRIGGERED) AND MANUAL TRIGGERING DIALOG POPUS WHEN ITS MONITORING-INDUCED LOCKOUT.." />
+    <option name="LAST_COMMIT_MESSAGE" value="REMOVED THE OCR/REGEX USER CHOOSING STUFF TOO COMPLICATED AND LEAPS IN LOGIC. NOW THERES A SIMPLE CALIBRATION SYSTEM, USER SELECTS REGION, ENTERS IN TEXT THE P&amp;L IN THE IMAGE, BRAIN CALIBRATES IT OPTIMIZES OCR FOR IMAGE AND CONSEQEUENTLY ADJUSTS THE &quot;MAGNIFYING GLASS&quot;. NEXT STEP IS FIGURE OUT MONITORING THREADING (APP CRASHES IF NOT MANUALLY TRIGGERED) AND MANUAL TRIGGERING DIALOG POPUS WHEN ITS MONITORING-INDUCED LOCKOUT.." />
   </component>
 </project>

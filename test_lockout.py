@@ -33,12 +33,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
-    QTextEdit, QMessageBox, QTabWidget, QFileDialog, QLineEdit, QGroupBox, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QScrollArea, QFrame,
-    QButtonGroup, QRadioButton, QProgressBar
+    QTextEdit, QMessageBox, QTabWidget, QLineEdit, QGroupBox, QComboBox,
+    QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QProgressBar
 )
-from PySide6.QtGui import QPixmap, QColor, QTextCursor
-from PySide6.QtCore import Qt, QSize, QObject, Signal, QThread
+from PySide6.QtGui import QPixmap, QTextCursor
+from PySide6.QtCore import Qt, QEvent
 
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_background_task_service import IBackgroundTaskService, Worker
@@ -175,6 +174,15 @@ class RegionComboBox(QComboBox):
             return self.regions[idx]["screenshot"]
         return None
 
+
+# Add this custom event class
+class _ThresholdExceededEvent(QEvent):
+    """Custom event for threshold exceeded notification."""
+    EVENT_TYPE = QEvent.Type(QEvent.registerEventType())
+
+    def __init__(self, result):
+        super().__init__(_ThresholdExceededEvent.EVENT_TYPE)
+        self.result = result
 
 class CalibrationWorker(Worker[Dict[str, Any]]):
     """Worker that attempts to find OCR parameters that match an expected value."""
@@ -1679,15 +1687,16 @@ class TradingMonitorTestApp(QMainWindow):
             self.lockout_status.append(f"[{level}] {message}")
 
         def on_threshold_exceeded(result):
+            # These logging calls are thread-safe
             self.log_message("Threshold exceeded!", "ERROR")
             self.log_message(f"Detected value: ${result.minimum_value}", "ERROR")
-            self.lockout_status.append(f"Threshold exceeded! Detected value: ${result.minimum_value}")
 
-            # Update UI state
-            self._update_monitoring_state(False)
+            # Stop monitoring - this call itself is thread-safe
+            self.monitoring_service.stop_monitoring()
 
-            # Automatically trigger lockout
-            self._on_trigger_lockout()
+            # Post event to UI thread for updating UI and triggering lockout
+            # This is the critical part that ensures thread safety
+            QApplication.instance().postEvent(self, _ThresholdExceededEvent(result))
 
         # Start monitoring with enhanced result handling
         try:
@@ -1740,19 +1749,19 @@ class TradingMonitorTestApp(QMainWindow):
             self.logger.error(f"Error stopping monitoring: {e}", exc_info=True)
             self._update_monitoring_state(False)  # Ensure UI consistency
 
-    def _on_trigger_lockout(self):
+    def _on_trigger_lockout(self, automatic=False):
         """Manually trigger the lockout sequence."""
         platform = self.platform_selection_service.get_current_platform()
         duration = self.duration_spin.value()
 
-        # Get flatten regions with enhanced result handling
+        # Pass the automatic flag through
         self.region_service.get_regions_by_platform(platform, "flatten").with_ui_feedback(
             ui_feedback_func=self.log_message,
             error_message="Failed to get flatten regions",
             context="Lockout preparation"
-        ).on_success(lambda regions: self._prepare_lockout(platform, regions, duration))
+        ).on_success(lambda regions: self._prepare_lockout(platform, regions, duration, automatic))
 
-    def _prepare_lockout(self, platform, flatten_regions, duration):
+    def _prepare_lockout(self, platform, flatten_regions, duration, automatic=False):
         """Prepare lockout with retrieved flatten regions."""
         if not flatten_regions:
             self.log_message("No flatten regions defined", "ERROR")
@@ -1768,27 +1777,28 @@ class TradingMonitorTestApp(QMainWindow):
         self.log_message(f"Duration: {duration} minutes", "INFO")
         self.log_message(f"Flatten positions: {len(flatten_positions)}", "INFO")
 
-        # Confirm with user
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Lockout",
-            f"Are you sure you want to trigger a {duration}-minute lockout for {platform}?\n\n"
-            "This will create an overlay with clickable regions for flattening positions "
-            "and then activate Cold Turkey Blocker.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+        # Skip confirmation for automatic lockouts
+        if not automatic:
+            confirm = QMessageBox.question(
+                self,
+                "Confirm Lockout",
+                f"Are you sure you want to trigger a {duration}-minute lockout for {platform}?\n\n"
+                "This will create an overlay with clickable regions for flattening positions "
+                "and then activate Cold Turkey Blocker.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
 
-        if confirm != QMessageBox.Yes:
-            self.log_message("Lockout cancelled by user", "INFO")
-            return
+            if confirm != QMessageBox.Yes:
+                self.log_message("Lockout cancelled by user", "INFO")
+                return
 
         # Prepare callback
         def on_status_update(message, level):
             self.log_message(message, level)
             self.lockout_status.append(f"[{level}] {message}")
 
-        # Execute lockout with enhanced result handling
+        # Execute lockout
         self.lockout_service.perform_lockout(
             platform=platform,
             flatten_positions=flatten_positions,
@@ -2192,6 +2202,21 @@ class TradingMonitorTestApp(QMainWindow):
         except Exception as e:
             self.log_message(f"Error saving profile: {str(e)}", "ERROR")
             self.logger.error(f"Error saving profile: {e}", exc_info=True)
+
+    def event(self, event):
+        """Handle custom events."""
+        if event.type() == _ThresholdExceededEvent.EVENT_TYPE:
+            # Now we're on the UI thread - safe to update UI
+            self.lockout_status.append(f"Threshold exceeded! Detected value: ${event.result.minimum_value}")
+
+            # Update UI state
+            self._update_monitoring_state(False)
+
+            # Trigger lockout automatically
+            self._on_trigger_lockout(automatic=True)
+            return True
+        return super().event(event)
+
 # At the top of the main section
 if __name__ == "__main__":
     app = QApplication(sys.argv)

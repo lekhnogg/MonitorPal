@@ -314,7 +314,8 @@ class TesseractOcrService(IOcrService):
             processed_text = text.replace(';', '.')  # Common Tesseract error
             processed_text = processed_text.replace(' ',
                                                     '')  # Remove spaces to help regex matching adjacent items sometimes
-
+            processed_text = processed_text.replace('S', '$')  # Common OCR mistake
+            processed_text = processed_text.replace('s', '$')  # Common OCR mistake
             self.logger.debug(f"Preprocessed text for pattern matching: '{processed_text[:100]}...'")
 
             # List to store extracted values and set to track unique rounded values

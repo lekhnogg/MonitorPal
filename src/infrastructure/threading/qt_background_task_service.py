@@ -156,20 +156,6 @@ class TaskInfo:
         self.wrapper = wrapper
         self.worker = worker
 
-    def disconnect_signals(self):
-        """Safely disconnect all signals to prevent memory leaks."""
-        if not hasattr(self.wrapper, 'signals'):
-            return
-
-        # Simple approach: disconnect all at once without checking receivers
-        for signal_name in ['started', 'progress', 'completed', 'error']:
-            try:
-                signal = getattr(self.wrapper.signals, signal_name, None)
-                if signal:
-                    signal.disconnect()
-            except (TypeError, RuntimeError):
-                pass  # Signal wasn't connected or already disconnected
-
 
 class QtBackgroundTaskService(IBackgroundTaskService):
     """
@@ -204,8 +190,8 @@ class QtBackgroundTaskService(IBackgroundTaskService):
         locker = QMutexLocker(self.mutex)
 
         try:
-            # Check if task ID is already in use
             if task_id in self.tasks:
+                locker.unlock()  # Unlock before returning
                 self.logger.warning(f"Task '{task_id}' is already running")
                 return Result.fail(f"Task '{task_id}' is already running")
 
@@ -221,12 +207,15 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             # Connect thread lifecycle signals
             thread.started.connect(wrapper.run)
 
-            # Use deleteLater to ensure proper cleanup when thread finishes
-            thread.finished.connect(thread.deleteLater)
+            # Use deleteLater for wrapper and thread cleanup when thread finishes
+            # THIS IS CRUCIAL for safe object deletion and signal disconnection
             thread.finished.connect(wrapper.deleteLater)
+            thread.finished.connect(thread.deleteLater)
 
-            # Connect worker callbacks with Qt.QueuedConnection for thread safety
-            # This ensures callbacks are executed in the thread that created the connection
+            # Connect a slot to remove the task from our tracking dictionary *after* finished
+            thread.finished.connect(lambda: self._handle_task_finished(task_id))  # MODIFIED/ADDED
+
+            # Connect worker signals (keep existing connections)
             if worker.on_started_callback:
                 wrapper.signals.started.connect(worker.on_started_callback, Qt.QueuedConnection)
             if worker.on_progress_callback:
@@ -238,6 +227,7 @@ class QtBackgroundTaskService(IBackgroundTaskService):
 
             # Store task info
             self.tasks[task_id] = TaskInfo(task_id, thread, wrapper, worker)
+            locker.unlock()  # Unlock after modifying tasks dict
 
             # Start thread
             thread.start()
@@ -245,56 +235,71 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             self.logger.debug(f"Task '{task_id}' started successfully")
             return Result.ok(True)
         except Exception as e:
+            # Ensure locker is unlocked in case of exception before return
+            if locker.isLocked():
+                locker.unlock()
             error_message = f"Error starting task '{task_id}': {e}"
             self.logger.error(error_message)
             self.logger.debug(traceback.format_exc())
             return Result.fail(error_message)
 
+    # --- Add this new private method ---
+    @Slot(str)  # Make it a slot if needed, otherwise just a private method
+    def _handle_task_finished(self, task_id: str):
+        """Slot called when a task's thread emits finished()."""
+        locker = QMutexLocker(self.mutex)
+        try:
+            if task_id in self.tasks:
+                self.logger.debug(f"Cleaning up finished task '{task_id}' from tracking dictionary.")
+                del self.tasks[task_id]
+            else:
+                self.logger.debug(f"Task '{task_id}' already cleaned up or not found upon finishing.")
+        except Exception as e:
+            self.logger.error(f"Error during task finish handling for '{task_id}': {e}")
+        finally:
+            # Locker unlocks automatically
+            pass  # QMutexLocker handles unlock
+
     def execute_task_with_auto_cleanup(self, task_id: str, worker: Worker[T]) -> Result[bool]:
         """
         Execute a task that will be automatically cleaned up when completed.
-
-        Args:
-            task_id: Unique identifier for the task
-            worker: Worker to execute
-
-        Returns:
-            Result indicating success or failure of task initialization
+        (Cleanup now primarily means calling the original callback,
+         dictionary removal is handled by _handle_task_finished)
         """
-        # Save original callbacks
         original_completed_callback = worker.on_completed_callback
         original_error_callback = worker.on_error_callback
 
-        def on_task_completed(result):
-            """Handle task completion with cleanup."""
-            try:
-                # Call the original callback first, handling Result conversions
-                if original_completed_callback:
+        # We still need to wrap the callbacks to ensure the *original* user callback runs
+        # before the task is considered fully "done".
+
+        def on_task_completed_wrapper(result):
+            """Call original callback."""
+            if original_completed_callback:
+                try:
                     # If result is a serialized Result, convert it back
                     if isinstance(result, dict) and "success" in result and ("value" in result or "error" in result):
                         restored_result = Result.from_thread_safe_dict(result)
                         original_completed_callback(restored_result)
                     else:
                         original_completed_callback(result)
-            finally:
-                # Clean up task resources
-                self._cleanup_task(task_id)
+                except Exception as e:
+                    self.logger.error(f"Error in user's on_completed callback for task '{task_id}': {e}")
+            # No need to call _cleanup_task here anymore
 
-        def on_task_error(error):
-            """Handle task error with cleanup."""
-            try:
-                # Call the original callback first
-                if original_error_callback:
-                    original_error_callback(error)
-            finally:
-                # Clean up task resources
-                self._cleanup_task(task_id)
+        def on_task_error_wrapper(error):
+            """Call original callback."""
+            if original_error_callback:
+                try:
+                     original_error_callback(error)
+                except Exception as e:
+                     self.logger.error(f"Error in user's on_error callback for task '{task_id}': {e}")
+            # No need to call _cleanup_task here anymore
 
-        # Set combined callbacks
-        worker.set_on_completed(on_task_completed)
-        worker.set_on_error(on_task_error)
+        # Set wrapped callbacks
+        worker.set_on_completed(on_task_completed_wrapper)
+        worker.set_on_error(on_task_error_wrapper)
 
-        # Execute the task
+        # Execute the task (which connects _handle_task_finished)
         return self.execute_task(task_id, worker)
 
     def execute_ui_task(self, task_id: str, worker: Worker[T],
@@ -335,55 +340,56 @@ class QtBackgroundTaskService(IBackgroundTaskService):
 
     def cancel_task(self, task_id: str) -> Result[bool]:
         """
-        Cancel a running task.
-
-        Args:
-            task_id: Identifier of the task to cancel
-
-        Returns:
-            Result indicating success or failure of cancellation
+        Request cancellation of a running task.
         """
+        task_info = None # Variable to hold task_info outside the lock
+
+        # --- Step 1: Find the task info under lock ---
         locker = QMutexLocker(self.mutex)
+        if task_id not in self.tasks:
+            self.logger.warning(f"Cannot cancel task '{task_id}' - not found or already finished.")
+            return Result.fail(f"Task '{task_id}' not found")
+        task_info = self.tasks[task_id]
+        locker.unlock() # Release lock before interacting with thread
 
+        # --- Step 2: Request cancellation without lock ---
         try:
-            if task_id not in self.tasks:
-                self.logger.warning(f"Cannot cancel task '{task_id}' - not found")
-                return Result.fail(f"Task '{task_id}' not found")
+            self.logger.debug(f"Requesting cancellation for task '{task_id}'")
+            task_info.worker.cancel() # Signal the worker logic to stop
 
-            self.logger.debug(f"Cancelling task '{task_id}'")
-            task_info = self.tasks[task_id]
+            # Ask the thread's event loop to quit. This helps if the worker
+            # is waiting on something event-loop related. Might not be strictly
+            # necessary if the worker loop checks cancel_requested frequently.
+            # Use invokeMethod for thread-safety if calling from different thread,
+            # but here cancel_task is likely called from main thread where QThread was created.
+            # Direct call should be fine, but MetaObject call is safer across threads.
+            # QMetaObject.invokeMethod(task_info.thread, "quit", Qt.QueuedConnection)
+            task_info.thread.quit() # Try direct quit first
 
-            # Request cancellation on the worker first
-            task_info.worker.cancel()
+            # --- Step 3: Wait GRACEFULLY (Optional but recommended) ---
+            # Decide if you want cancel_task to block until the thread confirms exit.
+            # If you don't wait here, the task might still be in the dictionary for a short while.
+            wait_success = task_info.thread.wait(2000) # Wait up to 2 seconds
 
-            # Clean up signals to prevent memory leaks
-            task_info.disconnect_signals()
+            if wait_success:
+                 self.logger.debug(f"Task '{task_id}' thread finished gracefully after cancellation request.")
+                 # No need to remove from dict here, _handle_task_finished will do it.
+                 return Result.ok(True)
+            else:
+                 self.logger.warning(f"Task '{task_id}' thread did not finish within timeout after cancellation request. It might finish later.")
+                 # DO NOT TERMINATE.
+                 # The task will be removed from the dictionary later when the 'finished' signal is emitted.
+                 # We report success because the cancellation *request* was sent.
+                 return Result.ok(True) # Or Result.fail("Cancellation timed out") if you prefer
 
-            # Quit the thread
-            task_info.thread.quit()
-
-            # Try graceful termination with multiple attempts
-            for attempt in range(5):  # Try multiple times before force termination
-                if task_info.thread.wait(250):  # 250ms × 5 attempts = 1.25s total max wait
-                    break
-                # Process events to allow signals to flow and thread to finish cleanly
-                QApplication.instance().processEvents()
-
-            # Only force terminate if graceful methods failed
-            if not task_info.thread.isFinished():
-                self.logger.warning(f"Forcing termination of task '{task_id}'")
-                task_info.thread.terminate()
-                task_info.thread.wait(500)
-
-            # Remove task
-            del self.tasks[task_id]
-
-            self.logger.debug(f"Task '{task_id}' cancelled successfully")
-            return Result.ok(True)
         except Exception as e:
-            error_message = f"Error cancelling task '{task_id}': {e}"
+            error_message = f"Error requesting cancellation for task '{task_id}': {e}"
             self.logger.error(error_message)
             self.logger.debug(traceback.format_exc())
+            # Attempt to remove the task from the dictionary in case of error during cancellation itself
+            locker_cleanup = QMutexLocker(self.mutex)
+            if task_id in self.tasks:
+                 del self.tasks[task_id]
             return Result.fail(error_message)
 
     def is_task_running(self, task_id: str) -> bool:
@@ -497,40 +503,3 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             self.logger.error(error_message)
             self.logger.debug(traceback.format_exc())
             return Result.fail(error_message)
-
-    def _cleanup_task(self, task_id: str) -> None:
-        """
-        Clean up resources for a task that has completed or failed.
-        """
-        locker = QMutexLocker(self.mutex)
-        try:
-            if task_id not in self.tasks:
-                return
-
-            # Get task info before removal
-            task_info = self.tasks[task_id]
-
-            # Clean up signals
-            task_info.disconnect_signals()
-
-            # Properly terminate the thread - ADDING THIS FIXES THE ISSUE
-            task_info.thread.quit()
-
-            # Try graceful termination
-            for attempt in range(5):
-                if task_info.thread.wait(250):
-                    break
-                QApplication.instance().processEvents()
-
-            # Force terminate if needed
-            if not task_info.thread.isFinished():
-                self.logger.warning(f"Forcing termination of task '{task_id}'")
-                task_info.thread.terminate()
-                task_info.thread.wait(500)
-
-            # Remove task from dictionary
-            del self.tasks[task_id]
-
-            self.logger.debug(f"Task '{task_id}' resources cleaned up")
-        except Exception as e:
-            self.logger.error(f"Error cleaning up task '{task_id}': {e}")

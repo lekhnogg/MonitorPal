@@ -77,7 +77,7 @@
                 "denoise_template_window_size": 7,
                 "denoise_search_window_size": 21,
                 "tesseract_config": "--oem 3 --psm 7",
-                "invert_colors": true,
+                "invert_colors": false,
                 "additional_params": {}
             },
             "numeric_patterns": {
