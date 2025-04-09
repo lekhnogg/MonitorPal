@@ -93,11 +93,12 @@ class WindowsColdTurkeyService(IColdTurkeyService):
                 self.logger.warning(f"Cold Turkey command stderr: {result.stderr}")
 
             return Result.ok(True)
-
-        return self._run_with_error_handling(
-            f"execute_block_command({block_name}, {duration_minutes})",
-            _execute
-        )
+        # EXECUTES BLOCK -- UNCOMMENT THIS FOR ACTUAL BLOCKING
+        #return self._run_with_error_handling(
+        #    f"execute_block_command({block_name}, {duration_minutes})",
+        #    _execute
+        #)
+        return print('le block')
 
     def verify_block(self, block_name: str, platform: Optional[str] = None,
                      register_if_valid: bool = False) -> Result[bool]:

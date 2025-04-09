@@ -54,10 +54,8 @@ def initialize_app() -> DIContainer:
     container.register_instance(IBackgroundTaskService, thread_service)
 
     # Window management and UI services
-    container.register_factory(
-        IWindowManager,
-        lambda: WindowsWindowManager(container.resolve(ILoggerService))
-    )
+    window_manager = WindowsWindowManager(container.resolve(ILoggerService))
+    container.register_instance(IWindowManager, window_manager)
 
     container.register_factory(
         IUIService,

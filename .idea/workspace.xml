@@ -6,9 +6,9 @@
   <component name="ChangeListManager">
     <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="now monitoring lockout works, overlay is full screen, FAST, and allows for multiple lockouts wihtout having to restart the program. LOCKOUTS are tracked and have an ID so they can be stored as history in future development. Next we need to clean more stuff up and make sure things are smooth.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/lockout_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test_lockout.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_lockout.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lockout_test_config.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -235,7 +235,15 @@
       <option name="project" value="LOCAL" />
       <updated>1744149685144</updated>
     </task>
-    <option name="localTasksCounter" value="12" />
+    <task id="LOCAL-00012" summary="now monitoring lockout works, overlay is full screen, FAST, and allows for multiple lockouts wihtout having to restart the program. LOCKOUTS are tracked and have an ID so they can be stored as history in future development. Next we need to clean more stuff up and make sure things are smooth.">
+      <option name="closed" value="true" />
+      <created>1744218763547</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1744218763547</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
