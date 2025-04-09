@@ -1662,6 +1662,14 @@ class TradingMonitorTestApp(QMainWindow):
             self.log_message("No monitoring region selected", "ERROR")
             return
 
+        # ADD THIS CHECK: Verify the platform is running before proceeding
+        platform_running_result = self.platform_detection.is_platform_running(platform)
+        if platform_running_result.is_failure or not platform_running_result.value:
+            self.log_message(f"{platform} is not running. Please start it first.", "ERROR")
+            QMessageBox.warning(self, "Platform Not Running",
+                                f"{platform} is not running. Please start it first.")
+            return
+
         # Get region details with enhanced result handling
         self.region_service.get_region(platform, "monitor", region_name).with_ui_feedback(
             ui_feedback_func=self.log_message,

@@ -687,17 +687,24 @@ class WindowsWindowManager(IWindowManager):
                 except Exception as e_destroy: self.logger.error(f"Cleanup exception (DestroyWindow): {e_destroy}")
             return 0 # Return 0 on any exception
 
-
     def process_messages(self, window_handle: int, duration_ms: int) -> Result[bool]:
         """Process Windows messages for the overlay window's thread."""
         if not window_handle or not self._user32.IsWindow(window_handle):
-             # Log this clearly, as it might explain loop exits
-             self.logger.warning(f"process_messages called with invalid or destroyed window handle: {window_handle}")
-             return Result.ok(False) # Indicate window is gone/invalid
+            self.logger.warning(f"process_messages called with invalid or destroyed window handle: {window_handle}")
+            return Result.ok(False)  # Indicate window is gone/invalid
 
         try:
+            # Add tracking of window handles we've already logged
+            if not hasattr(self, '_logged_message_handles'):
+                self._logged_message_handles = set()
+
+            # Log only the first time we process messages for a window handle
+            if window_handle not in self._logged_message_handles:
+                self.logger.debug(f"process_messages: Starting message loop for window handle {window_handle}")
+                self._logged_message_handles.add(window_handle)
+
             class MSG(ctypes.Structure):
-                 _fields_ = [("hwnd", wintypes.HWND), ("message", wintypes.UINT),
+                _fields_ = [("hwnd", wintypes.HWND), ("message", wintypes.UINT),
                             ("wParam", wintypes.WPARAM), ("lParam", wintypes.LPARAM),
                             ("time", wintypes.DWORD), ("pt", wintypes.POINT)]
 
@@ -707,30 +714,28 @@ class WindowsWindowManager(IWindowManager):
             msg = MSG()
             start_time = time.time()
             end_time = start_time + (duration_ms / 1000.0)
-            self.logger.debug(f"process_messages: Starting loop for handle {window_handle} for {duration_ms}ms.")
 
             while time.time() < end_time:
                 # Check window validity inside the loop as well
                 if not self._user32.IsWindow(window_handle):
                     self.logger.debug(f"process_messages: Window {window_handle} destroyed during loop.")
-                    return Result.ok(False) # Window gone
+                    return Result.ok(False)  # Window gone
 
                 # Process all pending messages for the current thread
                 while self._user32.PeekMessageW(ctypes.byref(msg), 0, 0, 0, PM_REMOVE):
                     if msg.message == WM_QUIT:
                         self.logger.info("process_messages: WM_QUIT received, exiting loop.")
-                        # Optional: Re-post if needed? Usually not for this kind of loop.
-                        return Result.ok(False) # Quit requested
+                        return Result.ok(False)  # Quit requested
 
                     # Let the default window procedure handle most messages
                     self._user32.TranslateMessage(ctypes.byref(msg))
                     self._user32.DispatchMessageW(ctypes.byref(msg))
 
                 # Prevent busy-waiting, yield CPU time
-                time.sleep(0.01) # 10ms sleep
+                time.sleep(0.01)  # 10ms sleep
 
-            self.logger.debug(f"process_messages: Loop finished for handle {window_handle} (timeout).")
-            return Result.ok(True) # Timeout reached normally
+            # Remove the repetitive timeout log message
+            return Result.ok(True)  # Timeout reached normally
 
         except Exception as e:
             error = PlatformError(

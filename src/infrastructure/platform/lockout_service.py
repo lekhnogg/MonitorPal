@@ -182,11 +182,6 @@ class LockoutWorker(Worker[bool]):
                 return False
 
 
-            # Execute block command
-            block_result = self.cold_turkey_service.execute_block_command(
-                platform_cmd, self.lockout_duration
-            )
-
             if block_result.is_failure:
                 self.report_error(f"Failed to execute Cold Turkey block: {block_result.error}")
                 return False
