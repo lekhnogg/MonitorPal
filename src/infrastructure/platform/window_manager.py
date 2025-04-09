@@ -510,40 +510,49 @@ class WindowsWindowManager(IWindowManager):
         # Wrap the call to the implementation in a try/except to catch errors
         # from _create_layered_window_impl itself
         try:
-            hwnd = self._create_layered_window_impl(
-                flatten_positions=overlay_relative_coords, # Pass the converted list
+            # Assign the returned Result object
+            result_hwnd: Result[int] = self._create_layered_window_impl(
+                flatten_positions=overlay_relative_coords,
                 screen_w=screen_w,
                 screen_h=screen_h,
                 position=(x_pos, y_pos)
                 # alpha_block uses default
             )
 
-            if hwnd != 0:
-                return Result.ok(hwnd)
+            # Check the Result object and return it directly
+            if result_hwnd.is_success:
+                self.logger.debug(f"create_transparent_overlay: _impl succeeded, returning OK Result.")
+                return result_hwnd  # Return the successful Result directly
             else:
-                # Error logged inside _create_layered_window_impl
-                return Result.fail(ResourceError(
-                    message="Failed to create overlay window (hwnd=0)",
-                    details={"size": size, "position": position}
-                ))
+                # The _impl function already logged the specific error
+                self.logger.error(f"create_transparent_overlay: _impl failed, returning Failure Result.")
+                # Optionally wrap or just return the original failure
+                # Returning original failure is often cleaner:
+                return result_hwnd  # Return the failure Result directly
+                # Or wrap if you need to add more context here:
+                # return Result.fail(ResourceError(
+                #     message="Overlay creation failed internally.",
+                #     details={"size": size, "position": position},
+                #     inner_error=result_hwnd.failure() # Chain the error
+                # ))
+
 
         except Exception as e:
-            # Catch any unexpected error from _create_layered_window_impl
+            # This catches unexpected errors *in this function*, not handled by _impl
             error = PlatformError(
-                message=f"Unexpected error during overlay creation: {e}",
+                message=f"Unexpected exception in create_transparent_overlay wrapper: {e}",
                 details={"size": size, "position": position},
                 inner_error=e
             )
             self.logger.error(str(error), exc_info=True)
             return Result.fail(error)
 
-
     def _create_layered_window_impl(self,
                                     flatten_positions: List[dict],
                                     screen_w: int,
                                     screen_h: int,
                                     position: Tuple[int, int] = (0, 0),
-                                    alpha_block: int = 200) -> int:
+                                    alpha_block: int = 200) -> Result[int]:
         """Internal implementation: Creates the layered window using Win32 API."""
         # --- Initialize resources ---
         hWnd = 0
@@ -564,23 +573,29 @@ class WindowsWindowManager(IWindowManager):
                 x_pos, y_pos, screen_w, screen_h, 0, 0, self._hInstance, None
             )
             if not hWnd:
-                 error_code = self._kernel32.GetLastError()
-                 self.logger.error(f"_create_layered_window_impl: CreateWindowExW failed. Error Code: {error_code}")
-                 return 0
+                error_code = self._kernel32.GetLastError()
+                error = PlatformError(
+                    message=f"CreateWindowExW failed. Error Code: {error_code}",
+                    details={"error_code": error_code}
+                )
+                self.logger.error(str(error))
+                return Result.fail(error)
 
             # --- GDI Object Creation ---
             hdcScreen = self._user32.GetDC(0)
             if not hdcScreen:
-                 self.logger.error("_create_layered_window_impl: GetDC(0) failed.")
-                 self._user32.DestroyWindow(hWnd)
-                 return 0
+                error = PlatformError(message="GetDC(0) failed.")
+                self.logger.error(str(error))
+                self._user32.DestroyWindow(hWnd)
+                return Result.fail(error)
 
             hdcMem = self._gdi32.CreateCompatibleDC(hdcScreen)
             if not hdcMem:
-                 self.logger.error("_create_layered_window_impl: CreateCompatibleDC failed.")
-                 self._user32.ReleaseDC(0, hdcScreen)
-                 self._user32.DestroyWindow(hWnd)
-                 return 0
+                error = PlatformError(message="CreateCompatibleDC failed.")
+                self.logger.error(str(error))
+                self._user32.ReleaseDC(0, hdcScreen)
+                self._user32.DestroyWindow(hWnd)
+                return Result.fail(error)
 
             # --- Bitmap Creation ---
             bmi = BITMAPINFO()
@@ -596,35 +611,40 @@ class WindowsWindowManager(IWindowManager):
                 ctypes.byref(ppvBits), None, 0
             )
             if not hBmp or not ppvBits.value:
-                 self.logger.error("_create_layered_window_impl: CreateDIBSection failed.")
-                 self._gdi32.DeleteDC(hdcMem)
-                 self._user32.ReleaseDC(0, hdcScreen)
-                 self._user32.DestroyWindow(hWnd)
-                 return 0
+                error = PlatformError(message="CreateDIBSection failed.")
+                self.logger.error(str(error))
+                self._gdi32.DeleteDC(hdcMem)
+                self._user32.ReleaseDC(0, hdcScreen)
+                self._user32.DestroyWindow(hWnd)
+                return Result.fail(error)
 
             # --- Select Bitmap into DC ---
             old_obj = self._gdi32.SelectObject(hdcMem, hBmp)
             if not old_obj:
-                 self.logger.error("_create_layered_window_impl: SelectObject failed.")
-                 self._gdi32.DeleteObject(hBmp)
-                 self._gdi32.DeleteDC(hdcMem)
-                 self._user32.ReleaseDC(0, hdcScreen)
-                 self._user32.DestroyWindow(hWnd)
-                 return 0
+                error = PlatformError(message="SelectObject failed.")
+                self.logger.error(str(error))
+                self._gdi32.DeleteObject(hBmp)
+                self._gdi32.DeleteDC(hdcMem)
+                self._user32.ReleaseDC(0, hdcScreen)
+                self._user32.DestroyWindow(hWnd)
+                return Result.fail(error)
 
             # --- Fill Bitmap Data (using helper method) ---
             self.logger.debug("_create_layered_window_impl: Calling _fill_alpha_bitmap...")
             try:
                 self._fill_alpha_bitmap(ppvBits, screen_w, screen_h, flatten_positions, alpha_block)
             except Exception as e_fill:
-                 self.logger.error(f"_create_layered_window_impl: Error during call to _fill_alpha_bitmap: {e_fill}", exc_info=True)
-                 # Perform FULL cleanup before returning
-                 self._gdi32.SelectObject(hdcMem, old_obj)
-                 self._gdi32.DeleteObject(hBmp)
-                 self._gdi32.DeleteDC(hdcMem)
-                 self._user32.ReleaseDC(0, hdcScreen)
-                 self._user32.DestroyWindow(hWnd)
-                 return 0
+                error = PlatformError(
+                    message=f"Error during call to _fill_alpha_bitmap: {e_fill}",
+                    inner_error=e_fill
+                )
+                self.logger.error(str(error), exc_info=True)
+                self._gdi32.SelectObject(hdcMem, old_obj)
+                self._gdi32.DeleteObject(hBmp)
+                self._gdi32.DeleteDC(hdcMem)
+                self._user32.ReleaseDC(0, hdcScreen)
+                self._user32.DestroyWindow(hWnd)
+                return Result.fail(error)
 
             # --- Update Layered Window ---
             self.logger.debug("_create_layered_window_impl: Calling UpdateLayeredWindow...")
@@ -638,26 +658,29 @@ class WindowsWindowManager(IWindowManager):
                 hdcMem, ctypes.byref(ptSrc), 0, ctypes.byref(blend), ULW_ALPHA
             )
             if not update_success:
-                 error_code = self._kernel32.GetLastError()
-                 self.logger.error(f"_create_layered_window_impl: UpdateLayeredWindow failed. Error Code: {error_code}")
-                 # Perform FULL cleanup before returning
-                 self._gdi32.SelectObject(hdcMem, old_obj)
-                 self._gdi32.DeleteObject(hBmp)
-                 self._gdi32.DeleteDC(hdcMem)
-                 self._user32.ReleaseDC(0, hdcScreen)
-                 self._user32.DestroyWindow(hWnd)
-                 return 0
+                error_code = self._kernel32.GetLastError()
+                error = PlatformError(
+                    message=f"UpdateLayeredWindow failed. Error Code: {error_code}",
+                    details={"error_code": error_code}
+                )
+                self.logger.error(str(error))
+                self._gdi32.SelectObject(hdcMem, old_obj)
+                self._gdi32.DeleteObject(hBmp)
+                self._gdi32.DeleteDC(hdcMem)
+                self._user32.ReleaseDC(0, hdcScreen)
+                self._user32.DestroyWindow(hWnd)
+                return Result.fail(error)
 
             # --- Cleanup GDI resources specific to the update ---
             self.logger.debug("_create_layered_window_impl: Cleaning up temporary GDI objects.")
             self._gdi32.SelectObject(hdcMem, old_obj)
-            old_obj = 0 # Mark as cleaned
+            old_obj = 0  # Mark as cleaned
             self._gdi32.DeleteObject(hBmp)
-            hBmp = 0 # Mark as cleaned
+            hBmp = 0  # Mark as cleaned
             self._gdi32.DeleteDC(hdcMem)
-            hdcMem = 0 # Mark as cleaned
+            hdcMem = 0  # Mark as cleaned
             self._user32.ReleaseDC(0, hdcScreen)
-            hdcScreen = 0 # Mark as cleaned
+            hdcScreen = 0  # Mark as cleaned
 
             # --- Show Window ---
             self.logger.debug(f"_create_layered_window_impl: Showing window {hWnd}.")
@@ -665,27 +688,31 @@ class WindowsWindowManager(IWindowManager):
             self._user32.UpdateWindow(hWnd)
 
             self.logger.info(f"_create_layered_window_impl: Overlay window {hWnd} created successfully.")
-            return hWnd # Return the handle on success
+            return Result.ok(hWnd)  # Return the handle on success
 
         except Exception as e:
-            self.logger.error(f"_create_layered_window_impl: Unhandled exception: {e}", exc_info=True)
+            error = PlatformError(
+                message=f"Unhandled exception in overlay creation: {e}",
+                inner_error=e
+            )
+            self.logger.error(str(error), exc_info=True)
+
             # --- Attempt Robust Cleanup on Exception ---
-            if old_obj and 'hdcMem' in locals() and hdcMem:
-                try: self._gdi32.SelectObject(hdcMem, old_obj)
-                except Exception as e_sel: self.logger.error(f"Cleanup exception (SelectObject): {e_sel}")
-            if hBmp:
-                try: self._gdi32.DeleteObject(hBmp)
-                except Exception as e_bmp: self.logger.error(f"Cleanup exception (DeleteObject): {e_bmp}")
-            if hdcMem:
-                try: self._gdi32.DeleteDC(hdcMem)
-                except Exception as e_dc: self.logger.error(f"Cleanup exception (DeleteDC): {e_dc}")
-            if hdcScreen:
-                try: self._user32.ReleaseDC(0, hdcScreen)
-                except Exception as e_rdc: self.logger.error(f"Cleanup exception (ReleaseDC): {e_rdc}")
-            if hWnd:
-                try: self._user32.DestroyWindow(hWnd)
-                except Exception as e_destroy: self.logger.error(f"Cleanup exception (DestroyWindow): {e_destroy}")
-            return 0 # Return 0 on any exception
+            try:
+                if old_obj and hdcMem:
+                    self._gdi32.SelectObject(hdcMem, old_obj)
+                if hBmp:
+                    self._gdi32.DeleteObject(hBmp)
+                if hdcMem:
+                    self._gdi32.DeleteDC(hdcMem)
+                if hdcScreen:
+                    self._user32.ReleaseDC(0, hdcScreen)
+                if hWnd:
+                    self._user32.DestroyWindow(hWnd)
+            except Exception as cleanup_error:
+                self.logger.error(f"Error during exception cleanup: {cleanup_error}")
+
+            return Result.fail(error)
 
     def process_messages(self, window_handle: int, duration_ms: int) -> Result[bool]:
         """Process Windows messages for the overlay window's thread."""
@@ -796,7 +823,9 @@ class WindowsWindowManager(IWindowManager):
         """Create a transparent overlay across all monitors with click-through holes."""
         dimensions_result = self.get_virtual_screen_dimensions()
         if dimensions_result.is_failure:
-            return dimensions_result.convert(lambda _: 0)  # Convert error to int result
+            # Propagate the Result failure directly. The caller expects Result[int].
+            self.logger.error("Failed to get screen dimensions for fullscreen overlay.")
+            return dimensions_result  # Return the original failure Result
 
         x, y, width, height = dimensions_result.value
         return self.create_transparent_overlay(

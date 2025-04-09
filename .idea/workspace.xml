@@ -4,11 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="now monitoring lockout works, overlay is full screen, FAST, and allows for multiple lockouts wihtout having to restart the program. LOCKOUTS are tracked and have an ID so they can be stored as history in future development. Next we need to clean more stuff up and make sure things are smooth.">
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Commented out the actual lockout command so that I dont have to restart ninja every time..">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lockout_test_config.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -243,7 +241,15 @@
       <option name="project" value="LOCAL" />
       <updated>1744218763547</updated>
     </task>
-    <option name="localTasksCounter" value="13" />
+    <task id="LOCAL-00013" summary="Commented out the actual lockout command so that I dont have to restart ninja every time..">
+      <option name="closed" value="true" />
+      <created>1744227022664</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1744227022664</updated>
+    </task>
+    <option name="localTasksCounter" value="14" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -255,6 +261,7 @@
     <MESSAGE value="Many changes have been made, OCR detection and regex help through detection.. some stuff still needs cleaning." />
     <MESSAGE value="REMOVED THE OCR/REGEX USER CHOOSING STUFF TOO COMPLICATED AND LEAPS IN LOGIC. NOW THERES A SIMPLE CALIBRATION SYSTEM, USER SELECTS REGION, ENTERS IN TEXT THE P&amp;L IN THE IMAGE, BRAIN CALIBRATES IT OPTIMIZES OCR FOR IMAGE AND CONSEQEUENTLY ADJUSTS THE &quot;MAGNIFYING GLASS&quot;. NEXT STEP IS FIGURE OUT MONITORING THREADING (APP CRASHES IF NOT MANUALLY TRIGGERED) AND MANUAL TRIGGERING DIALOG POPUS WHEN ITS MONITORING-INDUCED LOCKOUT.." />
     <MESSAGE value="now monitoring lockout works, overlay is full screen, FAST, and allows for multiple lockouts wihtout having to restart the program. LOCKOUTS are tracked and have an ID so they can be stored as history in future development. Next we need to clean more stuff up and make sure things are smooth." />
-    <option name="LAST_COMMIT_MESSAGE" value="now monitoring lockout works, overlay is full screen, FAST, and allows for multiple lockouts wihtout having to restart the program. LOCKOUTS are tracked and have an ID so they can be stored as history in future development. Next we need to clean more stuff up and make sure things are smooth." />
+    <MESSAGE value="Commented out the actual lockout command so that I dont have to restart ninja every time.." />
+    <option name="LAST_COMMIT_MESSAGE" value="Commented out the actual lockout command so that I dont have to restart ninja every time.." />
   </component>
 </project>

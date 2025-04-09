@@ -71,6 +71,7 @@ class WindowsColdTurkeyService(IColdTurkeyService):
         """Execute a block command to lock a specific block."""
 
         def _execute():
+            # --- Start of actual logic ---
             blocker_path = self.config_repository.get_cold_turkey_path()
             if not blocker_path or not os.path.exists(blocker_path):
                 error = ConfigurationError(
@@ -81,24 +82,60 @@ class WindowsColdTurkeyService(IColdTurkeyService):
 
             normalized_path = os.path.normpath(blocker_path)
 
-            self.logger.info(f"Executing block command for '{block_name}' with duration {duration_minutes} minutes")
-            result = subprocess.run(
-                [normalized_path, "-start", block_name, "-lock", str(duration_minutes)],
-                check=True,
-                capture_output=True,
-                text=True
-            )
+            self.logger.info(f"[REAL EXECUTION] Executing block command for '{block_name}' with duration {duration_minutes} minutes")
+            try: # Add try/except around subprocess specifically
+                 result = subprocess.run(
+                     [normalized_path, "-start", block_name, "-lock", str(duration_minutes)],
+                     check=True, # Raises CalledProcessError on non-zero exit
+                     capture_output=True,
+                     text=True,
+                     timeout=self.BLOCK_TRIGGER_TIMEOUT # Add a timeout
+                 )
 
-            if result.stderr:
-                self.logger.warning(f"Cold Turkey command stderr: {result.stderr}")
+                 if result.stderr:
+                     self.logger.warning(f"[REAL EXECUTION] Cold Turkey command stderr: {result.stderr}")
+                 # If check=True passes, command succeeded
+                 return Result.ok(True) # Return Result on success
 
-            return Result.ok(True)
-        # EXECUTES BLOCK -- UNCOMMENT THIS FOR ACTUAL BLOCKING
-        #return self._run_with_error_handling(
+            except subprocess.CalledProcessError as e:
+                 # Handle specific command failure
+                 self.logger.error(f"[REAL EXECUTION] Cold Turkey command failed. Exit code: {e.returncode}, Output: {e.output}, Stderr: {e.stderr}")
+                 error = PlatformError(
+                     message=f"Cold Turkey command failed for block '{block_name}'",
+                     details={"exit_code": e.returncode, "stderr": e.stderr},
+                     inner_error=e
+                 )
+                 return Result.fail(error) # Return Result on command error
+            except subprocess.TimeoutExpired as e:
+                 self.logger.error(f"[REAL EXECUTION] Cold Turkey command timed out for block '{block_name}'")
+                 error = PlatformError(
+                      message=f"Cold Turkey command timed out for block '{block_name}'",
+                      details={"timeout": self.BLOCK_TRIGGER_TIMEOUT},
+                      inner_error=e
+                 )
+                 return Result.fail(error) # Return Result on timeout
+            except FileNotFoundError as e:
+                 self.logger.error(f"[REAL EXECUTION] Cold Turkey executable not found at path: {normalized_path}")
+                 error = ConfigurationError(
+                     message="Cold Turkey executable not found during execution",
+                     details={"path": normalized_path},
+                     inner_error=e
+                 )
+                 return Result.fail(error) # Return Result if file not found
+            # --- End of actual logic ---
+
+
+        # --- Current Test Mode ---
+        # Option 1: Just print and return success (simplest for now)
+        self.logger.debug(f"[TEST MODE] Simulating block for '{block_name}' duration {duration_minutes}. Printing 'le block'.")
+        print('le block')
+        return Result.ok(True) # Return a successful Result object
+
+        # --- Production Mode (Comment out the 3 lines above, uncomment below) ---
+        # return self._run_with_error_handling(
         #    f"execute_block_command({block_name}, {duration_minutes})",
         #    _execute
-        #)
-        return print('le block')
+        # )
 
     def verify_block(self, block_name: str, platform: Optional[str] = None,
                      register_if_valid: bool = False) -> Result[bool]:
