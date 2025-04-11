@@ -23,7 +23,7 @@ class ConsoleLoggerService(ILoggerService):
         Initialize the logger service.
 
         Args:
-            level: Initial log level (default: INFO)
+            level: Initial log level (default: INFO )
             name: Logger name
         """
         self.logger = logging.getLogger(name)
