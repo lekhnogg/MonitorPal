@@ -8,26 +8,26 @@
     "platforms": {
         "NinjaTrader": {
             "monitor_regions": {
-                "P&L_1": [
-                    2086,
-                    57,
-                    69,
-                    21
-                ],
-                "P&L_2": [
-                    486,
-                    424,
-                    181,
-                    40
-                ]
+                "P&L_1": {
+                    "coordinates": [
+                        2088,
+                        57,
+                        64,
+                        22
+                    ],
+                    "screenshot_path": "C:\\Users\\Gabe\\AppData\\Local\\GlebDev\\MonitorPal\\NinjaTrader\\regions\\NinjaTrader_monitor_P_L_1_original.png"
+                }
             },
             "flatten_regions": {
-                "Flatten_1": [
-                    -520,
-                    884,
-                    142,
-                    53
-                ]
+                "Flatten_1": {
+                    "coordinates": [
+                        458,
+                        472,
+                        266,
+                        43
+                    ],
+                    "screenshot_path": "C:\\Users\\Gabe\\AppData\\Local\\GlebDev\\MonitorPal\\NinjaTrader\\regions\\NinjaTrader_flatten_Flatten_1_original.png"
+                }
             }
         }
     },
@@ -71,13 +71,13 @@
         "NinjaTrader": {
             "ocr_profile": {
                 "scale_factor": 3.0,
-                "threshold_block_size": 15,
+                "threshold_block_size": 11,
                 "threshold_c": 4,
                 "denoise_h": 7,
                 "denoise_template_window_size": 7,
                 "denoise_search_window_size": 21,
-                "tesseract_config": "--oem 3 --psm 7",
-                "invert_colors": false,
+                "tesseract_config": "--oem 3 --psm 6",
+                "invert_colors": true,
                 "additional_params": {}
             },
             "numeric_patterns": {
@@ -129,5 +129,6 @@
             "is_enabled": true,
             "additional_settings": {}
         }
-    }
+    },
+    "base_data_path": "C:\\Users\\Gabe\\AppData\\Local\\YourAppNameOrCompany\\TradingMonitorLockout"
 }

@@ -4,9 +4,26 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Commented out the actual lockout command so that I dont have to restart ninja every time..">
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Commented out the actual lockout command so that I dont have to restart ninja every time..FIXED NOW NO ISSUES">
+      <change afterPath="$PROJECT_DIR$/src/domain/services/i_path_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/system/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/infrastructure/system/path_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/window_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/monitoring_history/NinjaTrader_20250406_201548/NinjaTrader_P&amp;L_1_1743988559_exceeded.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/monitoring_history/NinjaTrader_20250406_201548/NinjaTrader_P&amp;L_1_current.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/monitoring_history/NinjaTrader_20250406_202117/NinjaTrader_P&amp;L_1_1743988883_exceeded.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/monitoring_history/NinjaTrader_20250406_202117/NinjaTrader_P&amp;L_1_current.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/platform_selection_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/platform_selection_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/region_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/region_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/components/platform_selector_toolbar.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/platform_selector_toolbar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/test_lockout.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_lockout.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -249,7 +266,15 @@
       <option name="project" value="LOCAL" />
       <updated>1744227022664</updated>
     </task>
-    <option name="localTasksCounter" value="14" />
+    <task id="LOCAL-00014" summary="Commented out the actual lockout command so that I dont have to restart ninja every time..FIXED NOW NO ISSUES">
+      <option name="closed" value="true" />
+      <created>1744240704630</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1744240704630</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -262,6 +287,7 @@
     <MESSAGE value="REMOVED THE OCR/REGEX USER CHOOSING STUFF TOO COMPLICATED AND LEAPS IN LOGIC. NOW THERES A SIMPLE CALIBRATION SYSTEM, USER SELECTS REGION, ENTERS IN TEXT THE P&amp;L IN THE IMAGE, BRAIN CALIBRATES IT OPTIMIZES OCR FOR IMAGE AND CONSEQEUENTLY ADJUSTS THE &quot;MAGNIFYING GLASS&quot;. NEXT STEP IS FIGURE OUT MONITORING THREADING (APP CRASHES IF NOT MANUALLY TRIGGERED) AND MANUAL TRIGGERING DIALOG POPUS WHEN ITS MONITORING-INDUCED LOCKOUT.." />
     <MESSAGE value="now monitoring lockout works, overlay is full screen, FAST, and allows for multiple lockouts wihtout having to restart the program. LOCKOUTS are tracked and have an ID so they can be stored as history in future development. Next we need to clean more stuff up and make sure things are smooth." />
     <MESSAGE value="Commented out the actual lockout command so that I dont have to restart ninja every time.." />
-    <option name="LAST_COMMIT_MESSAGE" value="Commented out the actual lockout command so that I dont have to restart ninja every time.." />
+    <MESSAGE value="Commented out the actual lockout command so that I dont have to restart ninja every time..FIXED NOW NO ISSUES" />
+    <option name="LAST_COMMIT_MESSAGE" value="Commented out the actual lockout command so that I dont have to restart ninja every time..FIXED NOW NO ISSUES" />
   </component>
 </project>

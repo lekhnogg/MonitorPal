@@ -14,6 +14,7 @@ from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.common.result import Result
 from src.domain.common.errors import ResourceError, ConfigurationError
+from src.domain.services.i_path_service import IPathService
 
 class JsonConfigRepository(IConfigRepository):
     """
@@ -22,7 +23,7 @@ class JsonConfigRepository(IConfigRepository):
     Stores configuration in a JSON file and provides thread-safe access.
     """
 
-    def __init__(self, config_file: str, logger: ILoggerService):
+    def __init__(self, path_service: IPathService, logger: ILoggerService):
         """
         Initialize the repository.
 
@@ -30,15 +31,20 @@ class JsonConfigRepository(IConfigRepository):
             config_file: Path to the JSON configuration file
             logger: Logger service
         """
-        self.config_file = config_file
+        self.path_service = path_service
+        self.config_file = self.path_service.get_config_file_path()  # Get path
         self.logger = logger
         self._config_cache = None
         self._last_modified = 0
         self._lock = threading.RLock()
         self._observers = []
 
+        # Update DEFAULT_CONFIG population to use path service
+        default_base_data_path = self.path_service.get_base_data_path()  # Get the determined path
+
         # Default configuration with consistent types
         self.DEFAULT_CONFIG = {
+            "base_data_path": default_base_data_path,
             "default_platforms": ["Quantower", "NinjaTrader", "Tradovate", "TradingView"],
             "platforms": {},
             "cold_turkey_blocker": "",
@@ -50,6 +56,8 @@ class JsonConfigRepository(IConfigRepository):
             "first_run": True,
             "app_version": "1.0.0"
         }
+        print('loading from json_config_repository')
+        self.load_config(force_reload=True)
 
     def load_config(self, force_reload: bool = False) -> Result[Dict[str, Any]]:
         """

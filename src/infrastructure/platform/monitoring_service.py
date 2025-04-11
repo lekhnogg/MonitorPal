@@ -5,12 +5,14 @@ Implementation of the monitoring service.
 This service coordinates screenshot capture, OCR, and detection of loss thresholds.
 """
 import os
+import re
 import time
 from typing import Tuple, Optional, List, Callable
 from datetime import datetime
 from PIL import Image
 
 from src.domain.services.i_monitoring_service import IMonitoringService
+from src.domain.services.i_path_service import IPathService
 from src.domain.services.i_screenshot_service import IScreenshotService
 from src.domain.services.i_ocr_service import IOcrService
 from src.domain.services.i_background_task_service import IBackgroundTaskService, Worker
@@ -19,7 +21,7 @@ from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.models.monitoring_result import MonitoringResult
 from src.domain.common.result import Result
-from src.domain.common.errors import ValidationError, ConfigurationError, ResourceError
+from src.domain.common.errors import ValidationError, ConfigurationError, ResourceError, PlatformError
 from src.domain.services.i_profile_service import IProfileService
 
 class MonitoringWorker(Worker[bool]):
@@ -54,7 +56,7 @@ class MonitoringWorker(Worker[bool]):
         self.platform_detection_service = platform_detection_service
         self.logger = logger
         self.profile_service = profile_service
-        self.save_directory = save_directory
+        self.monitoring_directory = save_directory
         self.on_check_complete = on_check_complete
         self.on_status_update = on_status_update
         self.on_error = on_error
@@ -74,8 +76,9 @@ class MonitoringWorker(Worker[bool]):
         self.report_status(f"Starting monitoring for {self.platform}", "INFO")
 
         try:
-            # Make sure save directory exists
-            os.makedirs(self.save_directory, exist_ok=True)
+            # =================== REMOVED os.makedirs LINE ===================
+            # The directory (self.monitoring_directory) is ensured by PathService/MonitoringService
+            # ================================================================
 
             # Get platform window information
             platform_window_result = self.platform_detection_service.detect_platform_window(
@@ -118,7 +121,7 @@ class MonitoringWorker(Worker[bool]):
 
                     # Only check when platform is active
                     if is_active:
-                        # Process this check
+                        # Process this check (uses self.monitoring_directory internally)
                         check_result = self._process_check()
                         if check_result.is_success:
                             result = check_result.value
@@ -164,96 +167,132 @@ class MonitoringWorker(Worker[bool]):
             return True
 
         except Exception as e:
+            self.report_error(f"Monitoring error: {str(e)}")
+            return False
+
+        except Exception as e:
             self.logger.error(f"Monitoring error: {str(e)}")
             self.report_error(f"Monitoring error: {str(e)}")
             return False
 
     def _process_check(self) -> Result[MonitoringResult]:
         """Process a single monitoring check."""
-        # Generate a consistent filename for this platform/region combination
-        # This will overwrite the previous screenshot each time
-        screenshot_filename = f"{self.platform}_{self.region_name}_current.png"
-        screenshot_path = os.path.join(self.save_directory, screenshot_filename)
+        try:
+            # Sanitize the region name to make it safe for filenames
+            safe_region_name = re.sub(r'[^\w\-]+', '_', self.region_name)
 
-        self.report_status(f"Capturing screenshot (check #{self.check_count})", "INFO")
+            # Construct the filename for the constantly overwritten screenshot
+            screenshot_filename = f"{self.platform}_{safe_region_name}_current.png"
 
-        # Capture screenshot - overwrites the existing file
-        capture_result = self.screenshot_service.capture_and_save(self.region, screenshot_path)
-        if capture_result.is_failure:
-            self.report_status(f"Failed to capture screenshot: {capture_result.error}", "ERROR")
-            return Result.fail(capture_result.error)
+            # Construct the full path within the directory passed to the worker's __init__
+            # self.monitoring_directory was set from the path provided by PathService
+            screenshot_path = os.path.join(self.monitoring_directory, screenshot_filename)
 
-        # Always use profile-based approach - get platform profile first
-        profile_result = self.profile_service.get_profile(self.platform)
-        if profile_result.is_failure:
-            self.report_status(f"Failed to get profile: {profile_result.error}", "ERROR")
-            return Result.fail(profile_result.error)
+            self.report_status(f"Capturing screenshot to {screenshot_path} (check #{self.check_count})", "INFO")
 
-        profile = profile_result.value
-        self.report_status(f"Using OCR profile for {self.platform}", "INFO")
+            # Capture screenshot - overwrites the existing file at screenshot_path
+            capture_result = self.screenshot_service.capture_and_save(self.region, screenshot_path)
+            if capture_result.is_failure:
+                self.report_status(f"Failed to capture screenshot: {capture_result.error}", "ERROR")
+                return Result.fail(capture_result.error)
 
-        # Extract text with profile
-        image = Image.open(screenshot_path)
-        extract_result = self.ocr_service.extract_text_with_profile(image, profile.ocr_profile)
-        if extract_result.is_failure:
-            self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
-            return Result.fail(extract_result.error)
+            # --- (OCR logic remains the same as previous correction) ---
+            # Get the profile with all patterns
+            profile_result = self.profile_service.get_profile(self.platform)
+            if profile_result.is_failure:
+                self.report_status(f"Failed to get profile: {profile_result.error}", "ERROR")
+                return Result.fail(profile_result.error)
+            profile = profile_result.value
 
-        extracted_text = extract_result.value
+            # Extract text with OCR using profile
+            try:
+                image = Image.open(screenshot_path)
+            except Exception as img_err:
+                self.report_status(f"Failed to open captured screenshot '{screenshot_path}': {img_err}", "ERROR")
+                return Result.fail(
+                    ResourceError(message=f"Failed to open image: {img_err}", details={"path": screenshot_path}))
 
-        # Extract numeric values with profile patterns
-        extract_values_result = self.ocr_service.extract_numeric_values_with_patterns(
-            extracted_text, profile.numeric_patterns)
+            extract_result = self.ocr_service.extract_text_with_profile(image, profile.ocr_profile)
+            if extract_result.is_failure:
+                self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
+                return Result.fail(extract_result.error)
+            extracted_text = extract_result.value
 
-        if extract_values_result.is_failure:
-            self.report_status(f"Failed to extract numeric values: {extract_values_result.error}", "ERROR")
-            return Result.fail(extract_values_result.error)
+            # Use ALL patterns from the profile instead of just 'negative_dash'
+            extract_values_result = self.ocr_service.extract_numeric_values_with_patterns(
+                extracted_text, profile.numeric_patterns)  # Use all patterns from profile
 
-        values = extract_values_result.value
+            if extract_values_result.is_failure:
+                self.report_status(f"Failed to extract values: {extract_values_result.error}", "ERROR")
+                return Result.fail(extract_values_result.error)
+            values = extract_values_result.value
 
-        if len(values) == 0:
-            self.report_status("No numeric values detected in the OCR text", "WARNING")
-            error = ValidationError(
-                message="No numeric values detected in the OCR text",
-                details={"screenshot_path": screenshot_path}
+            if not values:
+                # OCR failed to detect values - check if it might be a value with a minus sign
+                if '$' in extracted_text:  # If it looks like a dollar value
+                    # Try to extract the numeric part after the $ sign
+                    dollar_match = re.search(r'\$\s*([0-9,]+\.?[0-9]*)', extracted_text)
+                    if dollar_match:
+                        dollar_value = dollar_match.group(1)
+                        self.logger.debug(f"Dollar value found without minus sign: ${dollar_value}")
+
+                        # Clean and convert the value
+                        try:
+                            # Use the existing cleaner method
+                            cleaned_value = self.ocr_service._clean_and_convert_value(dollar_value, f"${dollar_value}")
+
+                            # Add a warning about the missing sign
+                            self.report_status(
+                                f"OCR may have missed a minus sign. Treating as negative: ${dollar_value}", "WARNING")
+
+                            # Force negative (this is a heuristic - only do this if you're monitoring losses)
+                            if cleaned_value and cleaned_value > 0:
+                                values = [-cleaned_value]  # Force to negative
+                                self.logger.debug(f"Forced value to negative: {values}")
+                        except Exception as ex:
+                            self.logger.error(f"Error processing potential dollar value: {ex}")
+
+            min_value = min(values)
+            threshold_exceeded = min_value < self.threshold
+            result_screenshot_path = screenshot_path # Default path
+
+            if threshold_exceeded:
+                timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                timestamp_filename = f"{self.platform}_{safe_region_name}_{timestamp_str}_exceeded.png"
+                # Save within the same monitoring directory (self.monitoring_directory)
+                timestamped_path = os.path.join(self.monitoring_directory, timestamp_filename)
+
+                try:
+                    import shutil
+                    shutil.copy2(screenshot_path, timestamped_path)
+                    self.report_status(f"Threshold exceeded! Saved history to {timestamped_path}", "WARNING")
+                    result_screenshot_path = timestamped_path # Update path for result
+                except Exception as copy_err:
+                    self.report_status(f"Failed to copy screenshot on threshold breach: {copy_err}", "ERROR")
+                    self.logger.error(f"Failed to copy '{screenshot_path}' to '{timestamped_path}': {copy_err}", exc_info=True)
+                    # result_screenshot_path remains the _current.png path
+
+            # Create result object
+            result = MonitoringResult(
+                values=values,
+                minimum_value=min_value,
+                threshold=self.threshold,
+                threshold_exceeded=threshold_exceeded,
+                raw_text=extracted_text,
+                timestamp=time.time(),
+                region_name=self.region_name,
+                screenshot_path=result_screenshot_path # Use the correct path
             )
-            return Result.fail(error)
 
-        # Find the minimum value (most negative)
-        min_value = min(values)
+            self.report_status(f"Detected values in '{self.region_name}': {values}", "INFO")
+            self.report_status(f"Current minimum value: ${min_value:.2f}", "INFO")
 
-        # Check if the loss exceeds the threshold
-        threshold_exceeded = min_value < self.threshold
+            return Result.ok(result)
 
-        # If threshold was exceeded, save an additional timestamped screenshot for historical reference
-        if threshold_exceeded:
-            timestamp_filename = f"{self.platform}_{self.region_name}_{int(time.time())}_exceeded.png"
-            timestamped_path = os.path.join(self.save_directory, timestamp_filename)
-            # Copy the current screenshot instead of capturing again
-            import shutil
-            shutil.copy2(screenshot_path, timestamped_path)
-            # Use the timestamped path in the result for historical reference
-            result_screenshot_path = timestamped_path
-        else:
-            # Use the regular screenshot path for non-exceeded results
-            result_screenshot_path = screenshot_path
-
-        # Create result object
-        result = MonitoringResult(
-            values=values,
-            minimum_value=min_value,
-            threshold=self.threshold,
-            threshold_exceeded=threshold_exceeded,
-            raw_text=extracted_text,
-            timestamp=time.time(),
-            region_name=self.region_name,
-            screenshot_path=result_screenshot_path
-        )
-
-        self.report_status(f"Detected values: {values}", "INFO")
-        self.report_status(f"Current value: ${min_value:.2f}", "INFO")
-
-        return Result.ok(result)
+        except Exception as check_err:
+             self.logger.error(f"Unexpected error during _process_check: {check_err}", exc_info=True)
+             self.report_error(f"Internal error during monitoring check: {check_err}")
+             return Result.fail(PlatformError(message=f"Internal check error: {check_err}"))
 
     def report_status(self, message: str, level: str) -> None:
         """Report a status update."""
@@ -277,6 +316,7 @@ class MonitoringService(IMonitoringService):
                  thread_service: IBackgroundTaskService,
                  platform_detection_service: IPlatformDetectionService,
                  config_repository: IConfigRepository,
+                 path_service: IPathService,
                  logger: ILoggerService,
                  profile_service: IProfileService):
         """Initialize the monitoring service."""
@@ -285,22 +325,20 @@ class MonitoringService(IMonitoringService):
         self.thread_service = thread_service
         self.platform_detection_service = platform_detection_service
         self.config_repository = config_repository
+        self.path_service = path_service  # Store path_service
         self.logger = logger
         self.profile_service = profile_service
 
         # Internal state
         self.monitoring_active = False
         self.monitoring_task_id = "platform_monitoring"
-        self.save_directory = os.path.join(os.getcwd(), "monitoring_history")
+
         self.monitoring_results = []
         self.latest_result = None
         self.platform = None
         self.region = None
         self.threshold = None
         self.on_threshold_exceeded_callback = None
-
-        # Ensure monitoring history directory exists
-        os.makedirs(self.save_directory, exist_ok=True)
 
     def start_monitoring(self,
                          platform: str,
@@ -348,23 +386,13 @@ class MonitoringService(IMonitoringService):
             self.threshold = threshold
             self.on_threshold_exceeded_callback = on_threshold_exceeded
 
-            # Create per-session directory
-            session_dir = os.path.join(
-                self.save_directory,
-                f"{platform}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            )
-            try:
-                os.makedirs(session_dir, exist_ok=True)
-            except Exception as e:
-                error = ResourceError(
-                    message=f"Failed to create monitoring directory: {session_dir}",
-                    details={"directory": session_dir},
-                    inner_error=e
-                )
-                self.logger.error(str(error))
-                return Result.fail(error)
+            # Get the correct monitoring path using PathService
+            platform_monitoring_path = self.path_service.get_platform_monitoring_path(platform)
+            self.logger.info(f"Monitoring screenshots will be saved in: {platform_monitoring_path}")
 
-            # Create worker
+            # PathService ensures the directory exists, so no os.makedirs needed here
+
+            # Create worker, passing the path obtained from PathService
             worker = MonitoringWorker(
                 platform=platform,
                 region=region,
@@ -376,11 +404,12 @@ class MonitoringService(IMonitoringService):
                 platform_detection_service=self.platform_detection_service,
                 logger=self.logger,
                 profile_service=self.profile_service,
-                save_directory=session_dir,
+                save_directory=platform_monitoring_path,  # Pass the correct path
                 on_check_complete=self._on_check_complete,
                 on_status_update=on_status_update,
                 on_error=on_error
             )
+
 
             # Execute in background thread
             result = self.thread_service.execute_task(self.monitoring_task_id, worker)

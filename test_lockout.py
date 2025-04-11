@@ -1,36 +1,19 @@
 #!/usr/bin/env python3
 """
 Comprehensive testing application for the Trading Monitor functionality.
-
-This application tests:
-1. Region selection for P&L monitoring
-2. Region selection for flatten positions during lockout
-3. Cold Turkey Blocker path verification
-4. Block configuration verification
-5. Complete lockout sequence testing
-
-Usage:
-    python test_lockout.py
+...
 """
+
+# ANALYSIS: Standard imports - these will be distributed between ViewModels and Views.
+# Some imports are used only for UI (PySide6 related) and others for business logic.
+
 import os
 import re
 import sys
 import time
-import logging
 from typing import List, Dict, Any, Optional, Tuple
 import traceback
 import dataclasses
-from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
-from src.domain.services.i_region_service import IRegionService
-from src.domain.models.platform_profile import PlatformProfile, OcrProfile
-
-from src.domain.common.result import Result
-from src.domain.common.errors import DomainError, ErrorCategory, ErrorSeverity
-
-
-# Add the project root to the Python path so we can import modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QTextEdit, QMessageBox, QTabWidget, QLineEdit, QGroupBox, QComboBox,
@@ -38,6 +21,13 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QPixmap, QTextCursor
 from PySide6.QtCore import Qt, QEvent
+
+from src.domain.common.result import Result
+from src.domain.common.errors import DomainError, ErrorCategory, ErrorSeverity
+
+
+# Add the project root to the Python path so we can import modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_background_task_service import IBackgroundTaskService, Worker
@@ -52,9 +42,18 @@ from src.domain.services.i_lockout_service import ILockoutService
 from src.domain.services.i_ui_service import IUIService
 from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.services.i_profile_service import IProfileService
-
+from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
+from src.domain.services.i_region_service import IRegionService
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
+
+
 from src.presentation.components.platform_selector_toolbar import PlatformSelectorToolbar
+
+from src.domain.models.platform_profile import PlatformProfile, OcrProfile
+
+
+
+
 SCREENSHOTS_DIR = os.path.join(os.getcwd(), "region_screenshots")
 
 
@@ -175,7 +174,9 @@ class RegionComboBox(QComboBox):
         return None
 
 
-# Add this custom event class
+# ANALYSIS: UI-related code - this handles thread-safe UI updates.
+# MIGRATION: This belongs in the MonitoringView or should be replaced with proper
+# ViewModel callbacks and Qt signals.
 class _ThresholdExceededEvent(QEvent):
     """Custom event for threshold exceeded notification."""
     EVENT_TYPE = QEvent.Type(QEvent.registerEventType())
@@ -183,6 +184,8 @@ class _ThresholdExceededEvent(QEvent):
     def __init__(self, result):
         super().__init__(_ThresholdExceededEvent.EVENT_TYPE)
         self.result = result
+
+
 
 class CalibrationWorker(Worker[Dict[str, Any]]):
     """Worker that attempts to find OCR parameters that match an expected value."""
@@ -209,14 +212,30 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
         self.report_started()
         self.report_progress(0, "Starting calibration...")
 
-        # Clean the expected value once
+        # =================== START: CORRECTED BLOCK ===================
+        # Clean the expected value using the OCR Service's helper method
+        expected_value_str = self.expected_value.strip()
         try:
-            clean_expected_str = self._clean_numeric_string(self.expected_value)
-            target_value = float(clean_expected_str)
+            # Call the OCR service's cleaning method directly
+            # Pass the raw string as both value_str and full_match for context
+            # Note the call to self.ocr_service._clean_and_convert_value
+            cleaned_value_float = self.ocr_service._clean_and_convert_value(
+                value_str=expected_value_str,
+                full_match=expected_value_str
+            )
+
+            if cleaned_value_float is None:
+                 self.report_error(f"Invalid expected value entered: '{self.expected_value}' could not be cleaned to a number.")
+                 return None
+
+            target_value = cleaned_value_float # Use the float directly
             self.logger.info(f"Cleaned expected value: '{self.expected_value}' -> Target float: {target_value}")
-        except ValueError:
-            self.report_error(f"Invalid expected value entered: {self.expected_value}")
+
+        except Exception as e: # Catch potential errors during cleaning call
+            self.report_error(f"Unexpected error processing expected value '{self.expected_value}': {e}")
+            self.logger.error("Exception during expected value cleaning", exc_info=True)
             return None
+        # =================== END: CORRECTED BLOCK ===================
 
         # Load the image
         try:
@@ -231,10 +250,6 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
         ocr_result = self.ocr_analysis_service.detect_optimal_ocr_parameters(self.image_path)
         if ocr_result.is_failure:
             self.report_error(f"Failed to detect baseline OCR parameters: {ocr_result.error}")
-            # Optionally, create a very basic default profile to continue?
-            # base_profile = OcrProfile()
-            # self.logger.warning("Using default OCR profile as baseline detection failed.")
-            # Or simply fail:
             return None
         base_profile = ocr_result.value
         self.logger.info(f"Baseline OCR profile detected: {base_profile}")
@@ -244,7 +259,7 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
         self.logger.info(f"Generated {len(profiles_to_try)} OCR profile variations to test.")
 
         # Phase 3: Generate Robust Pattern Sets
-        patterns_to_try = self._generate_pattern_variations() # Use enhanced version
+        patterns_to_try = self._generate_pattern_variations()
         self.logger.info(f"Generated {len(patterns_to_try)} pattern set variations to test.")
 
         # Calculate total attempts for progress bar
@@ -260,17 +275,13 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
 
         for i, current_profile in enumerate(profiles_to_try):
             self.logger.debug(f"Testing OCR Profile {i+1}/{len(profiles_to_try)}: {current_profile}")
-
-            # Run OCR with the current profile variation
-            # Use a copy of the image for each OCR attempt if preprocessing modifies it in place
             image_copy = image.copy()
             extract_result = self.ocr_service.extract_text_with_profile(image_copy, current_profile)
 
             if extract_result.is_failure:
                 self.logger.warning(f"OCR failed for profile {i+1}: {extract_result.error}")
-                # Increment attempt count even on OCR failure for progress calculation
                 self.current_attempt += len(patterns_to_try)
-                continue # Skip to next profile if OCR itself fails
+                continue
 
             extracted_text = extract_result.value
             self.logger.debug(f"  Profile {i+1} Extracted text: '{extracted_text}'")
@@ -282,16 +293,12 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
 
             for j, pattern_set in enumerate(patterns_to_try):
                 self.current_attempt += 1
-                # Avoid division by zero if total_attempts is somehow 0
-                progress_pct = int((self.current_attempt / self.total_attempts) * 90) + 5 if self.total_attempts > 0 else 5 # Scale 5-95%
+                progress_pct = int((self.current_attempt / self.total_attempts) * 90) + 5 if self.total_attempts > 0 else 5
                 self.report_progress(progress_pct, f"Testing profile {i+1}, pattern set {j+1}...")
 
-                if self.cancel_requested:
-                    self.report_error("Calibration cancelled")
-                    return None
+                if self.cancel_requested: self.report_error("Calibration cancelled"); return None
 
-                # Extract numeric values using the current patterns AND improved cleaning (Step 2)
-                # This call relies on your OcrService having the improved cleaning logic
+                # This call uses the OCR service, which internally uses the CORRECT cleaner now
                 numeric_result = self.ocr_service.extract_numeric_values_with_patterns(extracted_text, pattern_set)
 
                 if numeric_result.is_success and numeric_result.value:
@@ -300,81 +307,28 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
 
                     for value in extracted_values:
                         difference = abs(value - target_value)
-
-                        # Exact match?
-                        if difference < 0.001: # Allow tiny float differences
+                        if difference < 0.001:
                             self.report_progress(100, f"Found exact match: {value}")
                             self.logger.info(f"Exact match found with profile {i+1} and pattern set {j+1}")
-                            return {
-                                "ocr_profile": current_profile,
-                                "patterns": pattern_set,
-                                "extracted_text": extracted_text,
-                                "matched_value": value
-                            }
-
-                        # Track closest match
+                            return { "ocr_profile": current_profile, "patterns": pattern_set, "extracted_text": extracted_text, "matched_value": value }
                         if difference < min_difference:
                              self.logger.debug(f"      New best match: {value} (Diff: {difference}, Prev Diff: {min_difference})")
                              min_difference = difference
-                             best_match_info = {
-                                 "ocr_profile": current_profile,
-                                 "patterns": pattern_set,
-                                 "extracted_text": extracted_text,
-                                 "matched_value": value,
-                                 "difference": difference
-                             }
-                elif numeric_result.is_failure:
-                     self.logger.debug(f"    Pattern set {j+1} extraction failed: {numeric_result.error}")
-                else: # Success but no values found
-                    self.logger.debug(f"    Pattern set {j+1} extracted no values.")
-
+                             best_match_info = { "ocr_profile": current_profile, "patterns": pattern_set, "extracted_text": extracted_text, "matched_value": value, "difference": difference }
+                elif numeric_result.is_failure: self.logger.debug(f"    Pattern set {j+1} extraction failed: {numeric_result.error}")
+                else: self.logger.debug(f"    Pattern set {j+1} extracted no values.")
 
         # Phase 5: No Exact Match Found - Return Best Attempt?
-        if best_match_info and min_difference < 1.0: # Use tolerance (e.g., $1.00)
+        if best_match_info and min_difference < 1.0:
             self.report_progress(95, f"Found close match: {best_match_info['matched_value']} (diff: {min_difference:.2f})")
             self.logger.info(f"Using closest match (difference {min_difference:.2f}) found with profile variation and pattern set.")
             return best_match_info
         elif best_match_info:
              self.logger.warning(f"Closest match found had difference {min_difference:.2f} (Tolerance: 1.0). Failing calibration.")
 
-
         self.report_error("Could not find matching OCR profile and pattern combination.")
         self.logger.error("Calibration failed: No suitable combination found after trying variations.")
         return None
-
-    def _clean_numeric_string(self, value_str: str) -> str:
-        """Remove non-numeric characters except for decimal point and negative sign."""
-        if not isinstance(value_str, str):
-            return ""
-        # Handle parentheses for negative values
-        temp_str = value_str.strip()
-        is_negative_paren = False
-        if temp_str.startswith('(') and temp_str.endswith(')'):
-            is_negative_paren = True
-            temp_str = temp_str[1:-1] # Remove parens
-
-        # Remove currency symbols, thousands separators (commas NOT next to digits), whitespace
-        # Be careful not to remove comma if it's the decimal separator yet
-        cleaned = re.sub(r'[^\d.,~–—-]+', '', temp_str) # Allow range of dashes
-
-        # Standardize decimal separator to '.'
-        cleaned = cleaned.replace(',', '.')
-
-        # Prepend '-' if it was negative
-        if is_negative_paren or value_str.strip().startswith(('-', '~', '–', '—')):
-             if not cleaned.startswith('-'):
-                  cleaned = '-' + cleaned
-
-        # Ensure only one decimal point if multiple resulted from replace
-        if cleaned.count('.') > 1:
-            parts = cleaned.split('.')
-            cleaned = parts[0] + '.' + "".join(parts[1:])
-
-        # Remove leading/trailing non-numerics that might remain
-        cleaned = re.sub(r'^[^\d-]+', '', cleaned) # Remove leading non-digit except '-'
-        cleaned = re.sub(r'[^\d]+$', '', cleaned) # Remove trailing non-digit
-
-        return cleaned
 
 
     def _generate_pattern_variations(self) -> List[Dict[str, str]]:
@@ -1336,19 +1290,22 @@ class TradingMonitorTestApp(QMainWindow):
     def _on_add_region(self, region_type):
         """Add a new region for monitoring or flatten positions."""
         from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
-        from src.domain.models.region_model import Region  # Import the model
+        from src.domain.models.region_model import Region  # Ensure Region model is imported
 
         current_platform = self.platform_selection_service.get_current_platform()
+        if not current_platform:
+            self.log_message("No platform selected. Please select a platform first.", "ERROR")
+            QMessageBox.warning(self, "Platform Needed", "No platform selected. Please select a platform first.")
+            return
+
         # Determine title and default name based on region type
         if region_type == "monitor":
             title = "Select P&L Monitoring Region"
-            # Get count of existing regions for default name
             result = self.region_service.get_regions_by_platform(current_platform, "monitor")
             count = len(result.value) if result.is_success else 0
             default_name = f"P&L_{count + 1}"
         else:  # flatten
             title = "Select Position Flatten Button Region"
-            # Get count of existing regions for default name
             result = self.region_service.get_regions_by_platform(current_platform, "flatten")
             count = len(result.value) if result.is_success else 0
             default_name = f"Flatten_{count + 1}"
@@ -1373,51 +1330,45 @@ class TradingMonitorTestApp(QMainWindow):
                 default_name
             )
 
-            if not ok:  # User pressed Cancel
+            if not ok:
                 self.log_message(f"Region naming cancelled", "INFO")
                 return
 
-            # Validate name
-            if not name.strip():
+            name = name.strip()  # Trim whitespace
+            if not name:
                 QMessageBox.warning(self, "Invalid Name", "Name cannot be empty.")
                 continue
 
-            # Check if region with this name already exists
             region_check = self.region_service.get_region(current_platform, region_type, name)
-
-            # If a region with this name already exists
             if region_check.is_success:
                 choice = QMessageBox.question(
-                    self,
-                    "Name Already Exists",
-                    f"A {region_type} region with this name already exists. Replace it?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
+                    self, "Name Already Exists",
+                    f"A {region_type} region named '{name}' already exists. Replace it?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
                 )
+                if choice != QMessageBox.Yes: continue  # Ask for name again
 
-                if choice != QMessageBox.Yes:
-                    continue  # Try again with a different name
-
-                # If user wants to replace existing region, delete the old one first
-                # both from the service and from the UI list
+                # If replacing, delete the old one first (metadata + screenshot file)
                 delete_result = self.region_service.delete_region(current_platform, region_type, name)
                 if delete_result.is_failure:
-                    self.log_message(f"Failed to delete existing region: {delete_result.error}", "ERROR")
-                    return
+                    self.log_message(f"Failed to delete existing region '{name}': {delete_result.error}", "ERROR")
+                    QMessageBox.critical(self, "Error",
+                                         f"Failed to delete existing region '{name}'. Cannot add new region.")
+                    return  # Stop if deletion fails
 
-                # Also remove from UI list
+                # Also remove from UI list immediately
                 list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
                 for i in range(list_widget.count()):
                     item = list_widget.item(i)
                     widget = list_widget.itemWidget(item)
                     if hasattr(widget, 'region_id') and widget.region_id == name:
-                        list_widget.takeItem(i)
+                        list_widget.takeItem(i);
                         break
 
             # Valid name obtained, break the loop
             break
 
-        # Create a Region object
+        # Create a Region object (without screenshot path initially)
         region_id = f"{current_platform}_{region_type}_{name}"
         region = Region(
             id=region_id,
@@ -1425,42 +1376,115 @@ class TradingMonitorTestApp(QMainWindow):
             coordinates=coordinates,
             type=region_type,
             platform=current_platform
+            # No screenshot_path is set here yet
         )
 
-        # Capture screenshot for the region
-        screenshot_result = self.region_service.capture_region_screenshot(
+        # Capture screenshot data and get intended path using RegionService
+        # This returns Result[Tuple[ImageData, IntendedPath]]
+        capture_result = self.region_service.capture_region_screenshot(
             coordinates, region_id, current_platform, region_type
         )
 
-        if screenshot_result.is_success:
-            region.screenshot_path = screenshot_result.value
-            self.log_message(f"Captured screenshot for region '{name}'", "SUCCESS")
-        else:
-            self.log_message(f"Failed to capture screenshot: {screenshot_result.error}", "WARNING")
+        # Initialize image_data to None
+        image_data_to_save = None
 
-        # Save the region
+        if capture_result.is_success:
+            # =================== THIS IS THE CRITICAL FIX ===================
+            # Unpack the tuple returned by capture_region_screenshot
+            image_data, intended_path = capture_result.value
+
+            # Store the image data in a temporary attribute for save_region to use
+            # DO NOT assign the path or tuple to region.screenshot_path here
+            region._temp_screenshot_data = image_data
+            image_data_to_save = image_data  # Keep track if we have data
+
+            self.log_message(f"Captured screenshot data for region '{name}'. Intended path: {intended_path}",
+                             "INFO")
+            # ===============================================================
+        elif capture_result.is_failure:
+            # Log failure but potentially proceed without a screenshot
+            self.log_message(f"Failed to capture screenshot for region '{name}': {capture_result.error}", "WARNING")
+            QMessageBox.warning(self, "Screenshot Failed",
+                                f"Could not capture screenshot for region '{name}'.\nRegion will be saved without an image preview.")
+            # region._temp_screenshot_data will not be set
+            # region.screenshot_path will remain None
+
+        # Now, call save_region.
+        # If capture succeeded, it will find region._temp_screenshot_data, save the image file,
+        # determine the path, set region.screenshot_path correctly, and save metadata.
+        # If capture failed, it will save metadata with region.screenshot_path set to None.
         save_result = self.region_service.save_region(region)
-        if save_result.is_failure:
-            self.log_message(f"Failed to save region: {save_result.error}", "ERROR")
-            return
 
-        # Add to UI list
+        if save_result.is_failure:
+            self.log_message(f"Failed to save region '{name}': {save_result.error}", "ERROR")
+            QMessageBox.critical(self, "Error Saving Region",
+                                 f"Failed to save region '{name}'.\nError: {save_result.error}")
+            return  # Stop processing if save fails
+
+        # Region saved successfully. Now add to UI list.
+        # Use the coordinates we know, save_region doesn't return them.
         self._add_region_to_list(name, coordinates, region_type)
 
-        # WITH THIS:
+        # Now that the region is saved (including potential screenshot path),
+        # try to update the preview in the list widget immediately.
+        list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            widget = list_widget.itemWidget(item)
+            if hasattr(widget, 'region_id') and widget.region_id == name:
+                if region.screenshot_path and os.path.exists(region.screenshot_path):
+                    # Load the just saved image for preview
+                    # Use load_region_screenshot which returns Result[PIL.Image]
+                    load_result = self.region_service.load_region_screenshot(region)
+                    if load_result.is_success:
+                        preview_image = load_result.value
+                        # Convert PIL Image to QPixmap using ScreenshotService
+                        pixmap_result = self.screenshot_service.to_pyside_pixmap(preview_image)
+                        if pixmap_result.is_success:
+                            widget.screenshot_label.setPixmap(pixmap_result.value.scaled(
+                                widget.screenshot_label.width() - 10,  # Scale to fit label
+                                widget.screenshot_label.height() - 10,
+                                Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                        else:
+                            widget.screenshot_label.setText("Preview failed (Pixmap)")
+                    else:
+                        widget.screenshot_label.setText("Preview failed (Load)")
+                else:
+                    widget.screenshot_label.setText("No screenshot")
+                break  # Found the widget, stop looping
+
         self.log_message(f"Added {region_type} region '{name}': {coordinates}", "SUCCESS")
 
-        # Refresh all UI components that depend on region data
+        # Refresh UI components that depend on region data
         self._refresh_ui_after_region_change()
 
-    def _on_edit_region(self, region_id, current_coords, region_type):
+        # PASTE THIS ENTIRE METHOD INTO test_lockout.py, replacing the existing _on_edit_region
+
+    def _on_edit_region(self, region_id_to_edit, current_coords, region_type):
         """Edit an existing region."""
-        self.log_message(f"Editing region {region_id}...", "INFO")
+        # We get region_id_to_edit (which is just the name), not the full ID string
+        from PySide6.QtWidgets import QMessageBox
+        from src.domain.models.region_model import Region  # Ensure imported
 
+        region_name = region_id_to_edit  # The passed 'id' is actually the name
         current_platform = self.platform_selection_service.get_current_platform()
+        if not current_platform:
+            self.log_message("Cannot edit region, no platform selected.", "ERROR")
+            return
 
-        # Start region selection
-        region_result = self.ui_service.select_screen_region(f"Edit the {region_type} region")
+        self.log_message(f"Editing {region_type} region '{region_name}'...", "INFO")
+
+        # Get the existing region object to modify
+        get_result = self.region_service.get_region(current_platform, region_type, region_name)
+        if get_result.is_failure:
+            self.log_message(f"Failed to get region details for editing: {get_result.error}", "ERROR")
+            QMessageBox.critical(self, "Error", f"Could not retrieve region '{region_name}' for editing.")
+            return
+        region = get_result.value  # Get the existing Region object
+
+        # Start region selection for the new coordinates
+        region_result = self.ui_service.select_screen_region(
+            f"Select the NEW area for the '{region_name}' {region_type} region")
 
         if region_result.is_failure:
             self.log_message(f"Region edit cancelled or failed: {region_result.error}", "INFO")
@@ -1468,63 +1492,105 @@ class TradingMonitorTestApp(QMainWindow):
 
         new_coordinates = region_result.value
 
-        # Get the existing region
-        get_result = self.region_service.get_region(current_platform, region_type, region_id)
-        if get_result.is_failure:
-            self.log_message(f"Failed to get region: {get_result.error}", "ERROR")
-            return
-
-        region = get_result.value
-
-        # Update coordinates
+        # Update coordinates on the existing region object
         region.coordinates = new_coordinates
 
-        # Capture new screenshot
-        screenshot_result = self.region_service.capture_region_screenshot(
-            new_coordinates, region.id, current_platform, region_type
-        )
+        # Ask user if they want to recapture the screenshot
+        recapture = QMessageBox.question(self, "Recapture Screenshot?",
+                                         "Do you want to capture a new screenshot for the updated region?",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
 
-        if screenshot_result.is_success:
-            region.screenshot_path = screenshot_result.value
-            self.log_message(f"Updated screenshot for region '{region_id}'", "SUCCESS")
-        else:
-            self.log_message(f"Failed to update screenshot: {screenshot_result.error}", "WARNING")
+        # Ensure temp attribute doesn't exist initially for edit
+        temp_data_attr = '_temp_screenshot_data'
+        if hasattr(region, temp_data_attr):
+            try:
+                delattr(region, temp_data_attr)
+            except AttributeError:
+                pass
 
-        # Save updated region
-        save_result = self.region_service.save_region(region)
+        if recapture == QMessageBox.Yes:
+            # Capture new screenshot data and get intended path
+            # Use the full ID from the existing region object
+            capture_result = self.region_service.capture_region_screenshot(
+                new_coordinates, region.id, region.platform, region.type
+            )
+
+            if capture_result.is_success:
+                # =================== APPLY FIX HERE ===================
+                image_data, intended_path = capture_result.value  # Unpack tuple
+                # Attach image data to temporary attribute for save_region
+                setattr(region, temp_data_attr, image_data)  # Use setattr for clarity
+                # DO NOT set region.screenshot_path here
+                self.log_message(
+                    f"Captured new screenshot data for region '{region_name}'. Intended path: {intended_path}",
+                    "INFO")
+                # =====================================================
+            else:
+                self.log_message(
+                    f"Failed to capture new screenshot for edited region '{region_name}': {capture_result.error}",
+                    "WARNING")
+                QMessageBox.warning(self, "Screenshot Failed",
+                                    f"Could not capture new screenshot for region '{region_name}'.\nPrevious screenshot (if any) will be kept.")
+                # Keep the existing region.screenshot_path value
+        # else: # User chose not to recapture.
+        # Keep the existing region.screenshot_path value
+
+        # Save updated region (coordinates and potentially new screenshot path)
+        # save_region will handle saving the file if _temp_screenshot_data exists
+        # and update region.screenshot_path before saving config
+        save_result = self.region_service.save_region(region)  # Pass the modified region object
+
         if save_result.is_failure:
-            self.log_message(f"Failed to save region: {save_result.error}", "ERROR")
+            self.log_message(f"Failed to save edited region '{region_name}': {save_result.error}", "ERROR")
+            QMessageBox.critical(self, "Error Saving Region",
+                                 f"Failed to save edited region '{region_name}'.\nError: {save_result.error}")
             return
 
-        # Update UI list
+        # --- Update the UI list widget ---
         list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
+        updated_widget = None  # To store the widget we update
         for i in range(list_widget.count()):
             item = list_widget.item(i)
             widget = list_widget.itemWidget(item)
-            if hasattr(widget, 'region_id') and widget.region_id == region_id:
-                # Update the widget with new coordinates
-                new_widget = RegionEntry(
-                    region_id, new_coordinates,
-                    on_edit=lambda id, r: self._on_edit_region(id, r, region_type),
-                    on_delete=lambda id: self._on_delete_region(id, region_type)
-                )
-                item.setSizeHint(new_widget.sizeHint())
-                list_widget.setItemWidget(item, new_widget)
+            # Check widget type and name before proceeding
+            if isinstance(widget, RegionEntry) and widget.region_id == region_name:
+                # Find the specific QLabel for coordinates within RegionEntry if needed
+                # Assuming the label is the first item in top_layout (may need adjustment)
+                coord_label = widget.findChild(QLabel)  # Simple search, might need refinement
+                if coord_label:
+                    x, y, w, h = new_coordinates
+                    coord_label.setText(f"{region_name}: ({x}, {y}, {w}, {h})")
+                else:
+                    self.logger.warning(f"Could not find coordinate QLabel for widget '{region_name}'")
 
-                # Immediately display the updated screenshot
-                if region.screenshot_path:
-                    load_result = self.region_service.load_region_screenshot(region)
-                    if load_result.is_success:
-                        screenshot = load_result.value
-                        pixmap_result = self.screenshot_service.to_pyside_pixmap(screenshot)
-                        if pixmap_result.is_success:
-                            new_widget.screenshot_label.setPixmap(pixmap_result.value)
+                widget.region = new_coordinates  # Update internal coords in widget if it stores them
+                updated_widget = widget  # Keep track of the updated widget
                 break
 
-        self.log_message(f"Updated {region_type} region {region_id}: {new_coordinates}", "SUCCESS")
+        # Update the preview in the updated widget
+        # Use the region object state *after* save_region finished
+        if updated_widget:
+            # Check the path *after* save_region potentially updated it
+            final_screenshot_path = region.screenshot_path
+            if final_screenshot_path and os.path.exists(final_screenshot_path):
+                load_result = self.region_service.load_region_screenshot(region)
+                if load_result.is_success:
+                    preview_image = load_result.value
+                    pixmap_result = self.screenshot_service.to_pyside_pixmap(preview_image)
+                    if pixmap_result.is_success:
+                        updated_widget.screenshot_label.setPixmap(pixmap_result.value.scaled(
+                            updated_widget.screenshot_label.width() - 10,
+                            updated_widget.screenshot_label.height() - 10,
+                            Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    else:
+                        updated_widget.screenshot_label.setText("Preview failed (Pixmap)")
+                else:
+                    updated_widget.screenshot_label.setText("Preview failed (Load)")
+            else:
+                updated_widget.screenshot_label.setText("No screenshot")
 
-        # Refresh all UI components that depend on region data
-        self._refresh_ui_after_region_change()
+        self.log_message(f"Updated {region_type} region '{region_name}': {new_coordinates}", "SUCCESS")
+        self._refresh_ui_after_region_change()  # Refresh dropdowns etc.
 
     def _on_delete_region(self, region_id, region_type):
         """Delete an existing region."""

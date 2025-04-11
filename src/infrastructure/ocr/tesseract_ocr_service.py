@@ -381,125 +381,185 @@ class TesseractOcrService(IOcrService):
 
     def _clean_and_convert_value(self, value_str: str, full_match: str) -> Optional[float]:
         """
-        Cleans the extracted string value and converts it to a float.
-        Handles different signs, decimal separators, and thousands separators.
+        [Internal Helper] Cleans the extracted string value and converts it to a float.
+        Handles different signs, decimal separators, and thousands separators intelligently.
         """
-        # Ensure value_str is a string, sometimes regex might capture non-strings if pattern is odd
-        if not isinstance(value_str, str):
-            self.logger.debug(f"Cleaning skipped: Captured group '{value_str}' is not a string.")
-            return None
-        if not value_str:
-            self.logger.debug("Cleaning skipped: Input captured group is empty.")
+        if not isinstance(value_str, str) or not value_str:
+            self.logger.debug(f"Cleaning skipped: Input captured group is not a non-empty string ('{value_str}').")
             return None
 
-        # Use the original full match for robust sign detection
         original_match_text = full_match.strip() if isinstance(full_match, str) else ""
 
         try:
-            # 1. Detect sign from the *original full match* for robustness
+            # Step 1: Detect sign from the original full match
             is_negative = original_match_text.startswith(('-', '~', '–', '—')) or \
                           (original_match_text.startswith('(') and original_match_text.endswith(')'))
             self.logger.debug(
                 f"Cleaning captured group '{value_str}' from match '{original_match_text}'. Detected negative: {is_negative}")
 
-            # 2. Initial cleanup: Remove known non-numeric noise
-            # Includes currency, common symbols, whitespace. Add platform specifics if needed.
-            noise_chars = r'[$§@\s]+'
-            clean = re.sub(noise_chars, '', value_str.strip())
-            # Also replace common misinterpretations if not handled by regex
-            clean = clean.replace('l', '1').replace('O', '0').replace('S', '5').replace('B', '8')
-            self.logger.debug(f"  After removing noise/misinterpretations: '{clean}'")
+            # Step 2: Initial Cleanup
+            # Remove currency symbols, parentheses, spaces, and other noise
+            clean = re.sub(r'[$§@\s()]+', '', value_str.strip())
 
-            # Handle edge case where cleaning leaves nothing
+            # Replace common OCR misreads
+            clean = clean.replace('l', '1').replace('O', '0').replace('S', '5').replace('B', '8')
+            self.logger.debug(f"  After removing noise: '{clean}'")
+
             if not clean:
-                self.logger.debug("  Cleaning resulted in empty string.")
                 return None
 
-            # 3. Handle decimal separator intelligently (comma vs period)
-            has_period = '.' in clean
-            has_comma = ',' in clean
+            # Step 3: Analyze structure and determine separators
+            # Count occurrences
+            num_periods = clean.count('.')
+            num_commas = clean.count(',')
 
-            if has_period and has_comma:
-                # Both present: Assume period is decimal, remove comma as thousands separator
-                clean = clean.replace(',', '')
-                self.logger.debug(f"  Both separators found. Removed comma: '{clean}'")
-            elif has_comma and not has_period:
-                # Only comma present: Assume it's the decimal, replace with period
-                clean = clean.replace(',', '.')
-                self.logger.debug(f"  Only comma found. Replaced with period: '{clean}'")
-            # Case: Only period -> do nothing
-            # Case: Neither -> do nothing
+            # Find positions of last separator of each type
+            last_period_pos = clean.rfind('.')
+            last_comma_pos = clean.rfind(',')
 
-            # 4. Remove any remaining commas ONLY if a decimal point exists now
-            if '.' in clean:
-                parts = clean.split('.')
-                if len(parts) >= 2:  # Should be 2, but handle >2 defensively
-                    # Remove thousands separators from the integer part only
-                    parts[0] = re.sub(r',', '', parts[0])
-                    # Join back, keeping only the first decimal part
-                    clean = parts[0] + '.' + parts[1]
-                    self.logger.debug(f"  Removed remaining thousands commas (if any): '{clean}'")
-                else:  # Only integer part after split (e.g., "1,000.")
-                    clean = re.sub(r',', '', parts[0])
-                    self.logger.debug(f"  Removed thousands commas from integer-only part: '{clean}'")
-            else:
-                # No decimal point, remove all commas (they must be thousands separators)
-                clean = re.sub(r',', '', clean)
-                self.logger.debug(f"  No decimal, removed all commas: '{clean}'")
+            # Use more robust format detection based on common financial formats
+            decimal_separator_char = '.'  # Default
+            thousands_separator_char = ','  # Default
 
-            # 5. Final cleanup: Remove any non-digit characters except leading '-' and single '.'
-            leading_dash = ''
-            # Standardize recognized negative indicators to '-'
-            if clean.startswith(('-', '~', '–', '—')):
-                leading_dash = '-'
-            clean = re.sub(r'^[-~–—]+', '', clean)  # Remove sign for processing digits
+            # Handle specific formats based on patterns commonly seen in financial contexts
 
-            # Keep only digits and the first decimal point
+            # Case: $1,234.56 (US/UK format)
+            if '$' in original_match_text and num_commas >= 1 and num_periods == 1:
+                if last_period_pos > last_comma_pos:
+                    # Standard format with $ sign, using period as decimal
+                    decimal_separator_char = '.'
+                    thousands_separator_char = ','
+                    self.logger.debug(f"  Format detected: US/UK with $ sign")
+
+            # Case where a single period appears at the end (likely decimal): 1.234.56
+            elif num_periods > 0 and last_period_pos > 0 and last_period_pos == len(clean) - 3:
+                # Period appears exactly 2 digits from the end - likely a decimal point
+                decimal_separator_char = '.'
+                # If multiple periods, earlier ones are thousands separators
+                thousands_separator_char = '.' if num_periods > 1 else ','
+                self.logger.debug(f"  Format detected: Period as decimal (2 digits after)")
+
+            # Case where a single comma appears at the end (likely decimal): 1,234,56
+            elif num_commas > 0 and last_comma_pos > 0 and last_comma_pos == len(clean) - 3:
+                # Comma appears exactly 2 digits from the end - likely a decimal point
+                decimal_separator_char = ','
+                # If multiple commas, earlier ones are thousands separators
+                thousands_separator_char = ',' if num_commas > 1 else '.'
+                self.logger.debug(f"  Format detected: Comma as decimal (2 digits after)")
+
+            # Case of mixed separators - use standard rules based on position
+            elif num_periods >= 1 and num_commas >= 1:
+                if last_comma_pos > last_period_pos:
+                    # Last separator is comma - European format
+                    decimal_separator_char = ','
+                    thousands_separator_char = '.'
+                    self.logger.debug(f"  Format detected: European (comma decimal)")
+                else:
+                    # Last separator is period - US/UK format
+                    decimal_separator_char = '.'
+                    thousands_separator_char = ','
+                    self.logger.debug(f"  Format detected: US/UK (period decimal)")
+
+            # Only commas present - analyze position and count
+            elif num_commas >= 1 and num_periods == 0:
+                if num_commas == 1 and len(clean) - last_comma_pos <= 3:
+                    # Single comma close to the end - likely decimal
+                    decimal_separator_char = ','
+                    thousands_separator_char = None
+                    self.logger.debug(f"  Format detected: Comma as decimal (single comma near end)")
+                else:
+                    # Multiple commas or positioned as thousands - assume US format with thousands commas
+                    decimal_separator_char = '.'
+                    thousands_separator_char = ','
+                    self.logger.debug(f"  Format detected: Commas as thousands")
+
+            # Only periods present - analyze position and count
+            elif num_periods >= 1 and num_commas == 0:
+                if num_periods == 1 and len(clean) - last_period_pos <= 3:
+                    # Single period close to the end - likely decimal
+                    decimal_separator_char = '.'
+                    thousands_separator_char = None
+                    self.logger.debug(f"  Format detected: Period as decimal (single period near end)")
+                else:
+                    # Multiple periods - assume European format with thousands periods
+                    decimal_separator_char = '.'
+                    thousands_separator_char = '.'
+                    self.logger.debug(f"  Format detected: Periods as both")
+
+            self.logger.debug(
+                f"  Determined decimal char: '{decimal_separator_char}', thousands char: '{thousands_separator_char}'")
+
+            # Step 4: Process thousands separators
+            if thousands_separator_char:
+                clean = clean.replace(thousands_separator_char, '')
+                self.logger.debug(f"  Removed thousands separator ('{thousands_separator_char}'): '{clean}'")
+
+            # Step 5: Standardize decimal separator to period for float conversion
+            if decimal_separator_char == ',':
+                # Count commas left after removing thousands
+                remaining_commas = clean.count(',')
+                if remaining_commas == 1:
+                    clean = clean.replace(',', '.')
+                    self.logger.debug(f"  Standardized decimal separator (comma to period): '{clean}'")
+                elif remaining_commas == 0:
+                    self.logger.debug(f"  No decimal comma found after processing. String: '{clean}'")
+                else:
+                    # Multiple commas remain - take the last one as decimal
+                    comma_positions = [pos for pos, char in enumerate(clean) if char == ',']
+                    # Keep only the last comma, replace it with period
+                    new_clean = ""
+                    for i, char in enumerate(clean):
+                        if char == ',' and i == comma_positions[-1]:
+                            new_clean += '.'
+                        elif char == ',':
+                            # Skip other commas
+                            continue
+                        else:
+                            new_clean += char
+                    clean = new_clean
+                    self.logger.debug(f"  Handled multiple remaining commas, using last as decimal: '{clean}'")
+
+            # Step 6: Final cleanup - ensure we keep only digits and one decimal point
             final_clean = ""
             decimal_found = False
-            for char in clean:
+            leading_sign = ''
+
+            # Handle leading minus sign
+            clean_for_digits = clean
+            if clean.startswith(('-', '~', '–', '—')):
+                leading_sign = '-'
+                clean_for_digits = clean[1:]
+
+            # Process each character
+            for char in clean_for_digits:
                 if char.isdigit():
                     final_clean += char
                 elif char == '.' and not decimal_found:
                     final_clean += char
                     decimal_found = True
-                # else: discard char
 
-            # Handle empty string after cleanup
-            if not final_clean:
-                self.logger.debug(f"  Final cleanup resulted in empty string.")
+            clean = leading_sign + final_clean
+            self.logger.debug(f"  Final string before float: '{clean}'")
+
+            if not clean or clean == '-' or clean == '.':
                 return None
 
-            clean = leading_dash + final_clean
-            self.logger.debug(f"  After final digit/decimal cleanup: '{clean}'")
-
-            # 6. Convert to float
-            if clean == '-':  # Handle just a dash remaining
-                return None
+            # Step 7: Convert
             value = float(clean)
 
-            # 7. Apply sign consistently
-            # Ensure value is negative if a negative sign/parens were detected originally
-            if is_negative and value >= 0:
+            # Step 8: Apply sign based on original detection
+            if is_negative:
                 value = -abs(value)
-            # Ensure value is positive if no negative sign/parens were detected originally
-            # (Unless the number itself starts with '-', e.g. matched by 'regular')
-            elif not is_negative and value < 0 and not original_match_text.startswith(('-', '~', '–', '—')):
-                # This case means 'regular' pattern matched a negative number like '-500'
-                # but the original match wasn't explicitly negative via () or leading sign variation.
-                # Here, we trust the extracted number's sign.
-                pass  # Allow negative if number itself is negative and no positive indicator
-                # Alternative: force positive: value = abs(value) if strict needed
+            elif value < 0:
+                self.logger.debug(
+                    f"    Value parsed negative ({value}) but context wasn't explicitly negative. Keeping.")
 
             self.logger.debug(f"  Successfully cleaned and converted to: {value}")
             return value
 
         except (ValueError, TypeError) as e:
-            self.logger.warning(
-                f"Could not convert cleaned value '{clean}' (from group '{value_str}', match '{original_match_text}') to float: {e}")
+            self.logger.warning(f"Could not convert '{clean if 'clean' in locals() else value_str}' to float: {e}")
             return None
         except Exception as e:
-            self.logger.error(
-                f"Unexpected error during cleaning/conversion for '{value_str}' / '{original_match_text}': {e}",
-                exc_info=True)
+            self.logger.error(f"Unexpected cleaning error for '{original_match_text}': {e}", exc_info=True)
             return None

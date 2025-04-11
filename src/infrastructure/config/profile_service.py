@@ -214,7 +214,3 @@ class ProfileService(IProfileService):
         else:
             # Generic default
             return OcrProfile()
-
-    def test_pattern_extraction(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
-        """Test pattern extraction on sample text."""
-        return self.ocr_analysis_service.test_pattern_extraction(text, patterns)
