@@ -16,6 +16,15 @@
                         22
                     ],
                     "screenshot_path": "C:\\Users\\Gabe\\AppData\\Local\\GlebDev\\MonitorPal\\NinjaTrader\\regions\\NinjaTrader_monitor_P_L_1_original.png"
+                },
+                "P&L_2": {
+                    "coordinates": [
+                        289,
+                        514,
+                        301,
+                        60
+                    ],
+                    "screenshot_path": "C:\\Users\\Gabe\\AppData\\Local\\GlebDev\\MonitorPal\\NinjaTrader\\regions\\NinjaTrader_monitor_P_L_2_original.png"
                 }
             },
             "flatten_regions": {

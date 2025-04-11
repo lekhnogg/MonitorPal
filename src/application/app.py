@@ -22,6 +22,7 @@ from src.domain.services.i_profile_service import IProfileService
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
 from src.domain.services.i_region_service import IRegionService
 from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
+from src.domain.services.i_flash_service import IFlashService
 
 # Infrastructure Imports
 from src.infrastructure.logging.logger_service import ConsoleLoggerService
@@ -31,9 +32,7 @@ from src.infrastructure.system.path_service import PathService
 from src.infrastructure.platform.windows_platform_detection_service import WindowsPlatformDetectionService
 from src.infrastructure.platform.window_manager import WindowsWindowManager
 from src.infrastructure.platform.screenshot_service import QtScreenshotService
-# --- Ensure TesseractOcrService is imported ---
 from src.infrastructure.ocr.tesseract_ocr_service import TesseractOcrService
-# --- End Ensure ---
 from src.infrastructure.platform.monitoring_service import MonitoringService
 from src.infrastructure.platform.lockout_service import WindowsLockoutService
 from src.infrastructure.platform.verification_service import WindowsVerificationService
@@ -43,6 +42,7 @@ from src.infrastructure.config.profile_service import ProfileService
 from src.infrastructure.platform.platform_selection_service import PlatformSelectionService
 from src.infrastructure.platform.region_service import RegionService
 from src.infrastructure.ocr.ocr_analysis_service import OcrAnalysisService
+from src.infrastructure.ui.flash_service import QtFlashService
 
 def initialize_app() -> DIContainer:
     container = DIContainer()
@@ -181,6 +181,17 @@ def initialize_app() -> DIContainer:
             path_service=container.resolve(IPathService), # Gets singleton
             logger=logger,
             profile_service=container.resolve(IProfileService), # Resolves factory -> new instance
+        )
+    )
+
+    container.register_factory(
+        IFlashService,
+        lambda: QtFlashService(
+            logger=container.resolve(ILoggerService),
+            platform_detection=container.resolve(IPlatformDetectionService),
+            region_service=container.resolve(IRegionService),
+            ui_service=container.resolve(IUIService),  # Assuming overlay support added
+            thread_service=container.resolve(IBackgroundTaskService)
         )
     )
 

@@ -1,11 +1,10 @@
 # src/presentation/components/platform_selector_toolbar.py
-from typing import List, Optional # Added Optional
-
+from typing import List, Optional
 from PySide6.QtWidgets import QToolBar, QLabel, QComboBox, QWidget, QSizePolicy
-from PySide6.QtCore import Signal, Slot # Added Slot
+from PySide6.QtCore import Signal, Slot
 
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
-from src.domain.services.i_logger_service import ILoggerService
+
 
 class PlatformSelectorToolbar(QToolBar):
     """
@@ -22,6 +21,26 @@ class PlatformSelectorToolbar(QToolBar):
         self.platform_service = platform_service
         self.setMovable(False)
         self.setFloatable(False)
+
+        # Add summary labels BEFORE the spacer
+        self.addWidget(QLabel(" Region: "))
+        self.region_label = QLabel("N/A")
+        self.region_label.setStyleSheet("font-weight: bold;")
+        self.addWidget(self.region_label)
+
+        self.addSeparator()  # Visual separation
+
+        self.addWidget(QLabel(" Threshold: "))
+        self.threshold_label = QLabel("N/A")
+        self.threshold_label.setStyleSheet("font-weight: bold;")
+        self.addWidget(self.threshold_label)
+
+        self.addSeparator()
+
+        self.addWidget(QLabel(" Duration: "))
+        self.duration_label = QLabel("N/A")
+        self.duration_label.setStyleSheet("font-weight: bold;")
+        self.addWidget(self.duration_label)
 
         # Add spacer to push dropdown to the right
         spacer = QWidget()
@@ -133,6 +152,25 @@ class PlatformSelectorToolbar(QToolBar):
 
         finally:
             self.platform_combo.blockSignals(False)
+
+    def update_summary(self, region_name: Optional[str], threshold: Optional[float], duration: Optional[int]):
+        """Updates the summary labels in the toolbar."""
+        # Region Name
+        self.region_label.setText(region_name if region_name else "N/A")
+
+        # Threshold
+        if threshold is not None:
+            # Ensure negative and format
+            display_threshold = threshold if threshold <= 0 else -threshold
+            self.threshold_label.setText(f"${display_threshold:,.2f}")
+        else:
+            self.threshold_label.setText("N/A")
+
+        # Duration
+        if duration is not None:
+            self.duration_label.setText(f"{duration} min")
+        else:
+            self.duration_label.setText("N/A")
 
     # --- Add a getter for convenience ---
     def get_current_selection(self) -> str:

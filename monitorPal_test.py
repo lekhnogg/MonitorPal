@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt, QEvent
 
 from src.domain.common.result import Result
 from src.domain.common.errors import DomainError, ErrorCategory, ErrorSeverity
-
+from src.domain.services.i_flash_service import IFlashService
 
 # Add the project root to the Python path so we can import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,7 +46,8 @@ from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
 from src.domain.services.i_region_service import IRegionService
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
 
-
+from src.presentation.components.ui_components import LogDisplay, StyledButton, GroupHeader, ActionButton, \
+    SecondaryButton, WarningButton, DangerButton
 from src.presentation.components.platform_selector_toolbar import PlatformSelectorToolbar
 
 from src.domain.models.platform_profile import PlatformProfile, OcrProfile
@@ -57,44 +58,17 @@ from src.domain.models.platform_profile import PlatformProfile, OcrProfile
 SCREENSHOTS_DIR = os.path.join(os.getcwd(), "region_screenshots")
 
 
-class LogDisplay(QTextEdit):
-    """Custom text display for logging messages with colors."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setReadOnly(True)
-        self.setMinimumHeight(200)
-
-    def append_message(self, message: str, level: str = "INFO"):
-        """Append a message with the appropriate color based on level."""
-        color_map = {
-            "INFO": "black",
-            "SUCCESS": "green",
-            "WARNING": "orange",
-            "ERROR": "red",
-            "DEBUG": "gray"
-        }
-        color = color_map.get(level.upper(), "black")
-
-        timestamp = time.strftime("%H:%M:%S")
-        formatted_message = f"<span style='color:{color};'>[{timestamp} {level}] {message}</span>"
-        self.append(formatted_message)
-
-        # Ensure the latest message is visible
-        cursor = self.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        self.setTextCursor(cursor)
-
 class RegionEntry(QWidget):
     """Widget for displaying a selected region with options to edit/delete."""
 
     def __init__(self, region_id: str, region: Tuple[int, int, int, int],
-                 on_edit, on_delete, parent=None):
+                 on_edit, on_delete, on_flash, parent=None):
         super().__init__(parent)
         self.region_id = region_id
         self.region = region
         self.on_edit = on_edit
         self.on_delete = on_delete
+        self.on_flash = on_flash
 
         # Use a vertical layout for the whole entry
         main_layout = QVBoxLayout(self)
@@ -109,15 +83,20 @@ class RegionEntry(QWidget):
         label = QLabel(f"{region_id}: ({x}, {y}, {w}, {h})")
         top_layout.addWidget(label, 1)
 
+        # Add Flash Button
+        flash_btn = StyledButton("Flash", max_width=60)  # Standard blue button
+        # Connect to the new on_flash callback, passing the region_id (name)
+        flash_btn.clicked.connect(lambda: self.on_flash(self.region_id))
+        top_layout.addWidget(flash_btn)
+
+
         # Edit button
-        edit_btn = QPushButton("Edit")
-        edit_btn.setMaximumWidth(60)
+        edit_btn = StyledButton("Edit", max_width=60)  # Standard action with max_width
         edit_btn.clicked.connect(lambda: self.on_edit(self.region_id, self.region))
         top_layout.addWidget(edit_btn)
 
         # Delete button
-        delete_btn = QPushButton("Delete")
-        delete_btn.setMaximumWidth(60)
+        delete_btn = DangerButton("Delete", max_width=60)  # Danger button for deletion
         delete_btn.clicked.connect(lambda: self.on_delete(self.region_id))
         top_layout.addWidget(delete_btn)
 
@@ -499,6 +478,7 @@ class TradingMonitorTestApp(QMainWindow):
         self.platform_selection_service = self.container.resolve(IPlatformSelectionService)
         self.region_service = self.container.resolve(IRegionService)
         self.ocr_analysis_service = self.container.resolve(IOcrAnalysisService)
+        self.flash_service = self.container.resolve(IFlashService)
 
     def _setup_ui(self):
         """Set up the user interface."""
@@ -528,13 +508,19 @@ class TradingMonitorTestApp(QMainWindow):
         self._create_profile_tab()
 
         # Log area
-        log_group = QGroupBox("Log")
+        log_group = GroupHeader("Log")
         log_layout = QVBoxLayout(log_group)
-
         self.log_display = LogDisplay()
         log_layout.addWidget(self.log_display)
 
         main_layout.addWidget(log_group)
+        # --- START: Connect signals for summary updates AFTER widgets are created ---
+        if hasattr(self, 'monitor_region_combo'):
+            self.monitor_region_combo.currentTextChanged.connect(self._update_summary_display)
+        if hasattr(self, 'threshold_spin'):
+            self.threshold_spin.valueChanged.connect(self._update_summary_display)
+        if hasattr(self, 'duration_spin'):
+            self.duration_spin.valueChanged.connect(self._update_summary_display)
 
     def _create_region_tab(self):
         """Create the region selection tab."""
@@ -545,7 +531,7 @@ class TradingMonitorTestApp(QMainWindow):
         top_layout = QHBoxLayout()
 
         # Platform detection button
-        detect_btn = QPushButton("Detect Platform")
+        detect_btn = StyledButton("Detect Platform")
         detect_btn.clicked.connect(self._on_detect_platform)
         top_layout.addWidget(detect_btn)
 
@@ -568,7 +554,7 @@ class TradingMonitorTestApp(QMainWindow):
         m_layout.addWidget(self.monitoring_list)
 
         m_btn_layout = QHBoxLayout()
-        add_monitoring_btn = QPushButton("Add Region")
+        add_monitoring_btn = StyledButton("Add Region")
         add_monitoring_btn.clicked.connect(lambda: self._on_add_region("monitor"))
         m_btn_layout.addWidget(add_monitoring_btn)
 
@@ -587,7 +573,7 @@ class TradingMonitorTestApp(QMainWindow):
         self.flatten_list = QListWidget()
         f_layout.addWidget(self.flatten_list)
 
-        add_flatten_btn = QPushButton("Add Region")
+        add_flatten_btn = StyledButton("Add Region")
         add_flatten_btn.clicked.connect(lambda: self._on_add_region("flatten"))
         f_layout.addWidget(add_flatten_btn)
 
@@ -617,11 +603,11 @@ class TradingMonitorTestApp(QMainWindow):
         self.ct_path_input.setPlaceholderText("Select Cold Turkey Blocker path...")
         path_layout.addWidget(self.ct_path_input, 1)
 
-        browse_btn = QPushButton("Browse...")
+        browse_btn = SecondaryButton("Browse...")  # Secondary action for browsing
         browse_btn.clicked.connect(self._on_browse_ct_path)
         path_layout.addWidget(browse_btn)
 
-        save_path_btn = QPushButton("Save Path")
+        save_path_btn = ActionButton("Save Path")  # Action button for saving
         save_path_btn.clicked.connect(self._on_save_ct_path)
         path_layout.addWidget(save_path_btn)
 
@@ -637,7 +623,7 @@ class TradingMonitorTestApp(QMainWindow):
         block_layout.addRow("Block Name:", self.block_name_input)
 
         # Verify button
-        verify_btn = QPushButton("Verify Block Configuration")
+        verify_btn = WarningButton("Verify Block Configuration")  # Warning for verification action
         verify_btn.clicked.connect(self._on_verify_block)
         block_layout.addRow("", verify_btn)
 
@@ -653,11 +639,11 @@ class TradingMonitorTestApp(QMainWindow):
         # Refresh and clear buttons
         v_btn_layout = QHBoxLayout()
 
-        refresh_btn = QPushButton("Refresh List")
+        refresh_btn = StyledButton("Refresh List")  # Standard action
         refresh_btn.clicked.connect(self._refresh_verified_blocks)
         v_btn_layout.addWidget(refresh_btn)
 
-        clear_btn = QPushButton("Clear All")
+        clear_btn = DangerButton("Clear All")  # Danger button for destructive action
         clear_btn.clicked.connect(self._on_clear_verified_blocks)
         v_btn_layout.addWidget(clear_btn)
 
@@ -678,14 +664,14 @@ class TradingMonitorTestApp(QMainWindow):
         settings_layout = QFormLayout(settings_group)
 
         self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(-10000, 0)
+        self.threshold_spin.setRange(-100000, 0) # Increased range maybe
         self.threshold_spin.setValue(-100)
         self.threshold_spin.setPrefix("$ ")
         self.threshold_spin.setDecimals(2)
         settings_layout.addRow("Stop Loss Threshold:", self.threshold_spin)
 
         self.duration_spin = QSpinBox()
-        self.duration_spin.setRange(1, 720)
+        self.duration_spin.setRange(1, 1440)  # Allow up to 24 hours
         self.duration_spin.setValue(15)
         self.duration_spin.setSuffix(" minutes")
         settings_layout.addRow("Lockout Duration:", self.duration_spin)
@@ -703,18 +689,18 @@ class TradingMonitorTestApp(QMainWindow):
         monitor_layout.addWidget(self.monitor_region_combo)
 
         # Start monitoring button
-        self.start_monitor_btn = QPushButton("Start Monitoring")
+        self.start_monitor_btn = ActionButton("Start Monitoring")  # Action button for primary function
         self.start_monitor_btn.clicked.connect(self._on_start_monitoring)
         monitor_layout.addWidget(self.start_monitor_btn)
 
         # Stop monitoring button
-        self.stop_monitor_btn = QPushButton("Stop Monitoring")
+        self.stop_monitor_btn = SecondaryButton("Stop Monitoring")
         self.stop_monitor_btn.clicked.connect(self._on_stop_monitoring)
         self.stop_monitor_btn.setEnabled(False)
         monitor_layout.addWidget(self.stop_monitor_btn)
 
         # Manually trigger lockout
-        self.trigger_lockout_btn = QPushButton("Manually Trigger Lockout")
+        self.trigger_lockout_btn = WarningButton("Manually Trigger Lockout")
         self.trigger_lockout_btn.clicked.connect(self._on_trigger_lockout)
         monitor_layout.addWidget(self.trigger_lockout_btn)
 
@@ -791,10 +777,9 @@ class TradingMonitorTestApp(QMainWindow):
         input_layout.addWidget(self.expected_value_input)
 
         # Calibrate button
-        self.calibrate_btn = QPushButton("Calibrate OCR")  # Updated button text
+        self.calibrate_btn = WarningButton("Calibrate OCR")  # Warning for calibration process
         self.calibrate_btn.clicked.connect(self._start_calibration)
-        self.calibrate_btn.setStyleSheet("background-color: #3a7ca5; color: white; padding: 5px;")  # Added padding
-        self.calibrate_btn.setEnabled(False)  # Initially disabled until region selected
+        self.calibrate_btn.setEnabled(False)
         input_layout.addWidget(self.calibrate_btn)
 
         value_layout.addLayout(input_layout)
@@ -892,16 +877,13 @@ class TradingMonitorTestApp(QMainWindow):
 
         # 5. Buttons for saving/resetting
         button_layout = QHBoxLayout()
-        self.save_profile_button = QPushButton("Save Calibrated Profile")  # More specific text
+        self.save_profile_button = ActionButton("Save Calibrated Profile")  # Action for saving
         self.save_profile_button.clicked.connect(self._save_calibrated_profile)
-        self.save_profile_button.setEnabled(False)  # Disable until calibration succeeds
-        self.save_profile_button.setStyleSheet("background-color: #5cb85c; color: white; padding: 5px;")  # Green color
+        self.save_profile_button.setEnabled(False)
         button_layout.addWidget(self.save_profile_button)
 
-        self.reset_profile_button = QPushButton("Reset Profile to Default")
+        self.reset_profile_button = WarningButton("Reset Profile to Default")  # Warning for reset action
         self.reset_profile_button.clicked.connect(self._reset_platform_profile)
-        self.reset_profile_button.setStyleSheet(
-            "background-color: #f0ad4e; color: white; padding: 5px;")  # Orange color
         button_layout.addWidget(self.reset_profile_button)
 
         layout.addLayout(button_layout)
@@ -960,12 +942,16 @@ class TradingMonitorTestApp(QMainWindow):
             self._refresh_verified_blocks()
 
             # Load platform-specific regions
-            self._load_regions_for_platform()  # USING THE NEW METHOD
+            self._load_regions_for_platform()
+
+            # Update summary display AFTER all relevant widgets are loaded/updated ---
+            self._update_summary_display()
 
             self.log_message("Settings loaded successfully", "INFO")
         except Exception as e:
             self.log_message(f"Error loading settings: {str(e)}", "ERROR")
             self.logger.error(f"Error loading settings: {e}", exc_info=True)
+            self._update_summary_display() # Show default/N/A values
 
     def _load_platform_profile(self, platform=None):
         """Load and display profile for the selected platform."""
@@ -1120,7 +1106,12 @@ class TradingMonitorTestApp(QMainWindow):
 
         # Load profile for new platform
         self._load_platform_profile(platform)
-        self.calibration_status.setText("Select a region and enter the value you see")
+
+        # Update summary display after platform change
+        self._update_summary_display()
+
+        if hasattr(self, 'calibration_status'):
+            self.calibration_status.setText("Select a region and enter the value you see")
 
         self.log_message(f"Selected platform: {platform}", "INFO")
 
@@ -1266,9 +1257,12 @@ class TradingMonitorTestApp(QMainWindow):
 
         item = QListWidgetItem()
         widget = RegionEntry(
-            name, region,
+            region_id=name,
+            region=region,
             on_edit=lambda id, r: self._on_edit_region(id, r, region_type),
-            on_delete=lambda id: self._on_delete_region(id, region_type)
+            on_delete=lambda id: self._on_delete_region(id, region_type),
+            # Add the on_flash callback, passing name and type to the handler
+            on_flash=lambda id: self._on_flash_region(id, region_type)
         )
         item.setSizeHint(widget.sizeHint())
         list_widget.addItem(item)
@@ -1458,7 +1452,7 @@ class TradingMonitorTestApp(QMainWindow):
         # Refresh UI components that depend on region data
         self._refresh_ui_after_region_change()
 
-        # PASTE THIS ENTIRE METHOD INTO test_lockout.py, replacing the existing _on_edit_region
+        # PASTE THIS ENTIRE METHOD INTO monitorPal_test.py, replacing the existing _on_edit_region
 
     def _on_edit_region(self, region_id_to_edit, current_coords, region_type):
         """Edit an existing region."""
@@ -1617,6 +1611,28 @@ class TradingMonitorTestApp(QMainWindow):
 
         # Refresh all UI components that depend on region data
         self._refresh_ui_after_region_change()
+
+    def _on_flash_region(self, region_name: str, region_type: str):
+        """Handles the request to flash a specific region."""
+        current_platform = self.platform_selection_service.get_current_platform()
+        if not current_platform:
+            self.log_message("Cannot flash region: No platform selected.", "ERROR")
+            QMessageBox.warning(self, "Platform Needed", "No platform selected.")
+            return
+
+        self.log_message(f"Flashing '{region_name}' ({region_type}) for {current_platform}...", "INFO")
+
+        # Call the flash service
+        result = self.flash_service.flash_region(current_platform, region_type, region_name)
+
+        # Log the outcome (flash_service logs details internally)
+        if result.is_failure:
+            self.log_message(f"Failed to initiate flash for '{region_name}': {result.error}", "ERROR")
+            # Optionally show a QMessageBox error here too
+            # QMessageBox.critical(self, "Flash Error", f"Could not flash region '{region_name}':\n{result.error}")
+        else:
+            # Success means the *task started*, not necessarily finished flashing
+            self.log_message(f"Flash sequence initiated for '{region_name}'.", "SUCCESS")
 
     def _capture_region(self, region):
         """Capture a region screenshot without OCR processing."""
@@ -1932,20 +1948,30 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _update_monitoring_dropdown(self):
         """Update the monitoring region dropdown with current regions."""
-        self.monitor_region_combo.clear()
+        # --- START: Block signals during update ---
+        if hasattr(self, 'monitor_region_combo'):
+            self.monitor_region_combo.blockSignals(True)
+            try:
+                current_text = self.monitor_region_combo.currentText()  # Store selection
+                self.monitor_region_combo.clear()
+                current_platform = self.platform_selection_service.get_current_platform()
+                result = self.region_service.get_regions_by_platform(current_platform, "monitor")
 
-        current_platform = self.platform_selection_service.get_current_platform()
-
-        # Get monitoring regions
-        result = self.region_service.get_regions_by_platform(current_platform, "monitor")
-        if result.is_success:
-            regions = result.value
-            region_names = [region.name for region in regions]
-            if region_names:
-                self.monitor_region_combo.addItems(region_names)
-                self.monitor_region_combo.setCurrentIndex(0)
-        else:
-            self.log_message(f"Failed to get monitoring regions: {result.error}", "WARNING")
+                if result.is_success:
+                    regions = result.value
+                    region_names = [region.name for region in regions]
+                    if region_names:
+                        self.monitor_region_combo.addItems(region_names)
+                        # Try to restore previous selection if it still exists
+                        if current_text in region_names:
+                            self.monitor_region_combo.setCurrentText(current_text)
+                        else:
+                            self.monitor_region_combo.setCurrentIndex(0)  # Default to first
+                else:
+                    self.log_message(f"Failed to get monitoring regions: {result.error}", "WARNING")
+                    self.monitor_region_combo.addItem("N/A")  # Add placeholder if load failed
+            finally:
+                self.monitor_region_combo.blockSignals(False)
 
     def _toggle_advanced_settings(self, checked):
         """Toggle visibility of advanced settings."""
@@ -2298,19 +2324,41 @@ class TradingMonitorTestApp(QMainWindow):
             return True  # Indicate event was handled
         return super().event(event)
 
-# At the top of the main section
+
+    def _update_summary_display(self):
+        """Fetches current settings and updates the summary labels in the toolbar."""
+        # Check if toolbar exists to prevent errors during early initialization
+        if not hasattr(self, 'platform_toolbar'):
+             return
+
+        region_name = None
+        threshold = None
+        duration = None
+
+        # Safely get values from widgets if they exist
+        if hasattr(self, 'monitor_region_combo'):
+            region_name = self.monitor_region_combo.currentText()
+            # Handle placeholder case
+            if region_name == "N/A" or not region_name: region_name = None
+
+        if hasattr(self, 'threshold_spin'):
+            threshold = self.threshold_spin.value()
+
+        if hasattr(self, 'duration_spin'):
+            duration = self.duration_spin.value()
+
+        # Update the toolbar's summary display
+        self.platform_toolbar.update_summary(region_name, threshold, duration)
+    # --- END: Add Summary Update Method ---
+
+# ... Main execution block remains the same ...
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-
-    # Don't call initialize_app() again if it's already been called
     from src.application.app import get_container
-
     if get_container() is None:
         from src.application.app import initialize_app
-
         initialize_app()
-
     window = TradingMonitorTestApp()
     window.show()
     sys.exit(app.exec())
