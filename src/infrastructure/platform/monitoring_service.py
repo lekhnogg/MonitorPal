@@ -19,6 +19,7 @@ from src.domain.services.i_background_task_service import IBackgroundTaskService
 from src.domain.services.i_platform_detection_service import IPlatformDetectionService
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_config_repository_service import IConfigRepository
+from src.domain.services.i_region_service import IRegionService
 from src.domain.models.monitoring_result import MonitoringResult
 from src.domain.common.result import Result
 from src.domain.common.errors import ValidationError, ConfigurationError, ResourceError, PlatformError
@@ -318,7 +319,8 @@ class MonitoringService(IMonitoringService):
                  config_repository: IConfigRepository,
                  path_service: IPathService,
                  logger: ILoggerService,
-                 profile_service: IProfileService):
+                 profile_service: IProfileService,
+                 region_service: IRegionService):
         """Initialize the monitoring service."""
         self.screenshot_service = screenshot_service
         self.ocr_service = ocr_service
@@ -328,22 +330,19 @@ class MonitoringService(IMonitoringService):
         self.path_service = path_service  # Store path_service
         self.logger = logger
         self.profile_service = profile_service
+        self.region_service = region_service
 
         # Internal state
         self.monitoring_active = False
         self.monitoring_task_id = "platform_monitoring"
-
         self.monitoring_results = []
         self.latest_result = None
         self.platform = None
-        self.region = None
         self.threshold = None
         self.on_threshold_exceeded_callback = None
 
     def start_monitoring(self,
                          platform: str,
-                         region: Tuple[int, int, int, int],
-                         region_name: str,
                          threshold: float,
                          interval_seconds: float = 5.0,
                          on_status_update: Optional[Callable[[str, str], None]] = None,
@@ -352,51 +351,50 @@ class MonitoringService(IMonitoringService):
         """Start monitoring the specified region for P&L values."""
         # Don't start if already monitoring
         if self.monitoring_active:
-            error = ValidationError(
-                message="Monitoring already active - stop first",
-                details={"current_platform": self.platform}
-            )
+            error = ValidationError(message="Monitoring already active", details={"current_platform": self.platform})
             return Result.fail(error)
 
         try:
-            self.logger.info(f"Starting monitoring for {platform}, region '{region_name}'")
+            self.logger.info(f"Attempting to start monitoring for {platform}")
 
             # Validate inputs
-            if not platform:
-                error = ValidationError(
-                    message="Platform name cannot be empty",
-                    details={"platform": platform}
-                )
-                return Result.fail(error)
+            if not platform: return Result.fail(ValidationError("Platform name cannot be empty"))
+            if threshold > 0: threshold = -threshold  # Ensure negative
 
-            if not region or len(region) != 4:
-                error = ValidationError(
-                    message="Invalid region format",
-                    details={"region": region}
-                )
-                return Result.fail(error)
+            # --- START: Fetch the monitor region ---
+            region_result = self.region_service.get_monitor_region(platform)
+            if region_result.is_failure:
+                self.logger.error(f"Failed to get monitor region for {platform}: {region_result.error}")
+                return Result.fail(region_result.error)  # Propagate error
 
-            if threshold > 0:
-                # Ensure threshold is negative (we're looking for losses)
-                threshold = -threshold
+            monitor_region = region_result.value  # Region object or None
+            if monitor_region is None:
+                msg = f"P&L Monitoring region is not defined for platform '{platform}'."
+                self.logger.error(msg)
+                return Result.fail(ConfigurationError(msg))
+            # --- END: Fetch the monitor region ---
 
-            # Store monitoring parameters
+            # Extract details needed for the worker
+            coordinates = monitor_region.coordinates
+            region_name = monitor_region.name  # Should be 'monitor' or standard name
+
+            self.logger.info(f"Starting monitoring for {platform}, region '{region_name}' at {coordinates}")
+
+            # Store key parameters (platform, threshold, callback)
             self.platform = platform
-            self.region = region
+            # No need to store self.region anymore if worker gets coords directly
             self.threshold = threshold
             self.on_threshold_exceeded_callback = on_threshold_exceeded
 
-            # Get the correct monitoring path using PathService
+            # Get the monitoring path
             platform_monitoring_path = self.path_service.get_platform_monitoring_path(platform)
             self.logger.info(f"Monitoring screenshots will be saved in: {platform_monitoring_path}")
 
-            # PathService ensures the directory exists, so no os.makedirs needed here
-
-            # Create worker, passing the path obtained from PathService
+            # Create worker, passing fetched coordinates and name
             worker = MonitoringWorker(
                 platform=platform,
-                region=region,
-                region_name=region_name,
+                region=coordinates,  # Pass coordinates
+                region_name=region_name,  # Pass fetched name
                 threshold=threshold,
                 interval_seconds=interval_seconds,
                 screenshot_service=self.screenshot_service,
@@ -404,32 +402,25 @@ class MonitoringService(IMonitoringService):
                 platform_detection_service=self.platform_detection_service,
                 logger=self.logger,
                 profile_service=self.profile_service,
-                save_directory=platform_monitoring_path,  # Pass the correct path
+                save_directory=platform_monitoring_path,
                 on_check_complete=self._on_check_complete,
                 on_status_update=on_status_update,
                 on_error=on_error
             )
 
-
             # Execute in background thread
             result = self.thread_service.execute_task(self.monitoring_task_id, worker)
-
             if result.is_failure:
-                self.logger.error(f"Failed to start monitoring: {result.error}")
+                self.logger.error(f"Failed to start monitoring task: {result.error}")
                 return result
 
-            # Mark as active
             self.monitoring_active = True
-
             return Result.ok(True)
 
         except Exception as e:
-            error = ConfigurationError(
-                message=f"Error starting monitoring: {e}",
-                details={"platform": platform, "region": region, "threshold": threshold},
-                inner_error=e
-            )
-            self.logger.error(str(error))
+            error = ConfigurationError(message=f"Error starting monitoring: {e}",
+                                       details={"platform": platform, "threshold": threshold}, inner_error=e)
+            self.logger.error(str(error), exc_info=True)
             return Result.fail(error)
 
     def stop_monitoring(self) -> Result[bool]:

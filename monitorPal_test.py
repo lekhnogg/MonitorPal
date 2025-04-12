@@ -17,13 +17,16 @@ import dataclasses
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
     QTextEdit, QMessageBox, QTabWidget, QLineEdit, QGroupBox, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QProgressBar
+    QListWidget, QListWidgetItem, QSplitter, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QProgressBar,
+    QInputDialog
 )
 from PySide6.QtGui import QPixmap, QTextCursor
 from PySide6.QtCore import Qt, QEvent
 
 from src.domain.common.result import Result
 from src.domain.common.errors import DomainError, ErrorCategory, ErrorSeverity
+from src.domain.models.monitoring_result import MonitoringResult
+from src.domain.models.region_model import Region
 from src.domain.services.i_flash_service import IFlashService
 
 # Add the project root to the Python path so we can import modules
@@ -51,11 +54,6 @@ from src.presentation.components.ui_components import LogDisplay, StyledButton, 
 from src.presentation.components.platform_selector_toolbar import PlatformSelectorToolbar
 
 from src.domain.models.platform_profile import PlatformProfile, OcrProfile
-
-
-
-
-SCREENSHOTS_DIR = os.path.join(os.getcwd(), "region_screenshots")
 
 
 class RegionEntry(QWidget):
@@ -111,46 +109,6 @@ class RegionEntry(QWidget):
         self.screenshot_label.setMaximumHeight(120)
 
         main_layout.addWidget(self.screenshot_label)
-
-class RegionComboBox(QComboBox):
-    """Custom combo box that displays region information."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.regions = []
-        self.setMinimumWidth(250)
-
-    def add_region(self, region, screenshot=None):
-        """Add a region with optional screenshot."""
-        self.regions.append({
-            "region": region,
-            "screenshot": screenshot
-        })
-
-        # Add to combo box
-        x, y, w, h = region.coordinates
-        self.addItem(f"{region.name}: ({x}, {y}, {w}, {h})")
-
-    def get_selected_region(self):
-        """Get the currently selected region object."""
-        idx = self.currentIndex()
-        if idx >= 0 and idx < len(self.regions):
-            return self.regions[idx]["region"]
-        return None
-
-    def get_selected_screenshot_path(self):
-        """Get the screenshot path for the selected region."""
-        region = self.get_selected_region()
-        if region:
-            return region.screenshot_path
-        return None
-
-    def get_selected_screenshot(self):
-        """Get the screenshot for the selected region."""
-        idx = self.currentIndex()
-        if idx >= 0 and idx < len(self.regions):
-            return self.regions[idx]["screenshot"]
-        return None
 
 
 # ANALYSIS: UI-related code - this handles thread-safe UI updates.
@@ -442,10 +400,6 @@ class TradingMonitorTestApp(QMainWindow):
 
         # Initialize data
         self.is_monitoring = False
-        self.current_image_path = None
-        self.ocr_profile = None
-        self.extracted_text = ""
-        self.retry_count = 0
 
         # Populate platform list
         self._populate_platform_list()
@@ -455,6 +409,7 @@ class TradingMonitorTestApp(QMainWindow):
 
         # Log startup message
         self.log_message("Application initialized. Select a tab to begin testing.", "INFO")
+        self._ui_initialized = True  # Signal that UI setup is complete
 
     def _initialize_services(self):
         """Initialize all required services."""
@@ -527,66 +482,82 @@ class TradingMonitorTestApp(QMainWindow):
         region_tab = QWidget()
         layout = QVBoxLayout(region_tab)
 
-        # Top area with platform selection
+        # Top area (keep as is or modify if needed)
         top_layout = QHBoxLayout()
-
-        # Platform detection button
         detect_btn = StyledButton("Detect Platform")
         detect_btn.clicked.connect(self._on_detect_platform)
         top_layout.addWidget(detect_btn)
-
         top_layout.addStretch()
-
         layout.addLayout(top_layout)
 
-        # Split the rest of the tab between monitoring regions and flatten regions
+        # Split the rest of the tab
         splitter = QSplitter(Qt.Horizontal)
 
-        # Monitoring regions
-        monitoring_widget = QWidget()
-        monitoring_layout = QVBoxLayout(monitoring_widget)
-        monitoring_layout.setContentsMargins(0, 0, 0, 0)
+        # --- START: Monitor Region Display Area ---
+        monitor_widget = QWidget() # Renamed for clarity
+        monitor_layout = QVBoxLayout(monitor_widget)
+        # monitor_layout.setContentsMargins(0,0,0,0) # Keep if desired
 
-        monitoring_group = QGroupBox("P&L Monitoring Regions")
-        m_layout = QVBoxLayout(monitoring_group)
+        monitor_group = QGroupBox("P&L Monitoring Region") # Updated title
+        m_layout = QVBoxLayout(monitor_group)
 
-        self.monitoring_list = QListWidget()
-        m_layout.addWidget(self.monitoring_list)
+        # Labels to display info (replace the QListWidget)
+        self.monitor_status_label = QLabel("Status: Not Defined")
+        self.monitor_status_label.setStyleSheet("font-style: italic; color: grey;")
+        m_layout.addWidget(self.monitor_status_label)
 
+        self.monitor_coords_label = QLabel("Coordinates: N/A")
+        m_layout.addWidget(self.monitor_coords_label)
+
+        self.monitor_preview_label = QLabel("No Preview")
+        self.monitor_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.monitor_preview_label.setStyleSheet("border: 1px solid #ddd; background-color: #f0f0f0;")
+        self.monitor_preview_label.setMinimumSize(150, 80) # Give it some size
+        self.monitor_preview_label.setMaximumHeight(120)
+        m_layout.addWidget(self.monitor_preview_label)
+
+        # Buttons Layout
         m_btn_layout = QHBoxLayout()
-        add_monitoring_btn = StyledButton("Add Region")
-        add_monitoring_btn.clicked.connect(lambda: self._on_add_region("monitor"))
-        m_btn_layout.addWidget(add_monitoring_btn)
+        self.define_monitor_btn = StyledButton("Define / Edit Region") # Changed text & name
+        self.define_monitor_btn.clicked.connect(self._on_define_edit_monitor_region) # New handler
+        m_btn_layout.addWidget(self.define_monitor_btn)
+
+        self.delete_monitor_btn = DangerButton("Delete Region") # Changed text & name
+        self.delete_monitor_btn.clicked.connect(self._on_delete_monitor_region) # New handler
+        self.delete_monitor_btn.setEnabled(False) # Initially disabled
+        m_btn_layout.addWidget(self.delete_monitor_btn)
 
         m_layout.addLayout(m_btn_layout)
+        m_layout.addStretch() # Push content up
 
-        monitoring_layout.addWidget(monitoring_group)
+        monitor_layout.addWidget(monitor_group)
+        # --- END: Monitor Region Display Area ---
 
-        # Flatten regions
+
+        # Flatten regions (This part remains the same as before)
         flatten_widget = QWidget()
         flatten_layout = QVBoxLayout(flatten_widget)
-        flatten_layout.setContentsMargins(0, 0, 0, 0)
+        # flatten_layout.setContentsMargins(0,0,0,0) # Keep if desired
 
         flatten_group = QGroupBox("Flatten Position Regions")
         f_layout = QVBoxLayout(flatten_group)
 
-        self.flatten_list = QListWidget()
+        self.flatten_list = QListWidget() # Flatten list stays
         f_layout.addWidget(self.flatten_list)
 
-        add_flatten_btn = StyledButton("Add Region")
-        add_flatten_btn.clicked.connect(lambda: self._on_add_region("flatten"))
+        add_flatten_btn = StyledButton("Add Region") # Flatten button stays
+        # Ensure this lambda uses 'flatten' explicitly
+        add_flatten_btn.clicked.connect(lambda: self._on_add_flatten_region()) # Changed handler name for clarity
         f_layout.addWidget(add_flatten_btn)
 
         flatten_layout.addWidget(flatten_group)
 
-        # Add both to splitter
-        splitter.addWidget(monitoring_widget)
+        # Add both widgets to splitter
+        splitter.addWidget(monitor_widget) # Use new widget name
         splitter.addWidget(flatten_widget)
-        splitter.setSizes([500, 500])  # Equal split
+        splitter.setSizes([500, 500]) # Adjust initial sizes if needed
 
         layout.addWidget(splitter, 1)
-
-        # Add to tabs
         self.tab_widget.addTab(region_tab, "Region Selection")
 
     def _create_verification_tab(self):
@@ -682,12 +653,6 @@ class TradingMonitorTestApp(QMainWindow):
         monitor_group = QGroupBox("Monitoring")
         monitor_layout = QVBoxLayout(monitor_group)
 
-        # Add region selection dropdown
-        self.monitor_region_combo = QComboBox()
-        self.monitor_region_combo.setPlaceholderText("Select monitoring region...")
-        monitor_layout.addWidget(QLabel("Monitoring Region:"))
-        monitor_layout.addWidget(self.monitor_region_combo)
-
         # Start monitoring button
         self.start_monitor_btn = ActionButton("Start Monitoring")  # Action button for primary function
         self.start_monitor_btn.clicked.connect(self._on_start_monitoring)
@@ -725,37 +690,29 @@ class TradingMonitorTestApp(QMainWindow):
         profile_tab = QWidget()
         layout = QVBoxLayout(profile_tab)
 
-        # 1. Region Selection Section
-        region_group = QGroupBox("Region Selection for Calibration")  # Slightly clearer title
-        region_layout = QVBoxLayout(region_group)
+        # 1. Calibration Source Section (Renamed & Added Preview Label)
+        # --- RENAME GROUP & ADD PREVIEW ---
+        source_group = QGroupBox("Calibration Preview (Monitor Region Screenshot)")  # Renamed Group
+        source_layout = QVBoxLayout(source_group)
 
-        region_help = QLabel(
-            "Select a region screenshot containing a P&L value to analyze and automatically detect optimal OCR settings."
+        # --- ADD THIS LABEL (Make sure this part is present) ---
+        self.profile_preview_label = QLabel("Define Monitor Region with screenshot first.")
+        self.profile_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.profile_preview_label.setStyleSheet("border: 1px solid #ccc; background-color: #f0f0f0; color: #555;")
+        self.profile_preview_label.setMinimumSize(200, 100)  # Give it some initial size
+        self.profile_preview_label.setMaximumHeight(150)  # Limit height
+        source_layout.addWidget(self.profile_preview_label, alignment=Qt.AlignmentFlag.AlignCenter)  # Add the label
+
+        # Info text below preview
+        source_info_label = QLabel(
+            "Calibration uses the screenshot saved for the defined "
+            "'P&L Monitoring Region' (on the Region Selection tab)."
         )
-        region_help.setWordWrap(True)
-        region_layout.addWidget(region_help)
+        source_info_label.setWordWrap(True)
+        source_layout.addWidget(source_info_label)
 
-        # Region dropdown row
-        region_row = QHBoxLayout()
-        region_row.addWidget(QLabel("Select region screenshot:"))  # Updated label
+        layout.addWidget(source_group)
 
-        # Create the custom region combo box
-        self.profile_region_combo = RegionComboBox()
-        self.profile_region_combo.currentIndexChanged.connect(self._on_profile_region_selected)
-        region_row.addWidget(self.profile_region_combo)
-
-        region_layout.addLayout(region_row)
-
-        # Screenshot preview
-        self.profile_preview_label = QLabel("No preview available")
-        self.profile_preview_label.setAlignment(Qt.AlignCenter)
-        self.profile_preview_label.setStyleSheet(
-            "border: 1px solid #ddd; background-color: #f0f0f0;")  # Added background
-        self.profile_preview_label.setMinimumHeight(100)
-        self.profile_preview_label.setMaximumHeight(150)
-        region_layout.addWidget(self.profile_preview_label)
-
-        layout.addWidget(region_group)
 
         # 2. Value Calibration Section
         value_group = QGroupBox("Value Calibration Input")  # Clearer title
@@ -896,19 +853,23 @@ class TradingMonitorTestApp(QMainWindow):
         current_platform = self.platform_selection_service.get_current_platform()
         try:
             # Get supported platforms from platform detection service
-            result = self.platform_detection.get_supported_platforms()
+            result = self.platform_detection.get_supported_platforms() # result is a Result[Dict[str, Any]]
 
-            platforms = self._handle_result(
-                result,
-                error_message="Failed to get platform list"
+            platforms = Result.handle_ui_result(
+                result=result,                     # The Result object itself
+                logger=self.logger,                # The logger instance
+                ui_feedback_func=self.log_message, # The UI logging function
+                success_message=None,              # No message needed on success here
+                error_message="Failed to get platform list", # Custom error message
+                context="Platform Populate",       # Optional context for logs
             )
-
             if platforms:
-                # We only need to update the global platform toolbar
                 self.platform_toolbar.update_platforms(list(platforms.keys()), current_platform)
+
         except Exception as e:
-            self.log_message(f"Error populating platform list: {str(e)}", "ERROR")
-            self.logger.error(f"Error populating platform list: {e}", exc_info=True)
+            # Catch any unexpected exceptions during the process
+            self.log_message(f"Unexpected error populating platform list: {str(e)}", "ERROR")
+            self.logger.error(f"Unexpected error populating platform list: {e}", exc_info=True)
 
     def _load_settings(self):
         """Load settings from config repository."""
@@ -941,17 +902,22 @@ class TradingMonitorTestApp(QMainWindow):
             # Refresh verified blocks
             self._refresh_verified_blocks()
 
+            # --- START: Update region loading ---
             # Load platform-specific regions
-            self._load_regions_for_platform()
+            self._update_monitor_region_display()  # Update monitor display
+            self._load_flatten_region_list()  # Load flatten list
+            # --- END: Update region loading ---
 
-            # Update summary display AFTER all relevant widgets are loaded/updated ---
+            # Update summary display AFTER loading all settings and regions
             self._update_summary_display()
 
             self.log_message("Settings loaded successfully", "INFO")
         except Exception as e:
             self.log_message(f"Error loading settings: {str(e)}", "ERROR")
             self.logger.error(f"Error loading settings: {e}", exc_info=True)
-            self._update_summary_display() # Show default/N/A values
+            self._update_monitor_region_display()
+            self._load_flatten_region_list()
+            self._update_summary_display()
 
     def _load_platform_profile(self, platform=None):
         """Load and display profile for the selected platform."""
@@ -989,8 +955,8 @@ class TradingMonitorTestApp(QMainWindow):
         self.config_text.setText(ocr.tesseract_config)
         self.invert_colors_check.setChecked(ocr.invert_colors)
 
-        # Also load regions for the profile tab
-        self._load_profile_regions()
+        # enable/disable state of the 'Load Screenshot' button.
+        self._update_profile_tab_calibration_source()
 
     def _save_platform_profile(self):
         """Save the current profile settings."""
@@ -1102,7 +1068,8 @@ class TradingMonitorTestApp(QMainWindow):
     def _on_global_platform_changed(self, platform: str) -> None:
         """Handle global platform change."""
         # Load regions for this platform
-        self._load_regions_for_platform()
+        self._update_monitor_region_display()
+        self._load_flatten_region_list()
 
         # Load profile for new platform
         self._load_platform_profile(platform)
@@ -1114,40 +1081,6 @@ class TradingMonitorTestApp(QMainWindow):
             self.calibration_status.setText("Select a region and enter the value you see")
 
         self.log_message(f"Selected platform: {platform}", "INFO")
-
-    def _load_regions_for_platform(self):
-        """Load regions for the current platform."""
-        # Clear existing lists
-        self.monitoring_list.clear()
-        self.flatten_list.clear()
-
-        # Get current platform from service
-        current_platform = self.platform_selection_service.get_current_platform()
-
-        # Load monitoring regions
-        monitor_regions = self._handle_result(
-            self.region_service.get_regions_by_platform(current_platform, "monitor"),
-            error_message="Failed to load monitoring regions",
-            error_level="WARNING"
-        )
-
-        if monitor_regions:
-            for region in monitor_regions:
-                self._add_region_to_list(region.name, region.coordinates, "monitor")
-
-        # Load flatten regions
-        flatten_regions = self._handle_result(
-            self.region_service.get_regions_by_platform(current_platform, "flatten"),
-            error_message="Failed to load flatten regions",
-            error_level="WARNING"
-        )
-
-        if flatten_regions:
-            for region in flatten_regions:
-                self._add_region_to_list(region.name, region.coordinates, "flatten")
-
-        # Update monitoring dropdown
-        self._update_monitoring_dropdown()
 
     def _on_browse_ct_path(self):
         """Browse for Cold Turkey Blocker executable."""
@@ -1248,219 +1181,151 @@ class TradingMonitorTestApp(QMainWindow):
         else:
             self.log_message(f"Activation issue: {result.error}", "WARNING")
 
-    def _add_region_to_list(self, name: str, region: tuple, region_type: str):
-        """Add a region to the appropriate list widget."""
-        if region_type == "monitor":
-            list_widget = self.monitoring_list
-        else:  # flatten
-            list_widget = self.flatten_list
-
-        item = QListWidgetItem()
-        widget = RegionEntry(
-            region_id=name,
-            region=region,
-            on_edit=lambda id, r: self._on_edit_region(id, r, region_type),
-            on_delete=lambda id: self._on_delete_region(id, region_type),
-            # Add the on_flash callback, passing name and type to the handler
-            on_flash=lambda id: self._on_flash_region(id, region_type)
-        )
-        item.setSizeHint(widget.sizeHint())
-        list_widget.addItem(item)
-        list_widget.setItemWidget(item, widget)
-
-        # Immediately load and display the screenshot
-        current_platform = self.platform_selection_service.get_current_platform()
-        result = self.region_service.get_region(current_platform, region_type, name)
-        if result.is_success:
-            region_obj = result.value
-            if region_obj.screenshot_path:
-                load_result = self.region_service.load_region_screenshot(region_obj)
-                if load_result.is_success:
-                    screenshot = load_result.value
-                    pixmap_result = self.screenshot_service.to_pyside_pixmap(screenshot)
-                    if pixmap_result.is_success:
-                        widget.screenshot_label.setPixmap(pixmap_result.value)
-
-    def _on_add_region(self, region_type):
-        """Add a new region for monitoring or flatten positions."""
-        from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
-        from src.domain.models.region_model import Region  # Ensure Region model is imported
+    def _on_define_edit_monitor_region(self):
+        """Handles defining or editing the single monitor region."""
+        region_type = "monitor"
+        region_name = "monitor" # Use a fixed, standard name
 
         current_platform = self.platform_selection_service.get_current_platform()
         if not current_platform:
-            self.log_message("No platform selected. Please select a platform first.", "ERROR")
-            QMessageBox.warning(self, "Platform Needed", "No platform selected. Please select a platform first.")
+            self.log_message("No platform selected.", "ERROR")
+            QMessageBox.warning(self, "Platform Needed", "Please select a platform first.")
             return
 
-        # Determine title and default name based on region type
-        if region_type == "monitor":
-            title = "Select P&L Monitoring Region"
-            result = self.region_service.get_regions_by_platform(current_platform, "monitor")
-            count = len(result.value) if result.is_success else 0
-            default_name = f"P&L_{count + 1}"
-        else:  # flatten
-            title = "Select Position Flatten Button Region"
-            result = self.region_service.get_regions_by_platform(current_platform, "flatten")
-            count = len(result.value) if result.is_success else 0
-            default_name = f"Flatten_{count + 1}"
+        # Check if editing or defining anew
+        existing_region_result = self.region_service.get_monitor_region(current_platform)
+        is_editing = existing_region_result.is_success and existing_region_result.value is not None
 
-        # Use region selector
-        self.log_message(f"Starting region selection for {region_type}...", "INFO")
-        region_result = self.ui_service.select_screen_region(f"Please select the {region_type} region")
+        action_text = "editing" if is_editing else "defining"
+        self.log_message(f"Starting region selection for {action_text} the {region_type} region...", "INFO")
 
-        if not region_result.is_success:
+        # Use region selector UI
+        region_result = self.ui_service.select_screen_region(f"Please select the P&L Monitoring region")
+        if region_result.is_failure or region_result.value is None:
             self.log_message(f"Region selection cancelled or failed: {region_result.error}", "INFO")
             return
-
         coordinates = region_result.value
 
-        # Prompt for a name using Qt dialog
-        while True:
-            name, ok = QInputDialog.getText(
-                self,
-                f"Name this {region_type} region",
-                "Enter a descriptive name for this region:",
-                QLineEdit.Normal,
-                default_name
-            )
-
-            if not ok:
-                self.log_message(f"Region naming cancelled", "INFO")
-                return
-
-            name = name.strip()  # Trim whitespace
-            if not name:
-                QMessageBox.warning(self, "Invalid Name", "Name cannot be empty.")
-                continue
-
-            region_check = self.region_service.get_region(current_platform, region_type, name)
-            if region_check.is_success:
-                choice = QMessageBox.question(
-                    self, "Name Already Exists",
-                    f"A {region_type} region named '{name}' already exists. Replace it?",
-                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-                )
-                if choice != QMessageBox.Yes: continue  # Ask for name again
-
-                # If replacing, delete the old one first (metadata + screenshot file)
-                delete_result = self.region_service.delete_region(current_platform, region_type, name)
-                if delete_result.is_failure:
-                    self.log_message(f"Failed to delete existing region '{name}': {delete_result.error}", "ERROR")
-                    QMessageBox.critical(self, "Error",
-                                         f"Failed to delete existing region '{name}'. Cannot add new region.")
-                    return  # Stop if deletion fails
-
-                # Also remove from UI list immediately
-                list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
-                for i in range(list_widget.count()):
-                    item = list_widget.item(i)
-                    widget = list_widget.itemWidget(item)
-                    if hasattr(widget, 'region_id') and widget.region_id == name:
-                        list_widget.takeItem(i);
-                        break
-
-            # Valid name obtained, break the loop
-            break
-
-        # Create a Region object (without screenshot path initially)
-        region_id = f"{current_platform}_{region_type}_{name}"
+        # Create the Region object
+        region_id = f"{current_platform}_{region_type}_{region_name}"
         region = Region(
             id=region_id,
-            name=name,
+            name=region_name,
             coordinates=coordinates,
             type=region_type,
-            platform=current_platform
-            # No screenshot_path is set here yet
+            platform=current_platform,
+            # Screenshot path will be handled by capture/save logic
         )
 
-        # Capture screenshot data and get intended path using RegionService
+        # --- Capture Screenshot Data ---
         # This returns Result[Tuple[ImageData, IntendedPath]]
         capture_result = self.region_service.capture_region_screenshot(
-            coordinates, region_id, current_platform, region_type
+            coordinates, region.id, region.platform, region.type
         )
 
-        # Initialize image_data to None
-        image_data_to_save = None
-
         if capture_result.is_success:
-            # =================== THIS IS THE CRITICAL FIX ===================
-            # Unpack the tuple returned by capture_region_screenshot
-            image_data, intended_path = capture_result.value
-
-            # Store the image data in a temporary attribute for save_region to use
-            # DO NOT assign the path or tuple to region.screenshot_path here
-            region._temp_screenshot_data = image_data
-            image_data_to_save = image_data  # Keep track if we have data
-
-            self.log_message(f"Captured screenshot data for region '{name}'. Intended path: {intended_path}",
-                             "INFO")
-            # ===============================================================
+            image_data, _ = capture_result.value # Don't need intended path here
+            # Attach image data to temporary attribute for save_region
+            setattr(region, '_temp_screenshot_data', image_data)
+            self.log_message(f"Captured screenshot data for region '{region.name}'.", "INFO")
         elif capture_result.is_failure:
-            # Log failure but potentially proceed without a screenshot
-            self.log_message(f"Failed to capture screenshot for region '{name}': {capture_result.error}", "WARNING")
-            QMessageBox.warning(self, "Screenshot Failed",
-                                f"Could not capture screenshot for region '{name}'.\nRegion will be saved without an image preview.")
-            # region._temp_screenshot_data will not be set
-            # region.screenshot_path will remain None
+            self.log_message(f"Failed to capture screenshot for region '{region.name}': {capture_result.error}", "WARNING")
+            QMessageBox.warning(self, "Screenshot Failed", "Could not capture screenshot. Region will be saved without an image preview.")
+            # Keep existing path if editing and capture fails? Or clear it? Let's clear it for simplicity.
+            if hasattr(region, '_temp_screenshot_data'): delattr(region, '_temp_screenshot_data')
 
-        # Now, call save_region.
-        # If capture succeeded, it will find region._temp_screenshot_data, save the image file,
-        # determine the path, set region.screenshot_path correctly, and save metadata.
-        # If capture failed, it will save metadata with region.screenshot_path set to None.
+
+        # --- Save the Region (Repository handles overwriting monitor region) ---
         save_result = self.region_service.save_region(region)
 
         if save_result.is_failure:
-            self.log_message(f"Failed to save region '{name}': {save_result.error}", "ERROR")
-            QMessageBox.critical(self, "Error Saving Region",
-                                 f"Failed to save region '{name}'.\nError: {save_result.error}")
-            return  # Stop processing if save fails
+            self.log_message(f"Failed to save monitor region: {save_result.error}", "ERROR")
+            QMessageBox.critical(self, "Error Saving Region", f"Failed to save monitor region.\nError: {save_result.error}")
+            return
 
-        # Region saved successfully. Now add to UI list.
-        # Use the coordinates we know, save_region doesn't return them.
-        self._add_region_to_list(name, coordinates, region_type)
+        self.log_message(f"Successfully defined/updated monitor region: {coordinates}", "SUCCESS")
 
-        # Now that the region is saved (including potential screenshot path),
-        # try to update the preview in the list widget immediately.
-        list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
-        for i in range(list_widget.count()):
-            item = list_widget.item(i)
-            widget = list_widget.itemWidget(item)
-            if hasattr(widget, 'region_id') and widget.region_id == name:
-                if region.screenshot_path and os.path.exists(region.screenshot_path):
-                    # Load the just saved image for preview
-                    # Use load_region_screenshot which returns Result[PIL.Image]
-                    load_result = self.region_service.load_region_screenshot(region)
-                    if load_result.is_success:
-                        preview_image = load_result.value
-                        # Convert PIL Image to QPixmap using ScreenshotService
-                        pixmap_result = self.screenshot_service.to_pyside_pixmap(preview_image)
-                        if pixmap_result.is_success:
-                            widget.screenshot_label.setPixmap(pixmap_result.value.scaled(
-                                widget.screenshot_label.width() - 10,  # Scale to fit label
-                                widget.screenshot_label.height() - 10,
-                                Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                        else:
-                            widget.screenshot_label.setText("Preview failed (Pixmap)")
-                    else:
-                        widget.screenshot_label.setText("Preview failed (Load)")
-                else:
-                    widget.screenshot_label.setText("No screenshot")
-                break  # Found the widget, stop looping
+        # --- Refresh the display ---
+        self._update_monitor_region_display() # New method to update labels/preview
+        self._refresh_ui_after_region_change() # Update other dependent UI parts
 
-        self.log_message(f"Added {region_type} region '{name}': {coordinates}", "SUCCESS")
+    def _on_add_flatten_region(self):
+        """Handles adding a new flatten region."""
+        region_type = "flatten"
+        current_platform = self.platform_selection_service.get_current_platform()
+        if not current_platform:
+            self.log_message("No platform selected.", "ERROR")
+            QMessageBox.warning(self, "Platform Needed", "Please select a platform first.")
+            return
 
-        # Refresh UI components that depend on region data
-        self._refresh_ui_after_region_change()
+        # Get existing flatten regions to suggest default name
+        flatten_regions_result = self.region_service.get_regions_by_platform(current_platform, region_type)
+        count = len(flatten_regions_result.value) if flatten_regions_result.is_success else 0
+        default_name = f"Flatten_{count + 1}"
 
-        # PASTE THIS ENTIRE METHOD INTO monitorPal_test.py, replacing the existing _on_edit_region
+        self.log_message(f"Starting region selection for adding a {region_type} region...", "INFO")
 
-    def _on_edit_region(self, region_id_to_edit, current_coords, region_type):
-        """Edit an existing region."""
-        # We get region_id_to_edit (which is just the name), not the full ID string
-        from PySide6.QtWidgets import QMessageBox
-        from src.domain.models.region_model import Region  # Ensure imported
+        # Select Area
+        region_result = self.ui_service.select_screen_region(f"Please select the Flatten Position button region")
+        if region_result.is_failure or region_result.value is None:
+            self.log_message(f"Region selection cancelled or failed: {region_result.error}", "INFO")
+            return
+        coordinates = region_result.value
 
-        region_name = region_id_to_edit  # The passed 'id' is actually the name
+        # Get Name (Loop until valid name or cancel)
+        while True:
+            name, ok = QInputDialog.getText(self, f"Name this {region_type} region",
+                                            "Enter a descriptive name:", QLineEdit.Normal, default_name)
+            if not ok: self.log_message("Region naming cancelled", "INFO"); return
+            name = name.strip()
+            if not name: QMessageBox.warning(self, "Invalid Name", "Name cannot be empty."); continue
+
+            # Check if flatten region with this name already exists
+            existing_check = self.region_service.get_region(current_platform, region_type, name)
+            if existing_check.is_success:
+                 choice = QMessageBox.question(self, "Name Exists", f"Flatten region '{name}' already exists. Replace?",
+                                               QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                 if choice != QMessageBox.Yes: continue # Ask again
+                 # User chose Yes - proceed (save will overwrite)
+                 break
+            elif existing_check.error.category == ErrorCategory.VALIDATION: # Assuming "Not Found" is a validation error
+                 # Name is unique
+                 break
+            else:
+                 # Some other error fetching region
+                 self.log_message(f"Error checking region name '{name}': {existing_check.error}", "ERROR")
+                 QMessageBox.critical(self, "Error", f"Could not verify region name '{name}'.")
+                 return # Abort
+
+        # Create Region Object
+        region_id = f"{current_platform}_{region_type}_{name}"
+        region = Region(id=region_id, name=name, coordinates=coordinates, type=region_type, platform=current_platform)
+
+        # Capture Screenshot
+        capture_result = self.region_service.capture_region_screenshot(coordinates, region.id, region.platform, region.type)
+        if capture_result.is_success:
+            setattr(region, '_temp_screenshot_data', capture_result.value[0])
+        else:
+            self.log_message(f"Failed to capture screenshot for flatten region '{name}': {capture_result.error}", "WARNING")
+            # Proceed without screenshot
+
+        # Save Region (repository adds/updates flatten region in dict)
+        save_result = self.region_service.save_region(region)
+        if save_result.is_failure:
+            self.log_message(f"Failed to save flatten region '{name}': {save_result.error}", "ERROR")
+            QMessageBox.critical(self, "Error Saving Region", f"Failed to save flatten region '{name}'.\nError: {save_result.error}")
+            return
+
+        # --- Refresh the flatten list (Need to add this specific logic back) ---
+        self._load_flatten_region_list() # We need a method to specifically reload/update the flatten QListWidget
+        # --- End Refresh ---
+
+        self.log_message(f"Added flatten region '{name}': {coordinates}", "SUCCESS")
+        self._refresh_ui_after_region_change() # Update other parts if needed
+
+    def _on_edit_flatten_region(self, region_name: str, current_coords: tuple):
+        """Edit an existing flatten region."""
+        region_type = "flatten"
         current_platform = self.platform_selection_service.get_current_platform()
         if not current_platform:
             self.log_message("Cannot edit region, no platform selected.", "ERROR")
@@ -1468,148 +1333,112 @@ class TradingMonitorTestApp(QMainWindow):
 
         self.log_message(f"Editing {region_type} region '{region_name}'...", "INFO")
 
-        # Get the existing region object to modify
-        get_result = self.region_service.get_region(current_platform, region_type, region_name)
-        if get_result.is_failure:
-            self.log_message(f"Failed to get region details for editing: {get_result.error}", "ERROR")
-            QMessageBox.critical(self, "Error", f"Could not retrieve region '{region_name}' for editing.")
-            return
-        region = get_result.value  # Get the existing Region object
+        # --- Get existing region details (only needed if keeping old screenshot on failure) ---
+        # get_result = self.region_service.get_region(current_platform, region_type, region_name)
+        # if get_result.is_failure: # ... handle error ...
+        # region_to_edit = get_result.value
 
-        # Start region selection for the new coordinates
+        # --- Select new area ---
         region_result = self.ui_service.select_screen_region(
-            f"Select the NEW area for the '{region_name}' {region_type} region")
-
-        if region_result.is_failure:
+            f"Select the NEW area for the '{region_name}' flatten region")
+        if region_result.is_failure or region_result.value is None:
             self.log_message(f"Region edit cancelled or failed: {region_result.error}", "INFO")
             return
-
         new_coordinates = region_result.value
 
-        # Update coordinates on the existing region object
-        region.coordinates = new_coordinates
-
-        # Ask user if they want to recapture the screenshot
+        # --- Ask to recapture screenshot ---
         recapture = QMessageBox.question(self, "Recapture Screenshot?",
-                                         "Do you want to capture a new screenshot for the updated region?",
+                                         "Capture a new screenshot for the updated region?",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
 
-        # Ensure temp attribute doesn't exist initially for edit
-        temp_data_attr = '_temp_screenshot_data'
-        if hasattr(region, temp_data_attr):
-            try:
-                delattr(region, temp_data_attr)
-            except AttributeError:
-                pass
+        # --- Create/Update Region Object ---
+        # Create a new object with updated coords, let save_region handle overwrite
+        region_id = f"{current_platform}_{region_type}_{region_name}"
+        region = Region(id=region_id, name=region_name, coordinates=new_coordinates,
+                        type=region_type, platform=current_platform)
 
         if recapture == QMessageBox.Yes:
-            # Capture new screenshot data and get intended path
-            # Use the full ID from the existing region object
             capture_result = self.region_service.capture_region_screenshot(
                 new_coordinates, region.id, region.platform, region.type
             )
-
             if capture_result.is_success:
-                # =================== APPLY FIX HERE ===================
-                image_data, intended_path = capture_result.value  # Unpack tuple
-                # Attach image data to temporary attribute for save_region
-                setattr(region, temp_data_attr, image_data)  # Use setattr for clarity
-                # DO NOT set region.screenshot_path here
-                self.log_message(
-                    f"Captured new screenshot data for region '{region_name}'. Intended path: {intended_path}",
-                    "INFO")
-                # =====================================================
+                setattr(region, '_temp_screenshot_data', capture_result.value[0])
+                self.log_message(f"Captured new screenshot data for edited region '{region_name}'.", "INFO")
             else:
-                self.log_message(
-                    f"Failed to capture new screenshot for edited region '{region_name}': {capture_result.error}",
-                    "WARNING")
-                QMessageBox.warning(self, "Screenshot Failed",
-                                    f"Could not capture new screenshot for region '{region_name}'.\nPrevious screenshot (if any) will be kept.")
-                # Keep the existing region.screenshot_path value
-        # else: # User chose not to recapture.
-        # Keep the existing region.screenshot_path value
+                self.log_message(f"Failed capture new screenshot for edited '{region_name}': {capture_result.error}", "WARNING")
+                QMessageBox.warning(self, "Screenshot Failed", "Could not capture new screenshot. Region metadata will be updated.")
+                # Keep existing screenshot path? save_region logic needs to handle this if desired.
+                # For simplicity, let's assume save_region clears path if no new data.
 
-        # Save updated region (coordinates and potentially new screenshot path)
-        # save_region will handle saving the file if _temp_screenshot_data exists
-        # and update region.screenshot_path before saving config
-        save_result = self.region_service.save_region(region)  # Pass the modified region object
-
+        # --- Save updated region ---
+        save_result = self.region_service.save_region(region) # Repository overwrites based on name
         if save_result.is_failure:
-            self.log_message(f"Failed to save edited region '{region_name}': {save_result.error}", "ERROR")
-            QMessageBox.critical(self, "Error Saving Region",
-                                 f"Failed to save edited region '{region_name}'.\nError: {save_result.error}")
+            self.log_message(f"Failed to save edited flatten region '{region_name}': {save_result.error}", "ERROR")
+            QMessageBox.critical(self, "Error Saving Region", f"Failed to save edited region '{region_name}'.\nError: {save_result.error}")
             return
 
-        # --- Update the UI list widget ---
-        list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
-        updated_widget = None  # To store the widget we update
-        for i in range(list_widget.count()):
-            item = list_widget.item(i)
-            widget = list_widget.itemWidget(item)
-            # Check widget type and name before proceeding
-            if isinstance(widget, RegionEntry) and widget.region_id == region_name:
-                # Find the specific QLabel for coordinates within RegionEntry if needed
-                # Assuming the label is the first item in top_layout (may need adjustment)
-                coord_label = widget.findChild(QLabel)  # Simple search, might need refinement
-                if coord_label:
-                    x, y, w, h = new_coordinates
-                    coord_label.setText(f"{region_name}: ({x}, {y}, {w}, {h})")
-                else:
-                    self.logger.warning(f"Could not find coordinate QLabel for widget '{region_name}'")
+        # --- Refresh the flatten list ---
+        self._load_flatten_region_list() # Reload list to show updated coords/preview
 
-                widget.region = new_coordinates  # Update internal coords in widget if it stores them
-                updated_widget = widget  # Keep track of the updated widget
-                break
+        self.log_message(f"Updated flatten region '{region_name}': {new_coordinates}", "SUCCESS")
+        self._refresh_ui_after_region_change()
 
-        # Update the preview in the updated widget
-        # Use the region object state *after* save_region finished
-        if updated_widget:
-            # Check the path *after* save_region potentially updated it
-            final_screenshot_path = region.screenshot_path
-            if final_screenshot_path and os.path.exists(final_screenshot_path):
-                load_result = self.region_service.load_region_screenshot(region)
-                if load_result.is_success:
-                    preview_image = load_result.value
-                    pixmap_result = self.screenshot_service.to_pyside_pixmap(preview_image)
-                    if pixmap_result.is_success:
-                        updated_widget.screenshot_label.setPixmap(pixmap_result.value.scaled(
-                            updated_widget.screenshot_label.width() - 10,
-                            updated_widget.screenshot_label.height() - 10,
-                            Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                    else:
-                        updated_widget.screenshot_label.setText("Preview failed (Pixmap)")
-                else:
-                    updated_widget.screenshot_label.setText("Preview failed (Load)")
-            else:
-                updated_widget.screenshot_label.setText("No screenshot")
-
-        self.log_message(f"Updated {region_type} region '{region_name}': {new_coordinates}", "SUCCESS")
-        self._refresh_ui_after_region_change()  # Refresh dropdowns etc.
-
-    def _on_delete_region(self, region_id, region_type):
-        """Delete an existing region."""
-        self.log_message(f"Deleting region {region_id}...", "INFO")
-
+    def _on_delete_monitor_region(self):
+        """Deletes the single monitor region."""
+        region_type = "monitor"
+        region_name = "monitor" # Fixed name
         current_platform = self.platform_selection_service.get_current_platform()
-        # Delete the region using service
-        result = self.region_service.delete_region(current_platform, region_type, region_id)
+        if not current_platform:
+            self.log_message("Cannot delete region: No platform selected.", "ERROR"); return
 
-        if result.is_failure:
-            self.log_message(f"Failed to delete region: {result.error}", "ERROR")
+        confirm = QMessageBox.question(self, "Confirm Delete",
+                                       f"Delete the P&L Monitoring region for {current_platform}?",
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if confirm != QMessageBox.Yes: return
+
+        self.log_message(f"Deleting monitor region for {current_platform}...", "INFO")
+
+        # Call service (Repository handles setting monitor_region to None)
+        result = self.region_service.delete_region(current_platform, region_type, region_name)
+
+        if result.is_failure and result.error.category != ErrorCategory.VALIDATION: # Ignore "Not Found" error
+            self.log_message(f"Failed to delete monitor region: {result.error}", "ERROR")
+            return
+        elif result.is_success and not result.value: # Check if repo reported 'not found'
+             self.log_message(f"Monitor region already not defined for {current_platform}.", "INFO")
+             # Proceed to update display anyway to ensure consistency
+
+        self.log_message(f"Deleted monitor region for {current_platform}", "SUCCESS")
+
+        # Refresh the display area
+        self._update_monitor_region_display()
+        self._refresh_ui_after_region_change()
+
+    def _on_delete_flatten_region(self, region_name: str):
+        """Deletes a specific flatten region."""
+        region_type = "flatten"
+        current_platform = self.platform_selection_service.get_current_platform()
+        if not current_platform:
+             self.log_message("Cannot delete region: No platform selected.", "ERROR"); return
+
+        confirm = QMessageBox.question(self, "Confirm Delete",
+                                       f"Delete the flatten region '{region_name}' for {current_platform}?",
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if confirm != QMessageBox.Yes: return
+
+        self.log_message(f"Deleting flatten region '{region_name}'...", "INFO")
+
+        # Call service (Repository removes from flatten_regions dict)
+        result = self.region_service.delete_region(current_platform, region_type, region_name)
+
+        if result.is_failure and result.error.category != ErrorCategory.VALIDATION: # Ignore "Not Found"
+            self.log_message(f"Failed to delete flatten region '{region_name}': {result.error}", "ERROR")
             return
 
-        # Remove from UI list
-        list_widget = self.monitoring_list if region_type == "monitor" else self.flatten_list
-        for i in range(list_widget.count()):
-            item = list_widget.item(i)
-            widget = list_widget.itemWidget(item)
-            if hasattr(widget, 'region_id') and widget.region_id == region_id:
-                list_widget.takeItem(i)
-                break
+        # --- Refresh the flatten list ---
+        self._load_flatten_region_list()
 
-        self.log_message(f"Deleted {region_type} region {region_id}", "SUCCESS")
-
-        # Refresh all UI components that depend on region data
+        self.log_message(f"Deleted flatten region {region_name}", "SUCCESS")
         self._refresh_ui_after_region_change()
 
     def _on_flash_region(self, region_name: str, region_type: str):
@@ -1633,39 +1462,6 @@ class TradingMonitorTestApp(QMainWindow):
         else:
             # Success means the *task started*, not necessarily finished flashing
             self.log_message(f"Flash sequence initiated for '{region_name}'.", "SUCCESS")
-
-    def _capture_region(self, region):
-        """Capture a region screenshot without OCR processing."""
-        # Capture the screenshot
-        result = self.screenshot_service.capture_region(region)
-
-        if result.is_success:
-            self.captured_screenshot = result.value
-            self.log_message("Screenshot captured successfully", "INFO")
-
-            # Convert to QPixmap and display
-            pixmap_result = self.screenshot_service.to_pyside_pixmap(self.captured_screenshot)
-            if pixmap_result.is_success:
-                pixmap = pixmap_result.value
-
-                # Get the size of the parent container
-                container_width = self.screenshot_label.parentWidget().width() - 20
-                container_height = self.screenshot_label.parentWidget().height() - 20
-
-                # Scale image to fit the container while maintaining aspect ratio
-                scaled_pixmap = pixmap.scaled(
-                    container_width,
-                    container_height,
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation
-                )
-
-                # Set the pixmap
-                self.screenshot_label.setPixmap(scaled_pixmap)
-            else:
-                self.log_message(f"Error converting to pixmap: {pixmap_result.error}", "ERROR")
-        else:
-            self.log_message(f"Error capturing screenshot: {result.error}", "ERROR")
 
     def _on_verify_block(self):
         """Verify the Cold Turkey block configuration."""
@@ -1730,89 +1526,91 @@ class TradingMonitorTestApp(QMainWindow):
             )
 
     def _on_start_monitoring(self):
-        """Start monitoring for P&L losses."""
-        platform = self.platform_selection_service.get_current_platform()
-        threshold = self.threshold_spin.value()
+        """Handles the click of the 'Start Monitoring' button."""
+        current_platform = self.platform_selection_service.get_current_platform()
+        if not current_platform:
+            self.log_message("No platform selected.", "ERROR")
+            QMessageBox.warning(self, "Platform Needed", "Please select a platform first.")
+            return
 
-        # Ensure threshold is negative
+        threshold = self.threshold_spin.value()
+        # Ensure threshold is negative (can be done here or let service handle it)
         if threshold > 0:
             threshold = -threshold
 
-        # Get selected region name
-        region_name = self.monitor_region_combo.currentText()
-        if not region_name:
-            self.log_message("No monitoring region selected", "ERROR")
-            return
-
-        # ADD THIS CHECK: Verify the platform is running before proceeding
-        platform_running_result = self.platform_detection.is_platform_running(platform)
+        # --- START: Check platform is running ---
+        platform_running_result = self.platform_detection.is_platform_running(current_platform)
         if platform_running_result.is_failure or not platform_running_result.value:
-            self.log_message(f"{platform} is not running. Please start it first.", "ERROR")
-            QMessageBox.warning(self, "Platform Not Running",
-                                f"{platform} is not running. Please start it first.")
+            msg = f"{current_platform} is not running. Please start it first."
+            self.log_message(msg, "ERROR")
+            QMessageBox.warning(self, "Platform Not Running", msg)
             return
 
-        # Get region details with enhanced result handling
-        self.region_service.get_region(platform, "monitor", region_name).with_ui_feedback(
-            ui_feedback_func=self.log_message,
-            error_message=f"Failed to get region: {region_name}",
-            context="Monitoring setup"
-        ).on_success(
-            lambda region: self._start_monitoring_with_region(platform, region, region_name, threshold)
-        )
+        self.log_message(f"Checking for defined monitor region for {current_platform}...", "DEBUG")
+        region_result = self.region_service.get_monitor_region(current_platform) # Use the correct service method
 
-    def _start_monitoring_with_region(self, platform, region, region_name, threshold):
-        """Start monitoring with retrieved region."""
-        coordinates = region.coordinates
+        if region_result.is_failure:
+            # Error fetching region info (config issue, etc.)
+            self.log_message(f"Failed to check for monitor region: {region_result.error}", "ERROR")
+            QMessageBox.critical(self, "Region Error", f"Could not retrieve monitor region information:\n{region_result.error}")
+            return
 
-        self.log_message(f"Starting monitoring for {platform} with region '{region_name}'...", "INFO")
-        self.log_message(f"Threshold: ${threshold}", "INFO")
+        monitor_region = region_result.value # This is the Region object or None
 
-        # Clear status display
-        self.lockout_status.clear()
+        if monitor_region is None:
+            # Monitor region is simply not defined yet
+            msg = f"Monitor region not defined for {current_platform}. Please define it on the 'Region Selection' tab."
+            self.log_message(msg, "ERROR")
+            QMessageBox.warning(self, "Region Not Defined", msg)
+            return
 
-        # Prepare callbacks
+        self.log_message(f"Requesting start monitoring for {current_platform} with threshold {threshold}", "INFO")
+
+        # Define callbacks needed by the service
         def on_status_update(message, level):
+            # Ensure UI updates happen safely if needed (log_message should be safe)
             self.log_message(message, level)
-            self.lockout_status.append(f"[{level}] {message}")
+            # Append to status display if it exists
+            if hasattr(self, 'lockout_status'):
+                self.lockout_status.append(f"[{level}] {message}")
 
-        def on_threshold_exceeded(result):
-            # These logging calls are thread-safe
-            self.log_message("Threshold exceeded!", "ERROR")
-            self.log_message(f"Detected value: ${result.minimum_value}", "ERROR")
-
-            # Stop monitoring - this call itself is thread-safe
-            self.monitoring_service.stop_monitoring()
-
-            # Post event to UI thread for updating UI and triggering lockout
-            # This is the critical part that ensures thread safety
+        def on_threshold_exceeded(result: MonitoringResult):
+            # This callback might be called from a background thread by MonitoringService
+            self.log_message("Threshold exceeded (reported by service)!", "ERROR")
+            self.log_message(f"Detected value: ${result.minimum_value:.2f}", "ERROR") # Use result object
+            # Stop monitoring service (this method should be thread-safe)
+            stop_res = self.monitoring_service.stop_monitoring()
+            if stop_res.is_failure:
+                 self.log_message(f"Error stopping monitoring after threshold: {stop_res.error}", "ERROR")
+            # Post event to UI thread for UI updates and lockout trigger
             QApplication.instance().postEvent(self, _ThresholdExceededEvent(result))
 
-        # Start monitoring with enhanced result handling
-        try:
-            self.monitoring_service.start_monitoring(
-                platform=platform,
-                region=coordinates,
-                region_name=region_name,
-                threshold=threshold,
-                interval_seconds=2.0,
-                on_status_update=on_status_update,
-                on_threshold_exceeded=on_threshold_exceeded,
-                on_error=lambda msg: self.log_message(f"Error: {msg}", "ERROR")
-            ).with_ui_feedback(
-                ui_feedback_func=self.log_message,
-                success_message="Monitoring started successfully",
-                error_message="Failed to start monitoring"
-            ).handle_ui_state(
-                success_state_updater=lambda: self._update_monitoring_state(True),
-                failure_state_updater=lambda: self._update_monitoring_state(False)
-            )
-        except Exception as e:
-            self.log_message(f"Error starting monitoring: {str(e)}", "ERROR")
-            self.logger.error(f"Error starting monitoring: {e}", exc_info=True)
-            self._update_monitoring_state(False)
+        def on_error(msg):
+            # This callback might be called from a background thread
+            self.log_message(f"Monitoring Service Error: {msg}", "ERROR")
+            # Safely update UI state if needed (e.g., via signal or QTimer.singleShot)
+            # For now, just log. Button state will update via _ThresholdExceededEvent or manual stop.
 
-    def _update_monitoring_state(self, is_active):
+
+        # Call the updated service method (only platform & threshold needed now)
+        start_result = self.monitoring_service.start_monitoring(
+            platform=current_platform,
+            threshold=threshold,
+            # interval_seconds=2.0, # Pass interval if needed by service
+            on_status_update=on_status_update,
+            on_threshold_exceeded=on_threshold_exceeded,
+            on_error=on_error
+        )
+
+        # Update UI button states based on whether starting the service task succeeded
+        if start_result.is_success:
+             self._update_monitoring_ui_state(True) # Update button states using existing helper
+             self.log_message("Monitoring service start requested successfully.", "SUCCESS")
+        else:
+             self.log_message(f"Failed to start monitoring service: {start_result.error}", "ERROR")
+             self._update_monitoring_ui_state(False) # Ensure button states are correct
+
+    def _update_monitoring_ui_state(self, is_active):
         """Update UI state based on monitoring activity."""
         self.is_monitoring = is_active
         self.start_monitor_btn.setEnabled(not is_active)
@@ -1830,14 +1628,14 @@ class TradingMonitorTestApp(QMainWindow):
                 success_message="Monitoring stopped",
                 error_message="Failed to stop monitoring"
             ).handle_ui_state(
-                success_state_updater=lambda: self._update_monitoring_state(False),
-                failure_state_updater=lambda: self._update_monitoring_state(False)
+                success_state_updater=lambda: self._update_monitoring_ui_state(False),
+                failure_state_updater=lambda: self._update_monitoring_ui_state(False)
                 # Always update UI state even on failure
             )
         except Exception as e:
             self.log_message(f"Error stopping monitoring: {str(e)}", "ERROR")
             self.logger.error(f"Error stopping monitoring: {e}", exc_info=True)
-            self._update_monitoring_state(False)  # Ensure UI consistency
+            self._update_monitoring_ui_state(False)  # Ensure UI consistency
 
     def _on_trigger_lockout(self, automatic=False):
         """Manually trigger the lockout sequence."""
@@ -1946,138 +1744,19 @@ class TradingMonitorTestApp(QMainWindow):
             self.logger.error(f"Error during application shutdown: {e}", exc_info=True)
             event.accept()  # Still close even if there's an error
 
-    def _update_monitoring_dropdown(self):
-        """Update the monitoring region dropdown with current regions."""
-        # --- START: Block signals during update ---
-        if hasattr(self, 'monitor_region_combo'):
-            self.monitor_region_combo.blockSignals(True)
-            try:
-                current_text = self.monitor_region_combo.currentText()  # Store selection
-                self.monitor_region_combo.clear()
-                current_platform = self.platform_selection_service.get_current_platform()
-                result = self.region_service.get_regions_by_platform(current_platform, "monitor")
-
-                if result.is_success:
-                    regions = result.value
-                    region_names = [region.name for region in regions]
-                    if region_names:
-                        self.monitor_region_combo.addItems(region_names)
-                        # Try to restore previous selection if it still exists
-                        if current_text in region_names:
-                            self.monitor_region_combo.setCurrentText(current_text)
-                        else:
-                            self.monitor_region_combo.setCurrentIndex(0)  # Default to first
-                else:
-                    self.log_message(f"Failed to get monitoring regions: {result.error}", "WARNING")
-                    self.monitor_region_combo.addItem("N/A")  # Add placeholder if load failed
-            finally:
-                self.monitor_region_combo.blockSignals(False)
-
     def _toggle_advanced_settings(self, checked):
         """Toggle visibility of advanced settings."""
         self.profile_group.setVisible(checked)
 
-    def _load_profile_regions(self):
-        """Load regions for the profile tab region selector."""
-        # Clear existing combo box
-        self.profile_region_combo.clear()
-
-        # Reset the internal regions list
-        self.profile_region_combo.regions = []
-
-        # Get current platform
-        current_platform = self.platform_selection_service.get_current_platform()
-
-        # Get monitor regions
-        monitor_result = self.region_service.get_regions_by_platform(current_platform, "monitor")
-
-        if monitor_result.is_success and monitor_result.value:
-            regions = monitor_result.value
-
-            # CRITICAL FIX: Ensure the combo box is enabled
-            self.profile_region_combo.setEnabled(True)
-
-            # Add each region to the combo box
-            for region in regions:
-                # Load the screenshot
-                screenshot = None
-                if region.screenshot_path:
-                    load_result = self.region_service.load_region_screenshot(region)
-                    if load_result.is_success:
-                        screenshot = load_result.value
-
-                # Add to combo box
-                self.profile_region_combo.add_region(region, screenshot)
-
-            self.log_message(f"Loaded {len(regions)} regions for profile management", "INFO")
-        else:
-            # No regions found - add a message
-            self.profile_region_combo.addItem("No monitoring regions found")
-            self.profile_region_combo.setEnabled(False)
-            self.log_message("No monitoring regions found for profile management", "WARNING")
-
-    def _on_profile_region_selected(self, index):
-        """Handle region selection in profile tab and update preview."""
-        # Reset state first
-        self.profile_preview_label.setText("No preview available")
-        self.profile_preview_label.setPixmap(QPixmap())  # Clear pixmap
-        self.calibrate_btn.setEnabled(False)
-        self.save_profile_button.setEnabled(False)
-        self.pattern_group.setVisible(False)
-        self.calibration_status.setText("Select a region screenshot above and enter the value you see.")
-        self.calibration_status.setStyleSheet("font-style: italic; color: #555;")
-
-        if index < 0:
-            # This case might happen if the combo box is cleared
-            return
-
-        # Get selected region object and screenshot path
-        selected_region = self.profile_region_combo.get_selected_region()
-        screenshot_path = self.profile_region_combo.get_selected_screenshot_path()
-
-        if selected_region and screenshot_path and os.path.exists(screenshot_path):
-            # Load the screenshot image for preview
-            try:
-                pixmap = QPixmap(screenshot_path)
-                if not pixmap.isNull():
-                    # Scale pixmap to fit the label while keeping aspect ratio
-                    scaled_pixmap = pixmap.scaled(
-                        self.profile_preview_label.width() - 10,  # Add padding
-                        self.profile_preview_label.height() - 10,
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation
-                    )
-                    self.profile_preview_label.setPixmap(scaled_pixmap)
-                    # Enable the calibrate button only if a valid region/screenshot is selected
-                    self.calibrate_btn.setEnabled(True)
-                    self.calibration_status.setText(
-                        "Region selected. Enter the exact value shown above and click Calibrate.")
-                else:
-                    self.profile_preview_label.setText("Error: Could not load preview.")
-                    self.log_message(f"Failed to load QPixmap for preview: {screenshot_path}", "ERROR")
-
-            except Exception as e:
-                self.profile_preview_label.setText("Error loading preview.")
-                self.log_message(f"Exception loading preview pixmap: {e}", "ERROR")
-
-        elif selected_region:
-            # Region selected but screenshot missing/invalid
-            self.profile_preview_label.setText("Screenshot not found or invalid.")
-            self.log_message(
-                f"Screenshot path missing or invalid for region '{selected_region.name}': {screenshot_path}", "WARNING")
-        else:
-            # No region selected (shouldn't happen if index >= 0 but handle defensively)
-            self.profile_preview_label.setText("No region selected.")
-
     def _refresh_ui_after_region_change(self):
         """Refresh all UI components that depend on region data."""
         try:
-            # Update monitoring dropdown in lockout tab
-            self._update_monitoring_dropdown()
-
-            # Update profile tab's region combo
-            self._load_profile_regions()
-
+            # Update monitor display (if defined) and flatten list
+            self._update_monitor_region_display()
+            self._load_flatten_region_list()
+            self._update_profile_tab_calibration_source()  # New placeholder method needed
+            # Update the main summary toolbar
+            self._update_summary_display()
             # Allow UI to update
             QApplication.processEvents()
         except Exception as e:
@@ -2087,22 +1766,186 @@ class TradingMonitorTestApp(QMainWindow):
     def _on_tab_changed(self, index):
         """Handle tab changes by refreshing data as needed."""
         tab_name = self.tab_widget.tabText(index)
-        if tab_name == "Lockout Testing":
-            self._update_monitoring_dropdown()
-        elif tab_name == "Profile Management":
-            self._load_profile_regions()
+        # Refresh region tab displays if potentially stale
+        if tab_name == "Region Selection":
+             self._update_monitor_region_display()
+             self._load_flatten_region_list()
 
-    def _handle_result(self, result: Result, success_message=None, error_message="Operation failed",
-                       error_level="ERROR"):
-        """Standard handler for Result objects."""
-        return Result.handle_ui_result(
-            result=result,
-            logger=self.logger,
-            ui_feedback_func=self.log_message,
-            success_message=success_message,
-            error_message=error_message,
-            context=None
-        )
+        elif tab_name == "Profile Management":
+             # Refresh calibration source info
+             self._update_profile_tab_calibration_source()
+
+    def _update_profile_tab_calibration_source(self):
+        """
+        Checks for the monitor region screenshot, updates the preview automatically,
+        and enables/disables the Calibrate button. Stores path if found.
+        """
+        if not self._ui_initialized:
+            self.log_message("UI not fully initialized, skipping profile tab source update.", "DEBUG")
+            return
+
+        # Reset state
+        can_calibrate = False
+        self.calibration_image_path = None
+        preview_message = "Define Monitor Region\nwith Screenshot first."
+        calibration_status_text = "Define Monitor Region with screenshot to enable calibration."
+        preview_pixmap = QPixmap() # Empty pixmap
+
+        current_platform = self.platform_selection_service.get_current_platform()
+        if current_platform:
+            region_result = self.region_service.get_monitor_region(current_platform)
+            if region_result.is_success and region_result.value:
+                monitor_region = region_result.value
+                screenshot_path = monitor_region.screenshot_path
+
+                if screenshot_path and os.path.exists(screenshot_path) and os.path.isfile(screenshot_path):
+                    # Screenshot exists - attempt to load preview
+                    self.log_message(f"Attempting to load calibration preview: {screenshot_path}", "DEBUG")
+                    try:
+                        temp_pixmap = QPixmap(screenshot_path)
+                        if not temp_pixmap.isNull():
+                             # Scale pixmap to fit the label
+                             scaled_pixmap = temp_pixmap.scaled(
+                                 self.profile_preview_label.width() - 10,
+                                 self.profile_preview_label.height() - 10,
+                                 Qt.AspectRatioMode.KeepAspectRatio,
+                                 Qt.TransformationMode.SmoothTransformation
+                             )
+                             preview_pixmap = scaled_pixmap # Use loaded pixmap
+                             preview_message = "" # Clear text message if pixmap loaded
+                             can_calibrate = True
+                             self.calibration_image_path = screenshot_path # Store path for calibration worker
+                             calibration_status_text = "Enter value shown above and click Calibrate."
+                             self.log_message("Calibration preview loaded successfully.", "DEBUG")
+                        else:
+                             preview_message = "Error: Could not load\nscreenshot image."
+                             self.log_message(f"Failed to load QPixmap (isNull): {screenshot_path}", "ERROR")
+                    except Exception as e:
+                         preview_message = "Error loading preview."
+                         self.log_message(f"Exception loading calibration preview: {e}", "ERROR", exc_info=True)
+                else:
+                    # Region defined, but no screenshot
+                    preview_message = "Monitor Region Defined\n(No Screenshot Found)"
+                    self.log_message("Monitor region found, but screenshot path missing or invalid.", "WARNING")
+            elif region_result.is_failure:
+                 # Error fetching region
+                 preview_message = "Error loading region data."
+                 self.log_message(f"Failed to get monitor region for profile tab: {region_result.error}", "WARNING")
+            # else: region_result was success but value was None (not defined) - keep default messages
+
+        # --- Update UI Elements ---
+        # Ensure widgets exist before updating
+        if hasattr(self, 'profile_preview_label'):
+             self.profile_preview_label.setText(preview_message)
+             self.profile_preview_label.setPixmap(preview_pixmap)
+        if hasattr(self, 'calibrate_btn'):
+             self.calibrate_btn.setEnabled(can_calibrate)
+        if hasattr(self, 'calibration_status'):
+             self.calibration_status.setText(calibration_status_text)
+
+    def _update_monitor_region_display(self):
+        """Fetches the single monitor region and updates the UI display."""
+        current_platform = self.platform_selection_service.get_current_platform()
+        if not current_platform:
+            # Reset display if no platform selected
+            self.monitor_status_label.setText("Status: Select Platform")
+            self.monitor_coords_label.setText("Coordinates: N/A")
+            self.monitor_preview_label.setText("No Preview")
+            self.monitor_preview_label.setPixmap(QPixmap())  # Clear image
+            self.delete_monitor_btn.setEnabled(False)
+            return
+
+        result = self.region_service.get_monitor_region(current_platform)
+
+        if result.is_success and result.value is not None:
+            # Region is defined
+            region = result.value
+            x, y, w, h = region.coordinates
+            self.monitor_status_label.setText("Status: Defined")
+            self.monitor_status_label.setStyleSheet("font-style: normal; color: green;")
+            self.monitor_coords_label.setText(f"Coordinates: ({x}, {y}, {w}, {h})")
+            self.delete_monitor_btn.setEnabled(True)
+
+            # Load and display preview
+            if region.screenshot_path:
+                load_result = self.region_service.load_region_screenshot(region)
+                if load_result.is_success:
+                    img_data = load_result.value
+                    pixmap_result = self.screenshot_service.to_pyside_pixmap(img_data)
+                    if pixmap_result.is_success:
+                        pixmap = pixmap_result.value
+                        # Scale pixmap to fit the label
+                        scaled_pixmap = pixmap.scaled(
+                            self.monitor_preview_label.width() - 6,
+                            self.monitor_preview_label.height() - 6,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation)
+                        self.monitor_preview_label.setPixmap(scaled_pixmap)
+                    else:
+                        self.monitor_preview_label.setText("Preview Load Failed"); self.monitor_preview_label.setPixmap(
+                            QPixmap())
+                else:
+                    self.monitor_preview_label.setText("Preview Load Failed"); self.monitor_preview_label.setPixmap(
+                        QPixmap())
+            else:
+                self.monitor_preview_label.setText("No Screenshot");
+                self.monitor_preview_label.setPixmap(QPixmap())
+
+        else:
+            # Region is not defined or failed to load
+            self.monitor_status_label.setText("Status: Not Defined")
+            self.monitor_status_label.setStyleSheet("font-style: italic; color: grey;")
+            self.monitor_coords_label.setText("Coordinates: N/A")
+            self.monitor_preview_label.setText("No Preview")
+            self.monitor_preview_label.setPixmap(QPixmap())
+            self.delete_monitor_btn.setEnabled(False)
+            if result.is_failure:
+                self.log_message(f"Could not load monitor region: {result.error}", "WARNING")
+
+    def _load_flatten_region_list(self):
+        """Clears and reloads the QListWidget for flatten regions."""
+        self.flatten_list.clear()
+        current_platform = self.platform_selection_service.get_current_platform()
+        if not current_platform: return  # Nothing to load
+
+        result = self.region_service.get_regions_by_platform(current_platform, "flatten")
+        if result.is_success and result.value:
+            flatten_regions = result.value
+            for region in flatten_regions:
+                # Create the RegionEntry widget for each flatten region
+                item = QListWidgetItem()
+                widget = RegionEntry(
+                    region_id=region.name,  # Use name as ID here
+                    region=region.coordinates,
+                    on_edit=lambda name, coords: self._on_edit_flatten_region(name, coords),
+                    # Connect to flatten edit handler
+                    on_delete=lambda name: self._on_delete_flatten_region(name),  # Connect to flatten delete handler
+                    on_flash=lambda name: self._on_flash_region(name, "flatten")  # Connect to flash handler
+                )
+                item.setSizeHint(widget.sizeHint())
+                self.flatten_list.addItem(item)
+                self.flatten_list.setItemWidget(item, widget)
+
+                # Load screenshot preview for the flatten region entry
+                if region.screenshot_path:
+                    load_result = self.region_service.load_region_screenshot(region)
+                    if load_result.is_success:
+                        pixmap_result = self.screenshot_service.to_pyside_pixmap(load_result.value)
+                        if pixmap_result.is_success:
+                            scaled_pixmap = pixmap_result.value.scaled(
+                                widget.screenshot_label.width() - 6,
+                                widget.screenshot_label.height() - 6,
+                                Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                            widget.screenshot_label.setPixmap(scaled_pixmap)
+                        else:
+                            widget.screenshot_label.setText("Preview Failed")
+                    else:
+                        widget.screenshot_label.setText("Preview Failed")
+                else:
+                    widget.screenshot_label.setText("No Screenshot")
+
+        elif result.is_failure:
+            self.log_message(f"Failed to load flatten regions: {result.error}", "WARNING")
 
     def _validate_input(self, input_value: str, field_name: str) -> Result:
         """Validate user input and return a Result object."""
@@ -2116,16 +1959,17 @@ class TradingMonitorTestApp(QMainWindow):
         return Result.ok(input_value)
 
     def _start_calibration(self):
-        """Start the auto-calibration process."""
-        # Get selected region
-        selected_region = self.profile_region_combo.get_selected_region()
-        screenshot_path = self.profile_region_combo.get_selected_screenshot_path()  # Get path explicitly
-
-        if not selected_region or not screenshot_path or not os.path.exists(screenshot_path):
-            self.log_message("No valid region screenshot selected for calibration.", "ERROR")
-            QMessageBox.warning(self, "Region Needed",
-                                "Please select a valid region screenshot from the dropdown above.")
+        """Start the auto-calibration process with a unique task ID."""
+        # --- Verify it uses self.calibration_image_path ---
+        if not hasattr(self, 'calibration_image_path') or not self.calibration_image_path:
+            self.log_message("Calibration source image path not set.", "ERROR")
+            QMessageBox.warning(self, "Screenshot Needed", "Monitor region screenshot not available for calibration.")
             return
+        screenshot_path = self.calibration_image_path
+        if not os.path.exists(screenshot_path):
+             self.log_message(f"Calibration source file missing: {screenshot_path}", "ERROR")
+             QMessageBox.critical(self, "File Missing", f"The screenshot file needed for calibration is missing.")
+             return
 
         # Get expected value
         expected_value = self.expected_value_input.text().strip()
@@ -2254,15 +2098,24 @@ class TradingMonitorTestApp(QMainWindow):
         worker.set_on_completed(on_completed)
         worker.set_on_error(on_error)
 
-        # Start the worker thread
+        # --- Generate UNIQUE Task ID ---
+        import uuid
+        task_id = f"calibration_{uuid.uuid4()}"  # Create a unique ID each time
+        self.log_message(f"Starting calibration task with ID: {task_id}", "INFO")
+        # -----------------------------
+
+        # Start the worker thread using the UNIQUE ID
         self.log_message(
             f"Executing calibration task for image '{os.path.basename(screenshot_path)}' and value '{expected_value}'...",
             "INFO")
-        task_result = self.thread_service.execute_task_and_restore_result("calibration", worker)
+        # --- Use the new unique task_id ---
+        task_result = self.thread_service.execute_task_and_restore_result(task_id, worker)
+        # ----------------------------------
+
         if task_result.is_failure:
-            self.log_message(f"Failed to start calibration task: {task_result.error}", "ERROR")
+            self.log_message(f"Failed to start calibration task (ID: {task_id}): {task_result.error}", "ERROR")
             # Reset UI elements if task fails to start
-            on_error(f"Failed to start task: {task_result.error}")
+            on_error(f"Failed to start task: {task_result.error}")  # Pass original error
 
     def _save_calibrated_profile(self):
         """Save the profile with calibrated parameters and patterns."""
@@ -2311,7 +2164,7 @@ class TradingMonitorTestApp(QMainWindow):
 
             # --- RESTORE THESE LINES ---
             self.lockout_status.append(f"Threshold exceeded! Detected value: ${event.result.minimum_value}")
-            self._update_monitoring_state(False)
+            self._update_monitoring_ui_state(False)
             self.log_message("--- Calling _on_trigger_lockout ---", "DEBUG")  # Add log before call
             self._on_trigger_lockout(automatic=True)  # <--- UNCOMMENT THIS
             self.log_message("--- Returned from _on_trigger_lockout call ---", "DEBUG")  # Add log after call
@@ -2327,31 +2180,66 @@ class TradingMonitorTestApp(QMainWindow):
 
     def _update_summary_display(self):
         """Fetches current settings and updates the summary labels in the toolbar."""
-        # Check if toolbar exists to prevent errors during early initialization
-        if not hasattr(self, 'platform_toolbar'):
-             return
+        if not hasattr(self, 'platform_toolbar'): return # Safety check
 
-        region_name = None
-        threshold = None
-        duration = None
+        # --- Get data from UI widgets ---
+        threshold = self.threshold_spin.value() if hasattr(self, 'threshold_spin') else None
+        duration = self.duration_spin.value() if hasattr(self, 'duration_spin') else None
 
-        # Safely get values from widgets if they exist
-        if hasattr(self, 'monitor_region_combo'):
-            region_name = self.monitor_region_combo.currentText()
-            # Handle placeholder case
-            if region_name == "N/A" or not region_name: region_name = None
+        # --- Determine Monitor Region Status ---
+        monitor_region_status = "N/A" # Default if no platform
+        current_platform = self.platform_selection_service.get_current_platform()
+        if current_platform:
+            region_result = self.region_service.get_monitor_region(current_platform)
+            if region_result.is_success:
+                 # Show coordinates if defined, otherwise "Not Defined"
+                 monitor_region = region_result.value
+                 if monitor_region:
+                      x, y, w, h = monitor_region.coordinates
+                      monitor_region_status = f"({x},{y},{w},{h})" # Display coordinates
+                 else:
+                      monitor_region_status = "Not Defined"
+            else:
+                 # Error fetching status
+                 monitor_region_status = "Error"
+                 self.log_message(f"Toolbar: Failed to get monitor region status: {region_result.error}", "WARNING")
 
-        if hasattr(self, 'threshold_spin'):
-            threshold = self.threshold_spin.value()
+        # --- Determine Pattern Summary (Using Suggestion 2 from before) ---
+        patterns_desc = "N/A" # Default if no platform
+        if current_platform:
+            profile_result = self.profile_service.get_profile(current_platform)
+            if profile_result.is_success:
+                patterns = profile_result.value.numeric_patterns
+                # Check if profile uses default patterns (compare with a default instance)
+                is_default_patterns = (patterns == PlatformProfile("dummy").numeric_patterns)
 
-        if hasattr(self, 'duration_spin'):
-            duration = self.duration_spin.value()
+                if not patterns or is_default_patterns:
+                    patterns_desc = "Default"
+                else:
+                     # Determine description based on keys present
+                     if "negative" in patterns: patterns_desc = "ParensNeg ()"
+                     elif "negative_dash" in patterns: patterns_desc = "DashNeg -"
+                     elif "dollar" in patterns: patterns_desc = "Currency $"
+                     elif "regular" in patterns: patterns_desc = "Number +/-"
+                     else: patterns_desc = "Custom" # Calibrated but no known primary key?
+            else:
+                patterns_desc = "Error"
+                self.log_message(f"Toolbar: Failed to get profile for patterns: {profile_result.error}", "WARNING")
 
-        # Update the toolbar's summary display
-        self.platform_toolbar.update_summary(region_name, threshold, duration)
-    # --- END: Add Summary Update Method ---
+        # --- Update the Toolbar ---
+        # Assumes platform_toolbar has update_summary & update_pattern_summary methods
+        # (We need to add update_pattern_summary to the toolbar class next)
+        self.platform_toolbar.update_summary(
+            region_status=monitor_region_status, # Pass status/coords string
+            threshold=threshold,
+            duration=duration
+        )
+        # Check if the method exists before calling
+        if hasattr(self.platform_toolbar, 'update_pattern_summary'):
+             self.platform_toolbar.update_pattern_summary(patterns_desc)
+        else:
+             self.log_message("Toolbar needs update_pattern_summary method", "DEBUG")
 
-# ... Main execution block remains the same ...
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")

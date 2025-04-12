@@ -42,6 +42,13 @@ class PlatformSelectorToolbar(QToolBar):
         self.duration_label.setStyleSheet("font-weight: bold;")
         self.addWidget(self.duration_label)
 
+        self.addWidget(QLabel(" Patterns: "))
+        self.patterns_label = QLabel("N/A")
+        self.patterns_label.setStyleSheet("font-weight: bold;")
+        # Optional: Add tooltip placeholder
+        self.patterns_label.setToolTip("Detected number format patterns (Default/Custom/etc.)")
+        self.addWidget(self.patterns_label)
+
         # Add spacer to push dropdown to the right
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -111,8 +118,6 @@ class PlatformSelectorToolbar(QToolBar):
             self.platform_combo.setCurrentText(self.platform_service.get_current_platform()) # Revert to actual current
             self.platform_combo.blockSignals(False)
 
-
-    # --- Slot for EXTERNAL changes (e.g., config loaded elsewhere) ---
     @Slot(str)
     def _on_external_platform_change(self, platform: str) -> None:
         """Handles platform change notifications from the service."""
@@ -124,7 +129,6 @@ class PlatformSelectorToolbar(QToolBar):
             self.platform_combo.setCurrentText(platform)
             self.platform_combo.blockSignals(False)
 
-    # --- Method to update the list of platforms (e.g., if new ones detected later) ---
     def update_platforms(self, platforms: List[str], current_platform: Optional[str] = None):
         """Updates the list of available platforms and sets the current selection."""
         # Determine the desired selection AFTER update
@@ -153,26 +157,28 @@ class PlatformSelectorToolbar(QToolBar):
         finally:
             self.platform_combo.blockSignals(False)
 
-    def update_summary(self, region_name: Optional[str], threshold: Optional[float], duration: Optional[int]):
-        """Updates the summary labels in the toolbar."""
-        # Region Name
-        self.region_label.setText(region_name if region_name else "N/A")
+    def update_summary(self, region_status: Optional[str], threshold: Optional[float], duration: Optional[int]):
+        """Updates the summary labels in the toolbar (Region, Threshold, Duration)."""
+        # Region Status (now accepts string like "Defined", "Not Defined", "(x,y,w,h)", "Error")
+        self.region_label.setText(region_status if region_status else "N/A")
 
-        # Threshold
+        # Threshold (logic remains same)
         if threshold is not None:
-            # Ensure negative and format
             display_threshold = threshold if threshold <= 0 else -threshold
             self.threshold_label.setText(f"${display_threshold:,.2f}")
         else:
             self.threshold_label.setText("N/A")
 
-        # Duration
+        # Duration (logic remains same)
         if duration is not None:
             self.duration_label.setText(f"{duration} min")
         else:
-            self.duration_label.setText("N/A")
+             self.duration_label.setText("N/A")
 
-    # --- Add a getter for convenience ---
+    def update_pattern_summary(self, description: str):
+        """Updates the pattern summary label."""
+        self.patterns_label.setText(description if description else "N/A")
+
     def get_current_selection(self) -> str:
          """Returns the platform currently selected in the combo box."""
          return self.platform_combo.currentText()

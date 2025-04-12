@@ -1,5 +1,7 @@
 # src/infrastructure/system/path_service.py
 import os
+import re
+
 import platformdirs
 from typing import Optional # <--- Added Optional
 
@@ -56,9 +58,7 @@ class PathService(IPathService):
         except OSError as e:
             self.logger.error(f"Failed to create necessary default directories: {e}", exc_info=True)
             # Handle this critical failure appropriately
-    # ==========================================================
 
-    # =================== MODIFY THIS METHOD ===================
     def get_base_data_path(self) -> str:
         """
         Gets the root directory for user-specific application data.
@@ -109,14 +109,12 @@ class PathService(IPathService):
              return os.path.join(os.getcwd(), "trading_monitor_data_fallback")
 
         return self._base_data_path
-    # ==========================================================
 
-    # =================== ADD THIS METHOD (Preferred DI) ===================
+
     def set_config_repository(self, config_repo: IConfigRepository):
         """Allows setting the config repository after PathService initialization."""
         self.logger.debug("Config repository instance provided to PathService.")
         self._config_repository = config_repo
-    # ======================================================================
 
     def get_config_file_path(self) -> str:
         """Gets the full path to the main configuration file."""
@@ -125,9 +123,6 @@ class PathService(IPathService):
              # Fallback or raise error
              return os.path.join(os.getcwd(), "config_fallback.json")
         return self._config_file_path
-
-    # --- NO CHANGES needed in get_platform_base_path, get_platform_regions_path, get_platform_monitoring_path ---
-    # They correctly use self.get_base_data_path() which now handles the lazy override check.
 
     def get_platform_base_path(self, platform: str) -> str:
         path = os.path.join(self.get_base_data_path(), platform)
@@ -144,3 +139,20 @@ class PathService(IPathService):
         try: os.makedirs(path, exist_ok=True)
         except OSError as e: self.logger.error(f"Failed create platform monitoring dir '{path}': {e}", exc_info=True)
         return path
+
+    def get_region_screenshot_path(self, platform: str, region_type: str, region_name: str) -> str:
+        """
+        Constructs the standard path for saving/finding a specific region's screenshot.
+        Ensures the necessary directory structure exists.
+        """
+        if not platform or not region_type or not region_name:
+            self.logger.error(
+                f"Invalid arguments for get_region_screenshot_path: p={platform}, t={region_type}, n={region_name}")
+            return os.path.join(self.get_screenshots_base_path(), "invalid_region_name.png")
+
+        platform_dir = self.get_platform_regions_path(platform)  # Ensures creation
+        safe_region_name = re.sub(r'[^\w\-]+', '_', region_name)
+        filename = f"{platform}_{region_type}_{safe_region_name}_original.png"
+        full_path = os.path.join(platform_dir, filename)
+        self.logger.debug(f"Determined region screenshot path: {full_path}")
+        return full_path

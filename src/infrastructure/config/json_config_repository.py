@@ -8,12 +8,12 @@ Stores configuration in a JSON file on disk.
 import os
 import json
 import threading
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.common.result import Result
-from src.domain.common.errors import ResourceError, ConfigurationError
+from src.domain.common.errors import ResourceError, ConfigurationError, ValidationError
 from src.domain.services.i_path_service import IPathService
 
 class JsonConfigRepository(IConfigRepository):
@@ -246,22 +246,212 @@ class JsonConfigRepository(IConfigRepository):
 
     def get_platform_settings(self, platform: str) -> Dict[str, Any]:
         """
-        Get settings for a specific platform.
+        Get settings for a specific platform, ensuring default structure exists.
 
         Args:
             platform: Platform name
 
         Returns:
-            Dictionary of platform settings
+            Dictionary of platform settings (with defaults if new)
         """
         with self._lock:
             config_result = self.load_config()
             if config_result.is_failure:
                 self.logger.error(f"Error loading config: {config_result.error}")
-                return {}
+                # Return a basic default structure on load failure to avoid None errors later
+                return {
+                    "monitor_region": None,
+                    "flatten_regions": {},
+                    # Add other expected defaults if needed (e.g., ocr_profile)
+                }
 
             config = config_result.value
-            return config.get("platforms", {}).get(platform, {})
+            platforms_node = config.setdefault("platforms", {}) # Get platforms dict, create if missing
+
+            # Get platform-specific settings, create with defaults if missing
+            platform_settings = platforms_node.setdefault(platform, {})
+
+            # --- Ensure our new keys exist with default values ---
+            platform_settings.setdefault("monitor_region", None)
+            platform_settings.setdefault("flatten_regions", {})
+            # platform_settings.setdefault("ocr_profile", OcrProfile().to_dict()) # Example if needed
+            # --- End Ensure ---
+
+            return platform_settings
+
+    def get_monitor_region(self, platform: str) -> Result[Optional[Dict[str, Any]]]: # Added Result type hint
+        """
+        Get the single monitoring region settings dictionary for a specific platform.
+        Uses Result object for explicit success/failure.
+        """
+        with self._lock:
+            try:
+                # get_platform_settings now ensures the basic structure exists
+                platform_settings = self.get_platform_settings(platform)
+                monitor_region_data = platform_settings.get("monitor_region") # This is dict or None
+                # Return success, value is the dict or None
+                return Result.ok(monitor_region_data)
+            except Exception as e:
+                msg = f"Error retrieving monitor region for {platform}: {e}"
+                self.logger.error(msg, exc_info=True)
+                return Result.fail(ConfigurationError(msg, inner_error=e))
+
+    def get_flatten_region(self, platform: str, region_name: str) -> Result[Optional[Dict[str, Any]]]: # Added Result type hint
+        """
+        Get a specific flatten region settings dictionary by name for a platform.
+        Uses Result object for explicit success/failure.
+        """
+        with self._lock:
+            try:
+                platform_settings = self.get_platform_settings(platform)
+                flatten_regions_dict = platform_settings.get("flatten_regions", {})
+                # Return success, value is the specific region dict or None if key not found
+                return Result.ok(flatten_regions_dict.get(region_name))
+            except Exception as e:
+                msg = f"Error retrieving flatten region '{region_name}' for {platform}: {e}"
+                self.logger.error(msg, exc_info=True)
+                return Result.fail(ConfigurationError(msg, inner_error=e))
+
+    def get_regions_by_platform(self, platform: str, region_type: str) -> Result[List[Dict[str, Any]]]: # Added Result type hint
+        """
+        Get all region settings dictionaries of a specific type for a platform.
+        Uses Result object for explicit success/failure.
+        """
+        with self._lock:
+            try:
+                platform_settings = self.get_platform_settings(platform)
+
+                if region_type == "monitor":
+                    monitor_region_data = platform_settings.get("monitor_region")
+                    regions_list = [monitor_region_data] if monitor_region_data else []
+                    return Result.ok(regions_list)
+                elif region_type == "flatten":
+                    flatten_regions_dict = platform_settings.get("flatten_regions", {})
+                    return Result.ok(list(flatten_regions_dict.values()))
+                else:
+                    msg = f"Requested unknown region type '{region_type}' for platform '{platform}'"
+                    self.logger.warning(msg)
+                    return Result.fail(ValidationError(msg)) # Use ValidationError
+
+            except Exception as e:
+                msg = f"Error retrieving regions type '{region_type}' for {platform}: {e}"
+                self.logger.error(msg, exc_info=True)
+                return Result.fail(ConfigurationError(msg, inner_error=e))
+
+    def save_region(self, platform: str, region_data: Dict[str, Any]) -> Result[bool]:
+        """
+        Save a region's settings dictionary. Overwrites the single monitor region
+        or adds/updates a flatten region in the dictionary.
+        """
+        with self._lock:
+            # Basic validation of incoming data
+            if not isinstance(region_data, dict) or "type" not in region_data:
+                return Result.fail(
+                    ConfigurationError("Invalid region data provided to save_region (must be dict with 'type')"))
+
+            region_type = region_data["type"]
+            region_name = region_data.get("name")  # Needed for flatten regions key
+
+            # Load current config safely
+            config_result = self.load_config()
+            if config_result.is_failure:
+                return Result.fail(config_result.error)
+            config = config_result.value
+
+            try:
+                # Ensure platforms and specific platform structure exists using setdefault
+                platforms_node = config.setdefault("platforms", {})
+                platform_settings = platforms_node.setdefault(platform, {})
+                platform_settings.setdefault("monitor_region", None)
+                platform_settings.setdefault("flatten_regions", {})
+
+                if region_type == "monitor":
+                    # Directly overwrite the monitor_region key
+                    platform_settings["monitor_region"] = region_data
+                    self.logger.info(f"Saved/Updated monitor region for platform '{platform}' in config structure.")
+                elif region_type == "flatten":
+                    if not region_name:  # Flatten regions MUST have a name to be used as a key
+                        return Result.fail(ConfigurationError("Flatten region data must include a 'name' to be saved"))
+                    # Add or update the region in the flatten_regions dictionary
+                    flatten_regions_dict = platform_settings["flatten_regions"]
+                    flatten_regions_dict[region_name] = region_data
+                    self.logger.info(
+                        f"Saved/Updated flatten region '{region_name}' for platform '{platform}' in config structure.")
+                else:
+                    msg = f"Cannot save region with unknown type '{region_type}'"
+                    self.logger.error(msg)
+                    return Result.fail(ConfigurationError(msg))
+
+                # Save the entire updated config file
+                return self.save_config(config)
+
+            except Exception as e:
+                # Catch errors during dictionary manipulation before save_config
+                msg = f"Error preparing region data for saving: {e}"
+                self.logger.error(msg, exc_info=True)
+                return Result.fail(ConfigurationError(msg, inner_error=e))
+
+    def delete_region(self, platform: str, region_type: str, region_name: str) -> Result[bool]:
+        """
+        Delete a specific region's metadata. Sets monitor region to None or removes
+        flatten region from dictionary. Returns Result.ok(True) if deletion happened
+        or region wasn't found, Result.fail on error.
+        """
+        with self._lock:
+            # Load current config safely
+            config_result = self.load_config()
+            if config_result.is_failure:
+                return Result.fail(config_result.error)
+            config = config_result.value
+
+            try:
+                platforms_node = config.get("platforms", {})
+                platform_settings = platforms_node.get(platform)
+
+                # If platform doesn't exist in config, region is effectively deleted
+                if not platform_settings:
+                    self.logger.warning(
+                        f"Platform '{platform}' not found in config, cannot delete region '{region_name}'. Treating as success.")
+                    return Result.ok(True)  # Indicate no change needed / already gone
+
+                deleted = False  # Flag to track if save_config is needed
+                if region_type == "monitor":
+                    # Set monitor region to None if it's currently set
+                    if "monitor_region" in platform_settings and platform_settings["monitor_region"] is not None:
+                        platform_settings["monitor_region"] = None
+                        self.logger.info(f"Deleted monitor region for platform '{platform}' from config structure.")
+                        deleted = True
+                    else:
+                        self.logger.debug(f"Monitor region for '{platform}' already not set in config structure.")
+                elif region_type == "flatten":
+                    # Remove flatten region by name key if it exists
+                    flatten_regions_dict = platform_settings.get("flatten_regions", {})
+                    if region_name in flatten_regions_dict:
+                        del flatten_regions_dict[region_name]
+                        platform_settings["flatten_regions"] = flatten_regions_dict  # Ensure update if dict was copied
+                        self.logger.info(
+                            f"Deleted flatten region '{region_name}' for platform '{platform}' from config structure.")
+                        deleted = True
+                    else:
+                        self.logger.debug(
+                            f"Flatten region '{region_name}' not found for platform '{platform}' in config structure.")
+                else:
+                    msg = f"Cannot delete region with unknown type '{region_type}'"
+                    self.logger.error(msg)
+                    return Result.fail(ConfigurationError(msg))
+
+                # Only save the config file if a change was actually made
+                if deleted:
+                    return self.save_config(config)
+                else:
+                    # No change needed, considered successful
+                    return Result.ok(True)
+
+            except Exception as e:
+                # Catch errors during dictionary manipulation before save_config
+                msg = f"Error preparing region data for deletion: {e}"
+                self.logger.error(msg, exc_info=True)
+                return Result.fail(ConfigurationError(msg, inner_error=e))
 
     def save_platform_settings(self, platform: str, settings: Dict[str, Any]) -> Result[bool]:
         """

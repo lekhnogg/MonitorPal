@@ -310,10 +310,23 @@ class TesseractOcrService(IOcrService):
                 self.logger.debug("Input text is empty, cannot extract values.")
                 return Result.ok([])
 
-            # Preprocessing - replace common OCR errors NOT handled by regex/cleaning yet
-            processed_text = text.replace(';', '.')  # Common Tesseract error
-            processed_text = processed_text.replace(' ',
-                                                    '')  # Remove spaces to help regex matching adjacent items sometimes
+            # Preprocessing - replace common OCR errors
+            processed_text = text
+            # --- ADDED PRE-CLEANING FOR COMMA/PERIOD ---
+            # If we see a comma followed by exactly two digits at the end,
+            # especially after a number, it's highly likely it should be a period.
+            # Example: -$1,280,00 -> -$1,280.00
+            original_processed_text = processed_text  # Store for logging comparison
+            processed_text = re.sub(r'(\d),(\d{2})$', r'\1.\2', processed_text)
+            # Also handle cases like 1,280,00 without trailing symbols
+            processed_text = re.sub(r'(\d),(\d{2})\b', r'\1.\2', processed_text)  # Use word boundary \b
+            if processed_text != original_processed_text:
+                self.logger.debug(f"Applied comma->period correction: '{processed_text[:100]}...'")
+            # --- END ADDED PRE-CLEANING ---
+
+            # Continue with other preprocessing
+            processed_text = processed_text.replace(';', '.')  # Common Tesseract error
+            processed_text = processed_text.replace(' ', '')  # Remove spaces
             processed_text = processed_text.replace('S', '$')  # Common OCR mistake
             processed_text = processed_text.replace('s', '$')  # Common OCR mistake
             self.logger.debug(f"Preprocessed text for pattern matching: '{processed_text[:100]}...'")
@@ -341,6 +354,8 @@ class TesseractOcrService(IOcrService):
 
                         if captured_group:
                             # Use the robust cleaning and conversion helper function
+                            # NOTE: _clean_and_convert_value should be the ORIGINAL version
+                            # (without the complex separator logic changes we tried before)
                             numeric_value = self._clean_and_convert_value(captured_group, full_match_text)
 
                             if numeric_value is not None:
@@ -351,24 +366,17 @@ class TesseractOcrService(IOcrService):
                                     seen_rounded_values.add(rounded)
                                     self.logger.debug(
                                         f"  Added value {numeric_value} (Rounded: {rounded}) using pattern '{pattern_name}' from match '{full_match_text}'")
-                                # else: # Optional: Log if duplicate found
-                                #    self.logger.debug(f"  Duplicate value {numeric_value} (Rounded: {rounded}) ignored.")
-                        # else: # Optional: Log if pattern matched but captured no group
-                        #    self.logger.debug(f"Pattern '{name}' matched '{full_match_text}' but captured no group (or group was None).")
+                                else:
+                                    self.logger.debug(
+                                        f"  Duplicate value {numeric_value} (Rounded: {rounded}) ignored.")
+                        else:
+                            self.logger.debug(
+                                f"Pattern '{pattern_name}' matched '{full_match_text}' but captured no group (or group was None).")
 
                 except re.error as e:
                     self.logger.error(f"Regex error processing pattern '{pattern_name}': {e}")
                 except Exception as e:
                     self.logger.error(f"Unexpected error processing pattern '{pattern_name}': {e}", exc_info=True)
-
-            # Remove the old post-processing logic here - it's less reliable than robust cleaning
-            # OLD LOGIC REMOVED:
-            # if len(values) > 1 and not any('$' in text for _ in text):
-            #     ... (removed reconstruction logic) ...
-
-            # Filter out potential outliers if needed? (Optional, complex)
-            # E.g., if you extract [ -500.0, 1000000.0 ], the second might be noise.
-            # This requires domain knowledge or statistical methods. Keep it simple for now.
 
             self.logger.debug(f"Final extracted numeric values: {extracted_values}")
             return Result.ok(extracted_values)

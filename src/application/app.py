@@ -181,6 +181,7 @@ def initialize_app() -> DIContainer:
             path_service=container.resolve(IPathService), # Gets singleton
             logger=logger,
             profile_service=container.resolve(IProfileService), # Resolves factory -> new instance
+            region_service=container.resolve(IRegionService),
         )
     )
 

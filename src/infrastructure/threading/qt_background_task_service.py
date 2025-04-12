@@ -266,6 +266,7 @@ class QtBackgroundTaskService(IBackgroundTaskService):
         (Cleanup now primarily means calling the original callback,
          dictionary removal is handled by _handle_task_finished)
         """
+        self.logger.debug(f"Executing task '{task_id}' with auto-cleanup via thread.finished.")
         original_completed_callback = worker.on_completed_callback
         original_error_callback = worker.on_error_callback
 

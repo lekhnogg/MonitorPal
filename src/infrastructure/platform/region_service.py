@@ -26,170 +26,260 @@ class RegionService(IRegionService):
         self.path_service = path_service # Store path_service
         self.logger = logger
 
-    def _get_original_screenshot_path(self, region: Region) -> str:
-        """ Helper to construct the standard path for an original region screenshot. """
-        if not region.platform or not region.type or not region.name:
-            self.logger.warning(f"Attempted to get path for incomplete region: {region}")
-            # PathService should handle base path determination robustly
-            return os.path.join(self.path_service.get_base_data_path(), "invalid_region_path.png")
-
-        regions_dir = self.path_service.get_platform_regions_path(region.platform)  # Ensures dir exists
-        safe_region_name = re.sub(r'[^\w\-]+', '_', region.name)
-        filename = f"{region.platform}_{region.type}_{safe_region_name}_original.png"
-        return os.path.join(regions_dir, filename)
 
     def save_region(self, region: Region) -> Result[bool]:
         """
-        Saves region metadata (coords and screenshot path) to config.
-        If temp screenshot data exists on region._temp_screenshot_data, saves
-        the file and uses the resulting path. Otherwise uses region.screenshot_path
-        ONLY IF it's a valid string, otherwise sets path to None.
+        Saves region data (metadata & potentially screenshot file).
+        Handles single 'monitor' region or named 'flatten' regions.
         """
         try:
             # --- Basic Validation ---
-            if not region.name or not region.platform or not region.type or not region.coordinates:
-                return Result.fail(ValidationError("Invalid region data for saving", details=vars(region)))
+            if not region or not region.name or not region.platform or not region.type or not region.coordinates:
+                return Result.fail(ValidationError("Invalid region data provided for saving", details=vars(region)))
 
-            final_screenshot_path_to_save = None # Initialize path to None
+            final_screenshot_path = region.screenshot_path # Start with existing path if any
             temp_data_attr = '_temp_screenshot_data'
-            new_image_was_saved = False # Flag if we just saved a new file
+            new_image_was_saved = False
 
             # --- Step 1: Check for and save new screenshot data ---
             if hasattr(region, temp_data_attr) and getattr(region, temp_data_attr):
                 image_data = getattr(region, temp_data_attr)
-                calculated_path = self._get_original_screenshot_path(region)
+                # Use PathService to get the correct path for this region
+                # Note: For monitor type, region.name might always be 'monitor'
+                calculated_path = self.path_service.get_region_screenshot_path(
+                    region.platform, region.type, region.name
+                )
                 self.logger.info(f"Saving new screenshot data for '{region.name}' to: {calculated_path}")
 
+                # PathService should ensure the directory exists, but save_screenshot might double-check
                 save_img_result = self.screenshot_service.save_screenshot(image_data, calculated_path)
 
                 if save_img_result.is_failure:
                     self.logger.error(f"Failed to save new screenshot file '{calculated_path}': {save_img_result.error}")
-                    # Fail the whole save if we couldn't save the mandatory new screenshot
                     return Result.fail(ResourceError(f"Failed to save required screenshot file", inner_error=save_img_result.error))
 
-                # Successfully saved new image, use this path
-                final_screenshot_path_to_save = calculated_path
-                new_image_was_saved = True # Mark that we saved a file
+                final_screenshot_path = calculated_path # Use the path where we just saved
+                new_image_was_saved = True
 
-            # --- Step 2: If no new data, check existing path attribute ---
-            elif hasattr(region, 'screenshot_path') and region.screenshot_path is not None:
-                # IMPORTANT: Validate that the existing attribute value IS A STRING
-                if isinstance(region.screenshot_path, str):
-                    # It's a string, assume it's the correct existing path
-                    final_screenshot_path_to_save = region.screenshot_path
-                    self.logger.debug(f"Using existing valid screenshot path string for region '{region.name}': {final_screenshot_path_to_save}")
-                else:
-                    # The attribute exists but is NOT a string (e.g., the bad tuple)
-                    # Log a serious warning/error and DISCARD the invalid value.
-                    self.logger.error(f"Region '{region.name}' had an invalid type for screenshot_path ({type(region.screenshot_path)}). Discarding invalid path value. Value was: {repr(region.screenshot_path)}")
-                    final_screenshot_path_to_save = None # Force path to None
-
-            # --- Step 3: Prepare data for config ---
-            # final_screenshot_path_to_save is now either None or a valid string path
+            # --- Step 2: Prepare data dictionary for the repository ---
+            # The repository now only needs the core data, not nested structure details.
+            # Ensure coordinates are a list for JSON serialization.
             region_data_to_save = {
+                "id": region.id,
+                "name": region.name,
+                "type": region.type,
+                "platform": region.platform, # Include platform info if repo needs it (often doesn't)
                 "coordinates": list(region.coordinates),
-                "screenshot_path": final_screenshot_path_to_save # Use the validated/determined path
+                "screenshot_path": final_screenshot_path # Use the determined path
             }
 
-            # --- Step 4: Save to config repository ---
-            platform_settings = self.config_repository.get_platform_settings(region.platform)
-            key = f"{region.type}_regions"
-            if key not in platform_settings: platform_settings[key] = {}
-            platform_settings[key][region.name] = region_data_to_save
+            # --- Step 3: Call the updated repository method ---
+            # The repository now handles whether it's monitor (overwrite) or flatten (add/update dict)
+            repo_save_result = self.config_repository.save_region(region.platform, region_data_to_save)
 
-            result = self.config_repository.save_platform_settings(region.platform, platform_settings)
-
-            # --- Step 5: Cleanup and Final Logging ---
-            # Remove temp attribute now (if it existed)
+            # --- Step 4: Cleanup and Final Logging ---
             if hasattr(region, temp_data_attr):
-                try:
-                    delattr(region, temp_data_attr)
-                except AttributeError:
-                    pass # Ignore if already gone
+                try: delattr(region, temp_data_attr)
+                except AttributeError: pass
 
-            if result.is_failure:
-                 if new_image_was_saved: # Log orphan only if we just saved it
-                      self.logger.error(f"Config save failed after saving screenshot '{final_screenshot_path_to_save}'. File may be orphaned.")
-                 return result # Propagate the config save failure
+            if repo_save_result.is_failure:
+                 if new_image_was_saved:
+                      self.logger.error(f"Config save failed after saving screenshot '{final_screenshot_path}'. File may be orphaned.")
+                 return repo_save_result # Propagate the config save failure
 
-            # Update the original region object's path attribute AFTER successful save
-            region.screenshot_path = final_screenshot_path_to_save
+            # Update the region object passed in *after* successful save
+            region.screenshot_path = final_screenshot_path
 
-            self.logger.info(f"Saved region '{region.name}' metadata for '{region.platform}' (Screenshot: {region.screenshot_path})")
+            self.logger.info(f"RegionService: Saved region '{region.name}' ({region.type}) for '{region.platform}'")
             return Result.ok(True)
 
         except Exception as e:
             # General error during the process
-            error = ResourceError(f"Failed to save region: {e}", details={"r": region.name}, inner_error=e)
+            error = ResourceError(f"RegionService failed to save region: {e}", details={"region_name": region.name if region else 'N/A'}, inner_error=e)
             self.logger.error(str(error), exc_info=True)
-            # Clean up temp attribute in case of exception too
             if hasattr(region, '_temp_screenshot_data'):
                 try: delattr(region, '_temp_screenshot_data')
                 except AttributeError: pass
             return Result.fail(error)
 
     def get_regions_by_platform(self, platform: str, region_type: str) -> Result[List[Region]]:
-        """ Get all regions for a platform of a specific type from config. """
+        """ Get all regions for a platform of a specific type using the repository. """
         try:
-            platform_settings = self.config_repository.get_platform_settings(platform)
+            # Call the repository method which now handles single monitor / multiple flatten
+            region_dicts_result = self.config_repository.get_regions_by_platform(platform, region_type)
+
+            if region_dicts_result.is_failure:
+                 # Log error if needed, but primarily propagate the Result
+                 self.logger.error(f"Repository failed to get regions for {platform}/{region_type}: {region_dicts_result.error}")
+                 return Result.fail(region_dicts_result.error) # Pass the failure Result up
+
+            region_dicts = region_dicts_result.value
             regions = []
-            key = f"{region_type}_regions"
-            if key in platform_settings:
-                 region_dict = platform_settings[key]
-                 if not isinstance(region_dict, dict): self.logger.error(f"Config error: Expected dict for '{key}' in '{platform}'."); return Result.fail(ConfigurationError(f"Invalid config structure for {key}"))
+            for region_data in region_dicts:
+                 # Convert dictionary back to Region object
+                 try:
+                      # Basic check if it looks like valid region data
+                      if not isinstance(region_data, dict) or "name" not in region_data or "coordinates" not in region_data:
+                           self.logger.warning(f"Skipping invalid region data structure received from repository: {region_data}")
+                           continue
 
-                 for name, region_data in region_dict.items():
-                    if not isinstance(region_data, dict): self.logger.warning(f"Skipping region '{name}': Invalid data format."); continue
-                    coords = region_data.get("coordinates")
-                    screenshot_path = region_data.get("screenshot_path") # Get path from config
-                    if coords is None: self.logger.warning(f"Skipping region '{name}': Missing coordinates."); continue
-                    if not isinstance(coords, list) or len(coords) != 4: self.logger.warning(f"Skipping region '{name}': Invalid coords format."); continue
+                      coords = region_data.get("coordinates")
+                      # Ensure coordinates are a tuple
+                      if isinstance(coords, list) and len(coords) == 4:
+                           coords = tuple(coords)
+                      elif not (isinstance(coords, tuple) and len(coords) == 4):
+                           self.logger.warning(f"Skipping region '{region_data.get('name', 'N/A')}' due to invalid coordinates: {coords}")
+                           continue
 
-                    region_id = f"{platform}_{region_type}_{name}"
-                    region = Region(id=region_id, name=name, coordinates=tuple(coords), type=region_type, platform=platform, screenshot_path=screenshot_path) # Use stored path
-                    regions.append(region)
-            self.logger.debug(f"Found {len(regions)} regions type '{region_type}' for '{platform}'.")
+                      region = Region(
+                          id=region_data.get("id", f"{platform}_{region_type}_{region_data['name']}"), # Construct ID if missing
+                          name=region_data["name"],
+                          coordinates=coords,
+                          type=region_data.get("type", region_type), # Use type from data or context
+                          platform=region_data.get("platform", platform), # Use platform from data or context
+                          screenshot_path=region_data.get("screenshot_path")
+                      )
+                      regions.append(region)
+                 except Exception as conversion_err:
+                      # Log error during conversion of a specific region's data
+                      self.logger.error(f"Error converting region data dict to Region object: {conversion_err} - Data: {region_data}", exc_info=True)
+                      # Continue processing other regions
+
+            self.logger.debug(f"RegionService: Found {len(regions)} regions type '{region_type}' for '{platform}'.")
             return Result.ok(regions)
-        except Exception as e: error = ResourceError(f"Failed get regions: {e}", details={"p": platform}, inner_error=e); self.logger.error(str(error), exc_info=True); return Result.fail(error)
+
+        except Exception as e:
+            # Catch errors in this service layer itself
+            error = ResourceError(f"RegionService failed to get regions: {e}", details={"platform": platform, "type": region_type}, inner_error=e)
+            self.logger.error(str(error), exc_info=True)
+            return Result.fail(error)
 
     def get_region(self, platform: str, region_type: str, name: str) -> Result[Region]:
-        """ Get a specific region by platform, type and name from config. """
+        """ Get a specific region by platform, type and name using the repository. """
         try:
-            platform_settings = self.config_repository.get_platform_settings(platform)
-            key = f"{region_type}_regions"
-            if key not in platform_settings or name not in platform_settings[key]: return Result.fail(ValidationError(f"Region not found: {name}", details={"p": platform}))
+            region_data: Optional[Dict[str, Any]] = None
 
-            region_data = platform_settings[key][name]
-            if not isinstance(region_data, dict): self.logger.error(f"Config error: Expected dict for region '{name}'."); return Result.fail(ConfigurationError(f"Invalid config for region {name}"))
+            # Call the appropriate repository method based on type
+            if region_type == "monitor":
+                # For monitor, name is implicit, just get the single region
+                repo_result = self.config_repository.get_monitor_region(platform)
+                if repo_result.is_failure: return Result.fail(repo_result.error) # Propagate error
+                region_data = repo_result.value # Value is the dict or None
+                # We still check the name consistency if data exists
+                if region_data and region_data.get("name") != name:
+                    self.logger.warning(f"Monitor region name mismatch in config ('{region_data.get('name')}') vs requested ('{name}') for {platform}.")
+                    # Decide how to handle: fail or proceed? Let's fail for consistency.
+                    # return Result.fail(ConfigurationError(f"Monitor region name mismatch for {platform}"))
 
+            elif region_type == "flatten":
+                repo_result = self.config_repository.get_flatten_region(platform, name)
+                if repo_result.is_failure: return Result.fail(repo_result.error) # Propagate error
+                region_data = repo_result.value # Value is the dict or None
+            else:
+                return Result.fail(ValidationError(f"Unknown region type requested: {region_type}"))
+
+            # Check if region data was actually found
+            if region_data is None:
+                return Result.fail(ValidationError(f"Region '{name}' ({region_type}) not found for platform '{platform}'."))
+
+            # Convert dictionary back to Region object (similar logic as in get_regions_by_platform)
             coords = region_data.get("coordinates")
-            screenshot_path = region_data.get("screenshot_path") # Get path from config
-            if coords is None: return Result.fail(ConfigurationError(f"Region '{name}' has no coordinates."))
-            if not isinstance(coords, list) or len(coords) != 4: return Result.fail(ConfigurationError(f"Invalid coordinates format for region {name}"))
+            if isinstance(coords, list) and len(coords) == 4: coords = tuple(coords)
+            elif not (isinstance(coords, tuple) and len(coords) == 4):
+                return Result.fail(ConfigurationError(f"Invalid coordinates for region {name}: {coords}"))
 
-            region_id = f"{platform}_{region_type}_{name}"
-            region = Region(id=region_id, name=name, coordinates=tuple(coords), type=region_type, platform=platform, screenshot_path=screenshot_path) # Use stored path
+            region = Region(
+                id=region_data.get("id", f"{platform}_{region_type}_{name}"),
+                name=region_data.get("name", name), # Use name from data or the requested name
+                coordinates=coords,
+                type=region_data.get("type", region_type),
+                platform=region_data.get("platform", platform),
+                screenshot_path=region_data.get("screenshot_path")
+            )
             return Result.ok(region)
-        except Exception as e: error = ResourceError(f"Failed get region: {e}", details={"n": name}, inner_error=e); self.logger.error(str(error), exc_info=True); return Result.fail(error)
+
+        except Exception as e:
+            # Catch errors in this service layer itself
+            error = ResourceError(f"RegionService failed get region: {e}", details={"name": name, "type": region_type}, inner_error=e)
+            self.logger.error(str(error), exc_info=True)
+            return Result.fail(error)
+
+    def get_monitor_region(self, platform: str) -> Result[Optional[Region]]:
+        """Gets the single monitor region for the platform, if defined."""
+        try:
+            # Call the repository method which returns the dictionary or None
+            repo_result = self.config_repository.get_monitor_region(platform)
+            if repo_result.is_failure:
+                # Propagate repository error
+                return Result.fail(repo_result.error)
+
+            region_data = repo_result.value  # This is the dict or None
+            if region_data is None:
+                # Monitor region is not defined, return success with None value
+                return Result.ok(None)
+
+            # Convert the dictionary received from the repository into a Region object
+            coords = region_data.get("coordinates")
+            if isinstance(coords, list) and len(coords) == 4:
+                coords = tuple(coords)
+            elif not (isinstance(coords, tuple) and len(coords) == 4):
+                # Fail if coordinates are invalid in the stored data
+                return Result.fail(ConfigurationError(f"Invalid coordinates found for monitor region: {coords}"))
+
+            region = Region(
+                # Use data from dict, providing defaults/context where necessary
+                id=region_data.get("id", f"{platform}_monitor_monitor"),  # Use standard ID format
+                name=region_data.get("name", "monitor"),  # Assume standard name
+                coordinates=coords,
+                type="monitor",  # Explicitly set type
+                platform=region_data.get("platform", platform),  # Use platform from context
+                screenshot_path=region_data.get("screenshot_path")  # Get path from data
+            )
+            # Return success with the created Region object
+            return Result.ok(region)
+
+        except Exception as e:
+            # Catch unexpected errors during processing within this service method
+            error = ResourceError(f"RegionService failed get_monitor_region: {e}", details={"platform": platform},
+                                  inner_error=e)
+            self.logger.error(str(error), exc_info=True)
+            return Result.fail(error)
 
     def capture_region_screenshot(self, coordinates: Tuple[int, int, int, int],
                                   region_id: str, platform: str,
                                   region_type: str) -> Result[Tuple[Any, str]]:
-        """ Captures screenshot data and determines the intended save path, returns both. """
+        """ Captures screenshot data and determines the intended save path using PathService. """
         try:
-            if not platform or not region_type or not region_id: return Result.fail(ValidationError("Missing info for screenshot capture"))
+            # Validate inputs
+            if not platform or not region_type or not region_id or not coordinates:
+                 return Result.fail(ValidationError("Missing required information for screenshot capture"))
 
-            parts = region_id.split('_', 2); temp_name = parts[2] if len(parts) == 3 else region_id
-            temp_region = Region(id=region_id, name=temp_name, coordinates=coordinates, type=region_type, platform=platform)
-            intended_screenshot_path = self._get_original_screenshot_path(temp_region)
+            # --- Determine intended path using PathService ---
+            # Extract name part from ID if needed by path service, or pass full ID
+            parts = region_id.split('_', 2)
+            region_name_for_path = parts[2] if len(parts) == 3 else region_id # Extract name if possible
+            if region_type == "monitor": region_name_for_path = "monitor" # Standardize name for monitor path
 
-            result = self.screenshot_service.capture_region(coordinates)
-            if result.is_failure: self.logger.error(f"Capture failed for {region_id}: {result.error}"); return Result.fail(result.error)
+            intended_screenshot_path = self.path_service.get_region_screenshot_path(
+                 platform, region_type, region_name_for_path
+            )
+            # --- End Path Determination ---
 
-            image_data = result.value
-            self.logger.info(f"Captured screenshot data for {region_id}. Intended path: {intended_screenshot_path}")
+            # Capture the actual screenshot data
+            capture_result = self.screenshot_service.capture_region(coordinates)
+            if capture_result.is_failure:
+                 self.logger.error(f"Screenshot capture failed for region {region_id}: {capture_result.error}")
+                 return Result.fail(capture_result.error) # Propagate capture error
+
+            image_data = capture_result.value
+            self.logger.info(f"Captured screenshot data for {region_id}. Intended save path: {intended_screenshot_path}")
+            # Return both the image data and the path where it *should* be saved
             return Result.ok((image_data, intended_screenshot_path))
-        except Exception as e: error = ResourceError(f"Failed capture data: {e}", details={"id": region_id}, inner_error=e); self.logger.error(str(error), exc_info=True); return Result.fail(error)
+
+        except Exception as e:
+            error = ResourceError(f"RegionService failed capture_region_screenshot: {e}", details={"region_id": region_id}, inner_error=e)
+            self.logger.error(str(error), exc_info=True)
+            return Result.fail(error)
 
     def load_region_screenshot(self, region: Region) -> Result[Any]:
         """Load the screenshot for a region."""
@@ -212,50 +302,54 @@ class RegionService(IRegionService):
             return Result.fail(error)
 
     def delete_region(self, platform: str, region_type: str, name: str) -> Result[bool]:
-        """ Delete a region's metadata and its associated original screenshot file. """
+        """ Deletes a region's metadata via repository and its associated screenshot file. """
         try:
-            platform_settings = self.config_repository.get_platform_settings(platform)
-            key = f"{region_type}_regions"
-            if key not in platform_settings or name not in platform_settings[key]: return Result.fail(
-                ValidationError(f"Region not found for deletion: {name}", details={"p": platform}))
-
-            region_data = platform_settings[key].get(name, {})
-            path_value_from_config = region_data.get("screenshot_path") if isinstance(region_data, dict) else None
+            # --- Determine screenshot path BEFORE deleting metadata ---
             screenshot_path_to_delete = None
+            # Use PathService to predict the path based on standard naming
+            # Standardize name for monitor type
+            name_for_path = "monitor" if region_type == "monitor" else name
+            try:
+                 screenshot_path_to_delete = self.path_service.get_region_screenshot_path(
+                      platform, region_type, name_for_path
+                 )
+            except Exception as path_err:
+                 # Log if path generation fails, but proceed with metadata deletion
+                 self.logger.warning(f"Could not determine screenshot path for potential deletion of {platform}/{region_type}/{name}: {path_err}")
 
-            # Validate the path retrieved from config before trying to use it
-            if isinstance(path_value_from_config, str):
-                screenshot_path_to_delete = path_value_from_config
-            elif path_value_from_config is not None:
-                # Log if the stored value wasn't a string or None
-                self.logger.warning(
-                    f"Invalid screenshot_path type ({type(path_value_from_config)}) found in config for region '{name}' during deletion. Cannot delete associated file.")
 
-            # --- Proceed with metadata deletion ---
-            del platform_settings[key][name]
-            result = self.config_repository.save_platform_settings(platform, platform_settings)
-            if result.is_failure: self.logger.error(
-                f"Failed save config after removing '{name}'. Screenshot delete aborted."); return result
-            self.logger.info(f"Deleted region '{name}' metadata for '{platform}'.")
+            # --- Call the repository to delete the metadata ---
+            # The repository handles setting monitor to None or removing flatten key
+            repo_delete_result = self.config_repository.delete_region(platform, region_type, name)
 
-            # --- Attempt file deletion only if path was a valid string ---
+            if repo_delete_result.is_failure:
+                # If deleting metadata fails, stop and report error
+                self.logger.error(f"Repository failed to delete region metadata for {platform}/{name}: {repo_delete_result.error}")
+                return repo_delete_result # Propagate error
+            # If repo call returns success=False (meaning region wasn't found), treat as success here.
+            elif not repo_delete_result.value:
+                 self.logger.warning(f"Repository reported region '{name}' ({region_type}) not found for platform '{platform}' during deletion.")
+                 # Still attempt to delete file if path was determined? Optional, maybe safer not to.
+                 screenshot_path_to_delete = None # Avoid deleting file if metadata wasn't found
+
+            self.logger.info(f"RegionService: Deleted region '{name}' metadata for '{platform}'.")
+
+            # --- Attempt file deletion if path was determined AND metadata deletion succeeded ---
             if screenshot_path_to_delete:
                 if os.path.exists(screenshot_path_to_delete):
                     try:
-                        os.remove(screenshot_path_to_delete); self.logger.info(
-                            f"Deleted screenshot file: {screenshot_path_to_delete}")
+                        os.remove(screenshot_path_to_delete)
+                        self.logger.info(f"Deleted screenshot file: {screenshot_path_to_delete}")
                     except OSError as e:
-                        self.logger.warning(f"Failed delete screenshot file '{screenshot_path_to_delete}': {e}")
+                        # Log warning but don't fail the whole operation just for file deletion failure
+                        self.logger.warning(f"Failed to delete screenshot file '{screenshot_path_to_delete}': {e}")
                 else:
-                    self.logger.warning(f"Screenshot file not found for deletion: {screenshot_path_to_delete}")
-            elif path_value_from_config is not None:
-                # Logged warning above about invalid type, no deletion attempted.
-                pass
-            else:
-                self.logger.debug(
-                    f"No valid screenshot path found in config for deleted region '{name}', no file deleted.")
+                    # Log if the predicted file wasn't there anyway
+                    self.logger.debug(f"Screenshot file determined for deletion not found: {screenshot_path_to_delete}")
 
-            return Result.ok(True)
+            return Result.ok(True) # Overall success (metadata deleted)
+
         except Exception as e:
-            error = ResourceError(f"Failed delete region: {e}", details={"n": name}, inner_error=e); self.logger.error(
-                str(error), exc_info=True); return Result.fail(error)
+            error = ResourceError(f"RegionService failed to delete region: {e}", details={"name": name, "type": region_type}, inner_error=e)
+            self.logger.error(str(error), exc_info=True)
+            return Result.fail(error)

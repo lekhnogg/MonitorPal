@@ -1,3 +1,4 @@
+import re
 from typing import List, Optional, Dict
 
 from src.domain.services.i_profile_service import IProfileService
