@@ -40,111 +40,7 @@ class TesseractOcrService(IOcrService):
         # Configure Tesseract path
         self._configure_tesseract_path()
 
-    def _configure_tesseract_path(self) -> None:
-        """
-        Configure the Tesseract path based on the environment.
 
-        Follows similar logic to the original implementation but with improved error handling.
-        """
-        try:
-            # Check if running as compiled executable (PyInstaller)
-            if getattr(sys, 'frozen', False):
-                base_path = sys._MEIPASS  # PyInstaller creates a temp folder and stores path in _MEIPASS
-                tesseract_path = os.path.join(base_path, "resources", "Tesseract-OCR", "tesseract.exe")
-                pytesseract.pytesseract.tesseract_cmd = tesseract_path
-                self.logger.info(f"Configured Tesseract path for executable: {tesseract_path}")
-            else:
-                # Running as script - try multiple common installation locations
-                possible_paths = [
-                    r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-                    r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-                    r'C:\Users\Gabe\AppData\Local\Programs\Tesseract-OCR\tesseract.exe',
-                    r'/usr/bin/tesseract',  # Linux
-                    r'/usr/local/bin/tesseract',  # macOS
-                    # Add more common paths if needed
-                ]
-
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        pytesseract.pytesseract.tesseract_cmd = path
-                        self.logger.info(f"Configured Tesseract path: {path}")
-                        return
-
-                # If no path found, log warning but continue
-                # (pytesseract will use system default if available)
-                self.logger.warning("Tesseract OCR not found in common locations. " +
-                                    "Please install Tesseract or configure the path manually.")
-        except Exception as e:
-            # Log error but continue - may still work if Tesseract is in PATH
-            self.logger.error(f"Error configuring Tesseract path: {e}")
-
-    def extract_text(self, image: Image.Image) -> Result[str]:
-        """
-        Legacy method - now uses default profile.
-
-        For better results, use extract_text_with_profile directly.
-        """
-        # Create a default profile
-        default_profile = OcrProfile()
-
-        # Use the profile-based method
-        return self.extract_text_with_profile(image, default_profile)
-
-    def extract_text_from_file(self, image_path: str) -> Result[str]:
-        """
-        Extract text from an image file using default profile.
-
-        For better results, load the file and use extract_text_with_profile with
-        a platform-specific profile.
-        """
-        try:
-            self.logger.debug(f"Extracting text from file: {image_path}")
-
-            # Check if file exists
-            if not os.path.exists(image_path):
-                return Result.fail(f"Image file not found: {image_path}")
-
-            # Open the image
-            try:
-                image = Image.open(image_path)
-            except Exception as e:
-                return Result.fail(f"Failed to open image file: {str(e)}")
-
-            # Extract using default profile
-            default_profile = OcrProfile()
-            return self.extract_text_with_profile(image, default_profile)
-
-        except Exception as e:
-            error_msg = f"Text extraction from file failed: {str(e)}"
-            self.logger.error(error_msg)
-            return Result.fail(error_msg)
-
-    def preprocess_image(self, image: Image.Image) -> Result[Image.Image]:
-        """
-        Legacy method - now uses default profile.
-
-        For better results, use _preprocess_with_profile directly.
-        """
-        default_profile = OcrProfile()
-        return self._preprocess_with_profile(image, default_profile)
-
-    def extract_numeric_values(self, text: str) -> Result[List[float]]:
-        """
-        Legacy method for extracting numeric values.
-
-        For better results, use extract_numeric_values_with_patterns with
-        platform-specific patterns.
-        """
-        # Create default patterns
-        default_patterns = {
-            "dollar": r'\$([\d,]+\.?\d*)',
-            "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
-            "negative_dash": r'-\$?([\d,]+\.?\d*)',
-            "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
-        }
-
-        # Use the pattern-based method
-        return self.extract_numeric_values_with_patterns(text, default_patterns)
 
     def extract_text_with_profile(self, image: Image.Image, profile: OcrProfile) -> Result[str]:
         """Extract text from an image using a specific OCR profile."""
@@ -183,6 +79,92 @@ class TesseractOcrService(IOcrService):
             )
             self.logger.error(str(error))
             return Result.fail(error)
+
+    def extract_numeric_values_with_patterns(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
+        """Extract numeric values from text using custom regex patterns and robust cleaning."""
+        try:
+            self.logger.debug("Extracting numeric values with custom patterns")
+
+            if not text:
+                self.logger.debug("Input text is empty, cannot extract values.")
+                return Result.ok([])
+
+            # Preprocessing - replace common OCR errors
+            processed_text = text
+            # --- ADDED PRE-CLEANING FOR COMMA/PERIOD ---
+            # If we see a comma followed by exactly two digits at the end,
+            # especially after a number, it's highly likely it should be a period.
+            # Example: -$1,280,00 -> -$1,280.00
+            original_processed_text = processed_text  # Store for logging comparison
+            processed_text = re.sub(r'(\d),(\d{2})$', r'\1.\2', processed_text)
+            # Also handle cases like 1,280,00 without trailing symbols
+            processed_text = re.sub(r'(\d),(\d{2})\b', r'\1.\2', processed_text)  # Use word boundary \b
+            if processed_text != original_processed_text:
+                self.logger.debug(f"Applied comma->period correction: '{processed_text[:100]}...'")
+            # --- END ADDED PRE-CLEANING ---
+
+            # Continue with other preprocessing
+            processed_text = processed_text.replace(';', '.')  # Common Tesseract error
+            processed_text = processed_text.replace(' ', '')  # Remove spaces
+            processed_text = processed_text.replace('S', '$')  # Common OCR mistake
+            processed_text = processed_text.replace('s', '$')  # Common OCR mistake
+            self.logger.debug(f"Preprocessed text for pattern matching: '{processed_text[:100]}...'")
+
+            # List to store extracted values and set to track unique rounded values
+            extracted_values = []
+            seen_rounded_values = set()
+
+            # Process each pattern
+            for pattern_name, pattern in patterns.items():
+                self.logger.debug(f"Processing pattern '{pattern_name}': {pattern}")
+                try:
+                    # Use re.finditer to get match objects (includes full match context)
+                    for match in re.finditer(pattern, processed_text):
+                        full_match_text = match.group(0)  # Get the whole matched string
+                        captured_group = None
+
+                        # Find the primary captured group (usually the number part)
+                        if match.groups():
+                            # Iterate through captured groups, find the first non-None one
+                            for group in match.groups():
+                                if group is not None:
+                                    captured_group = group
+                                    break  # Use the first one found
+
+                        if captured_group:
+                            # Use the robust cleaning and conversion helper function
+                            # NOTE: _clean_and_convert_value should be the ORIGINAL version
+                            # (without the complex separator logic changes we tried before)
+                            numeric_value = self._clean_and_convert_value(captured_group, full_match_text)
+
+                            if numeric_value is not None:
+                                # Check for uniqueness based on rounded value (e.g., 2 decimal places)
+                                rounded = round(numeric_value, 2)
+                                if rounded not in seen_rounded_values:
+                                    extracted_values.append(numeric_value)
+                                    seen_rounded_values.add(rounded)
+                                    self.logger.debug(
+                                        f"  Added value {numeric_value} (Rounded: {rounded}) using pattern '{pattern_name}' from match '{full_match_text}'")
+                                else:
+                                    self.logger.debug(
+                                        f"  Duplicate value {numeric_value} (Rounded: {rounded}) ignored.")
+                        else:
+                            self.logger.debug(
+                                f"Pattern '{pattern_name}' matched '{full_match_text}' but captured no group (or group was None).")
+
+                except re.error as e:
+                    self.logger.error(f"Regex error processing pattern '{pattern_name}': {e}")
+                except Exception as e:
+                    self.logger.error(f"Unexpected error processing pattern '{pattern_name}': {e}", exc_info=True)
+
+            self.logger.debug(f"Final extracted numeric values: {extracted_values}")
+            return Result.ok(extracted_values)
+
+        except Exception as e:
+            # Log general exceptions during the process
+            error_msg = f"Numeric value extraction with patterns failed: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)  # Include stack trace
+            return Result.fail(error_msg)
 
     def _preprocess_with_profile(self, image: Image.Image, profile: OcrProfile) -> Result[Image.Image]:
         """Preprocess an image using profile parameters with improved handling for colored text."""
@@ -300,92 +282,6 @@ class TesseractOcrService(IOcrService):
             )
             self.logger.error(str(error))
             return Result.fail(error)
-
-    def extract_numeric_values_with_patterns(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
-        """Extract numeric values from text using custom regex patterns and robust cleaning."""
-        try:
-            self.logger.debug("Extracting numeric values with custom patterns")
-
-            if not text:
-                self.logger.debug("Input text is empty, cannot extract values.")
-                return Result.ok([])
-
-            # Preprocessing - replace common OCR errors
-            processed_text = text
-            # --- ADDED PRE-CLEANING FOR COMMA/PERIOD ---
-            # If we see a comma followed by exactly two digits at the end,
-            # especially after a number, it's highly likely it should be a period.
-            # Example: -$1,280,00 -> -$1,280.00
-            original_processed_text = processed_text  # Store for logging comparison
-            processed_text = re.sub(r'(\d),(\d{2})$', r'\1.\2', processed_text)
-            # Also handle cases like 1,280,00 without trailing symbols
-            processed_text = re.sub(r'(\d),(\d{2})\b', r'\1.\2', processed_text)  # Use word boundary \b
-            if processed_text != original_processed_text:
-                self.logger.debug(f"Applied comma->period correction: '{processed_text[:100]}...'")
-            # --- END ADDED PRE-CLEANING ---
-
-            # Continue with other preprocessing
-            processed_text = processed_text.replace(';', '.')  # Common Tesseract error
-            processed_text = processed_text.replace(' ', '')  # Remove spaces
-            processed_text = processed_text.replace('S', '$')  # Common OCR mistake
-            processed_text = processed_text.replace('s', '$')  # Common OCR mistake
-            self.logger.debug(f"Preprocessed text for pattern matching: '{processed_text[:100]}...'")
-
-            # List to store extracted values and set to track unique rounded values
-            extracted_values = []
-            seen_rounded_values = set()
-
-            # Process each pattern
-            for pattern_name, pattern in patterns.items():
-                self.logger.debug(f"Processing pattern '{pattern_name}': {pattern}")
-                try:
-                    # Use re.finditer to get match objects (includes full match context)
-                    for match in re.finditer(pattern, processed_text):
-                        full_match_text = match.group(0)  # Get the whole matched string
-                        captured_group = None
-
-                        # Find the primary captured group (usually the number part)
-                        if match.groups():
-                            # Iterate through captured groups, find the first non-None one
-                            for group in match.groups():
-                                if group is not None:
-                                    captured_group = group
-                                    break  # Use the first one found
-
-                        if captured_group:
-                            # Use the robust cleaning and conversion helper function
-                            # NOTE: _clean_and_convert_value should be the ORIGINAL version
-                            # (without the complex separator logic changes we tried before)
-                            numeric_value = self._clean_and_convert_value(captured_group, full_match_text)
-
-                            if numeric_value is not None:
-                                # Check for uniqueness based on rounded value (e.g., 2 decimal places)
-                                rounded = round(numeric_value, 2)
-                                if rounded not in seen_rounded_values:
-                                    extracted_values.append(numeric_value)
-                                    seen_rounded_values.add(rounded)
-                                    self.logger.debug(
-                                        f"  Added value {numeric_value} (Rounded: {rounded}) using pattern '{pattern_name}' from match '{full_match_text}'")
-                                else:
-                                    self.logger.debug(
-                                        f"  Duplicate value {numeric_value} (Rounded: {rounded}) ignored.")
-                        else:
-                            self.logger.debug(
-                                f"Pattern '{pattern_name}' matched '{full_match_text}' but captured no group (or group was None).")
-
-                except re.error as e:
-                    self.logger.error(f"Regex error processing pattern '{pattern_name}': {e}")
-                except Exception as e:
-                    self.logger.error(f"Unexpected error processing pattern '{pattern_name}': {e}", exc_info=True)
-
-            self.logger.debug(f"Final extracted numeric values: {extracted_values}")
-            return Result.ok(extracted_values)
-
-        except Exception as e:
-            # Log general exceptions during the process
-            error_msg = f"Numeric value extraction with patterns failed: {str(e)}"
-            self.logger.error(error_msg, exc_info=True)  # Include stack trace
-            return Result.fail(error_msg)
 
     def _clean_and_convert_value(self, value_str: str, full_match: str) -> Optional[float]:
         """
@@ -571,3 +467,41 @@ class TesseractOcrService(IOcrService):
         except Exception as e:
             self.logger.error(f"Unexpected cleaning error for '{original_match_text}': {e}", exc_info=True)
             return None
+
+    def _configure_tesseract_path(self) -> None:
+        """
+        Configure the Tesseract path based on the environment.
+
+        Follows similar logic to the original implementation but with improved error handling.
+        """
+        try:
+            # Check if running as compiled executable (PyInstaller)
+            if getattr(sys, 'frozen', False):
+                base_path = sys._MEIPASS  # PyInstaller creates a temp folder and stores path in _MEIPASS
+                tesseract_path = os.path.join(base_path, "resources", "Tesseract-OCR", "tesseract.exe")
+                pytesseract.pytesseract.tesseract_cmd = tesseract_path
+                self.logger.info(f"Configured Tesseract path for executable: {tesseract_path}")
+            else:
+                # Running as script - try multiple common installation locations
+                possible_paths = [
+                    r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                    r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+                    r'C:\Users\Gabe\AppData\Local\Programs\Tesseract-OCR\tesseract.exe',
+                    r'/usr/bin/tesseract',  # Linux
+                    r'/usr/local/bin/tesseract',  # macOS
+                    # Add more common paths if needed
+                ]
+
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        pytesseract.pytesseract.tesseract_cmd = path
+                        self.logger.info(f"Configured Tesseract path: {path}")
+                        return
+
+                # If no path found, log warning but continue
+                # (pytesseract will use system default if available)
+                self.logger.warning("Tesseract OCR not found in common locations. " +
+                                    "Please install Tesseract or configure the path manually.")
+        except Exception as e:
+            # Log error but continue - may still work if Tesseract is in PATH
+            self.logger.error(f"Error configuring Tesseract path: {e}")

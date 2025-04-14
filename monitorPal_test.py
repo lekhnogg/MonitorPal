@@ -10,7 +10,6 @@ Comprehensive testing application for the Trading Monitor functionality.
 import os
 import re
 import sys
-import time
 from typing import List, Dict, Any, Optional, Tuple
 import traceback
 import dataclasses
@@ -1157,9 +1156,9 @@ class TradingMonitorTestApp(QMainWindow):
                 # to handle activation on the UI thread
                 response = QMessageBox.question(self, "Activate?",
                                                 f"Do you want to bring {platform} to the foreground?",
-                                                QMessageBox.Yes | QMessageBox.No)
+                                                QMessageBox.StandardButton.Yes | QMessageBox.No)
 
-                if response == QMessageBox.Yes:
+                if response == QMessageBox.StandardButton.Yes:
                     # This is a direct method call on the UI thread - not a callback!
                     self._do_platform_activation(platform)
 
@@ -1284,8 +1283,8 @@ class TradingMonitorTestApp(QMainWindow):
             existing_check = self.region_service.get_region(current_platform, region_type, name)
             if existing_check.is_success:
                  choice = QMessageBox.question(self, "Name Exists", f"Flatten region '{name}' already exists. Replace?",
-                                               QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-                 if choice != QMessageBox.Yes: continue # Ask again
+                                               QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+                 if choice != QMessageBox.StandardButton.Yes: continue # Ask again
                  # User chose Yes - proceed (save will overwrite)
                  break
             elif existing_check.error.category == ErrorCategory.VALIDATION: # Assuming "Not Found" is a validation error
@@ -1349,7 +1348,7 @@ class TradingMonitorTestApp(QMainWindow):
         # --- Ask to recapture screenshot ---
         recapture = QMessageBox.question(self, "Recapture Screenshot?",
                                          "Capture a new screenshot for the updated region?",
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
 
         # --- Create/Update Region Object ---
         # Create a new object with updated coords, let save_region handle overwrite
@@ -1357,7 +1356,7 @@ class TradingMonitorTestApp(QMainWindow):
         region = Region(id=region_id, name=region_name, coordinates=new_coordinates,
                         type=region_type, platform=current_platform)
 
-        if recapture == QMessageBox.Yes:
+        if recapture == QMessageBox.StandardButton.Yes:
             capture_result = self.region_service.capture_region_screenshot(
                 new_coordinates, region.id, region.platform, region.type
             )
@@ -1393,8 +1392,8 @@ class TradingMonitorTestApp(QMainWindow):
 
         confirm = QMessageBox.question(self, "Confirm Delete",
                                        f"Delete the P&L Monitoring region for {current_platform}?",
-                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if confirm != QMessageBox.Yes: return
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if confirm != QMessageBox.StandardButton.Yes: return
 
         self.log_message(f"Deleting monitor region for {current_platform}...", "INFO")
 
@@ -1423,8 +1422,8 @@ class TradingMonitorTestApp(QMainWindow):
 
         confirm = QMessageBox.question(self, "Confirm Delete",
                                        f"Delete the flatten region '{region_name}' for {current_platform}?",
-                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if confirm != QMessageBox.Yes: return
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if confirm != QMessageBox.StandardButton.Yes: return
 
         self.log_message(f"Deleting flatten region '{region_name}'...", "INFO")
 
@@ -1512,11 +1511,11 @@ class TradingMonitorTestApp(QMainWindow):
             self,
             "Confirm Clear",
             "Are you sure you want to clear all verified blocks?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
         )
 
-        if confirm == QMessageBox.Yes:
+        if confirm == QMessageBox.StandardButton.Yes:
             self.verification_service.clear_verified_blocks().with_ui_feedback(
                 ui_feedback_func=self.log_message,
                 success_message="All verified blocks cleared",
@@ -1673,11 +1672,11 @@ class TradingMonitorTestApp(QMainWindow):
                 f"Are you sure you want to trigger a {duration}-minute lockout for {platform}?\n\n"
                 "This will create an overlay with clickable regions for flattening positions "
                 "and then activate Cold Turkey Blocker.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
             )
 
-            if confirm != QMessageBox.Yes:
+            if confirm != QMessageBox.StandardButton.Yes:
                 self.log_message("Lockout cancelled by user", "INFO")
                 return
 
@@ -2176,7 +2175,6 @@ class TradingMonitorTestApp(QMainWindow):
 
             return True  # Indicate event was handled
         return super().event(event)
-
 
     def _update_summary_display(self):
         """Fetches current settings and updates the summary labels in the toolbar."""

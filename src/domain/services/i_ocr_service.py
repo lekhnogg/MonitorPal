@@ -19,60 +19,6 @@ class IOcrService(ABC):
     """
 
     @abstractmethod
-    def extract_text(self, image: Any) -> Result[str]:
-        """
-        Extract text from an image.
-
-        Args:
-            image: The image to process (PIL Image or similar)
-
-        Returns:
-            Result containing extracted text on success
-        """
-        pass
-
-    @abstractmethod
-    def extract_text_from_file(self, image_path: str) -> Result[str]:
-        """
-        Extract text from an image file.
-
-        Args:
-            image_path: Path to the image file
-
-        Returns:
-            Result containing extracted text on success
-        """
-        pass
-
-    @abstractmethod
-    def preprocess_image(self, image: Any) -> Result[Any]:
-        """
-        Preprocess an image to improve OCR accuracy.
-
-        Args:
-            image: The image to preprocess
-
-        Returns:
-            Result containing the preprocessed image on success
-        """
-        pass
-
-    @abstractmethod
-    def extract_numeric_values(self, text: str) -> Result[List[float]]:
-        """
-        Extract numeric values from text.
-
-        Handles various formats including dollar amounts, percentages, etc.
-
-        Args:
-            text: The text to process
-
-        Returns:
-            Result containing a list of extracted numeric values on success
-        """
-        pass
-
-    @abstractmethod
     def extract_text_with_profile(self, image: Any, profile: OcrProfile) -> Result[str]:
         """
         Extract text from an image using specific OCR profile.
