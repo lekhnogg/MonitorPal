@@ -4,11 +4,21 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Single region stuff pretty much complete, jsut cleaning up now">
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="deleted depracated methods from ocr">
+      <change afterPath="$PROJECT_DIR$/src/application/main.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/history_view_model.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/ocr_calibration_view_model.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/region_setup_view_model.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/settings_view_model.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/views/history_view.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/views/main_view.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/views/ocr_calibration_view.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/views/region_setup_view.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/views/settings_view.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/monitorPal_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/monitorPal_test.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_ocr_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/tesseract_ocr_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -317,7 +327,15 @@
       <option name="project" value="LOCAL" />
       <updated>1744491511233</updated>
     </task>
-    <option name="localTasksCounter" value="20" />
+    <task id="LOCAL-00020" summary="deleted depracated methods from ocr">
+      <option name="closed" value="true" />
+      <created>1744670316894</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1744670316894</updated>
+    </task>
+    <option name="localTasksCounter" value="21" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -335,6 +353,7 @@
     <MESSAGE value="ADDED FLASH AND THE SUMMARY OF LOCKOUT STUFF. THIS IS THE FINAL COMMIT TO THIS BRANCH. NEXT IS TO SIMPLIFY EVERYTHING TO SUPPORT ONLY ONE MONITORING REGION FOR v1 of this program. I WILL KEEP THIS FOR FUTURE IF EXTENDING TO MULTIPLE REGIONS WILL BE AN INTEREST&gt;" />
     <MESSAGE value="Testing new branchj" />
     <MESSAGE value="Single region stuff pretty much complete, jsut cleaning up now" />
-    <option name="LAST_COMMIT_MESSAGE" value="Single region stuff pretty much complete, jsut cleaning up now" />
+    <MESSAGE value="deleted depracated methods from ocr" />
+    <option name="LAST_COMMIT_MESSAGE" value="deleted depracated methods from ocr" />
   </component>
 </project>
