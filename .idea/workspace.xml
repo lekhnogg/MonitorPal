@@ -4,21 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="deleted depracated methods from ocr">
-      <change afterPath="$PROJECT_DIR$/src/application/main.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/history_view_model.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/ocr_calibration_view_model.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/region_setup_view_model.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/settings_view_model.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/views/history_view.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/views/main_view.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/views/ocr_calibration_view.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/views/region_setup_view.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/views/settings_view.py" afterDir="false" />
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="MVMM implemented, mostly works, havent checked everything but going to start changing UI to make it pretty">
+      <change afterPath="$PROJECT_DIR$/resources/resources.qrc" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -108,6 +99,7 @@
 }</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\presentation\views" />
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\ui" />
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\domain\services" />
       <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform\workers" />
@@ -335,7 +327,15 @@
       <option name="project" value="LOCAL" />
       <updated>1744670316894</updated>
     </task>
-    <option name="localTasksCounter" value="21" />
+    <task id="LOCAL-00021" summary="MVMM implemented, mostly works, havent checked everything but going to start changing UI to make it pretty">
+      <option name="closed" value="true" />
+      <created>1744759618645</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1744759618645</updated>
+    </task>
+    <option name="localTasksCounter" value="22" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -354,6 +354,7 @@
     <MESSAGE value="Testing new branchj" />
     <MESSAGE value="Single region stuff pretty much complete, jsut cleaning up now" />
     <MESSAGE value="deleted depracated methods from ocr" />
-    <option name="LAST_COMMIT_MESSAGE" value="deleted depracated methods from ocr" />
+    <MESSAGE value="MVMM implemented, mostly works, havent checked everything but going to start changing UI to make it pretty" />
+    <option name="LAST_COMMIT_MESSAGE" value="MVMM implemented, mostly works, havent checked everything but going to start changing UI to make it pretty" />
   </component>
 </project>

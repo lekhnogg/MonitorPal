@@ -2,7 +2,6 @@
 
 import sys
 import os
-import logging # Optional: For configuring root logger if needed beyond service
 
 # --- Qt Imports ---
 from PySide6.QtWidgets import QApplication
@@ -10,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 # --- Application Imports ---
 # Import the function that sets up DI and the getter
 # Ensure app.py exists and is correct relative to this file
-from src.application.app import initialize_app, get_container
+from src.application.app import get_container
 # Import the main window class (View) - Ensure this file will exist
 from src.presentation.views.main_view import MainView
 # Import the Logger service interface (optional, for early logging)
@@ -83,6 +82,16 @@ def run_application():
         sys.exit(1)
 
     # 4. Show the Main Window
+    try:
+        import src.presentation.views.resources_rc
+        print("DEBUG: Successfully imported compiled resources (resources_rc.py)")  # Optional debug print
+    except ImportError:
+        print("ERROR: Could not import compiled resources (resources_rc.py). Did you compile the .qrc file?",
+              file=sys.stderr)
+        # Decide if this is fatal - usually is if icons are required.
+        # sys.exit(1)
+    # --- *** END IMPORT *** ---
+
     try:
         main_window.show()
         logger.info("MainView shown.")

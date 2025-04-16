@@ -41,7 +41,6 @@ class DashboardViewModel(QObject):
     # Quick Actions Button Enablement
     can_start_monitoring_changed = Signal(bool)
     can_stop_monitoring_changed = Signal(bool)
-    can_flatten_manually_changed = Signal(bool) # Enable state for manual flatten button
     can_test_flash_changed = Signal(bool) # Enable state for test flash button
 
     # Alerts and Logs
@@ -101,7 +100,6 @@ class DashboardViewModel(QObject):
         self._monitoring_details_text: str = "Load platform..."
         self._can_start: bool = False
         self._can_stop: bool = False
-        self._can_flatten: bool = False
         self._can_test_flash: bool = False
         self._recent_alerts: List[str] = []
         self._pnl_format_display: str = "N/A"
@@ -217,55 +215,6 @@ class DashboardViewModel(QObject):
 
 
     @Slot()
-    def trigger_manual_flatten(self):
-        """Triggers the flatten action without the full lockout."""
-        if not self._selected_platform:
-            self.status_message_changed.emit("No platform selected to flatten.", "ERROR")
-            return
-        if not self._flatten_regions_defined:
-             self.status_message_changed.emit(f"No flatten regions defined for {self._selected_platform}.", "ERROR")
-             return
-
-        self._logger.info(f"Triggering manual flatten for {self._selected_platform}")
-        self.status_message_changed.emit(f"Triggering flatten for {self._selected_platform}...", "INFO")
-        self.activity_log_appended.emit(f"Manually triggering flatten for {self._selected_platform}...", "INFO")
-
-        # --- Get flatten regions ---
-        flatten_regions_result = self._region_service.get_regions_by_platform(self._selected_platform, "flatten")
-        if flatten_regions_result.is_failure or not flatten_regions_result.value:
-             err = flatten_regions_result.error if flatten_regions_result.is_failure else "No flatten regions found"
-             self.status_message_changed.emit(f"Cannot flatten: {err}", "ERROR")
-             self.activity_log_appended.emit(f"Failed to get flatten regions: {err}", "ERROR")
-             return
-
-        flatten_regions = flatten_regions_result.value
-
-        # --- Format for Lockout Service ---
-        # Lockout service currently expects dicts with 'coords': (x1,y1,x2,y2)
-        # Let's assume a modified/new method like trigger_flatten_clicks exists
-        # For now, we adapt to the existing perform_lockout structure but without duration/overlay logic
-        # OR we add a new method to ILockoutService specifically for this.
-        # Let's *assume* we need to adapt the data format:
-        flatten_positions_for_service = []
-        for region in flatten_regions:
-            x, y, w, h = region.coordinates
-            flatten_positions_for_service.append({"coords": (x, y, x + w, y + h)})
-
-
-        # --- Call a Hypothetical Simplified Lockout Service Method ---
-        # Option A: Add trigger_flatten_clicks(platform, positions) to ILockoutService
-        # flatten_result = self._lockout_service.trigger_flatten_clicks(self._selected_platform, flatten_positions_for_service)
-
-        # Option B: If modifying LockoutService isn't desired *yet*, simulate by calling perform_lockout
-        # with minimal duration and maybe flag to skip overlay/CT? This is messy.
-        # For now, let's log that the feature needs a proper service method.
-        self._logger.warning("Manual flatten action triggered, but requires a dedicated method in LockoutService (e.g., trigger_flatten_clicks). Simulating action.")
-        self.activity_log_appended.emit(f"Simulated flatten trigger for {self._selected_platform}.", "INFO")
-        self.status_message_changed.emit("Flatten action simulated (feature pending).", "INFO")
-        # In a real implementation, you'd check flatten_result here.
-
-
-    @Slot()
     def test_flash_regions(self):
         """Flashes all defined regions for the current platform."""
         if not self._selected_platform:
@@ -322,7 +271,6 @@ class DashboardViewModel(QObject):
         self.status_message_changed.emit(msg, level)
         self.activity_log_appended.emit(msg, level)
 
-
     # --- Private Helper / Update Methods ---
 
     @Slot(str)
@@ -330,7 +278,6 @@ class DashboardViewModel(QObject):
         """Connected to PlatformSelectionService signal."""
         self._logger.debug(f"DashboardViewModel received platform change: {platform}")
         self._update_state_for_platform(platform)
-
 
     def _update_state_for_platform(self, platform: str):
         """Updates the ViewModel's state based on the selected platform."""
@@ -388,16 +335,13 @@ class DashboardViewModel(QObject):
                 self._monitor_region_defined
         )
         self._can_stop = self._is_monitoring_globally_active  # Store result
-        self._can_flatten = bool(self._selected_platform) and self._flatten_regions_defined  # Store result
         self._can_test_flash = bool(self._selected_platform) and (
                     self._monitor_region_defined or self._flatten_regions_defined)  # Store result
 
         # Emit signals using stored state
         self.can_start_monitoring_changed.emit(self._can_start)
         self.can_stop_monitoring_changed.emit(self._can_stop)
-        self.can_flatten_manually_changed.emit(self._can_flatten)
         self.can_test_flash_changed.emit(self._can_test_flash)
-
 
     def _update_status_display(self):
         """Updates the monitoring status and details text signals."""
@@ -435,7 +379,6 @@ class DashboardViewModel(QObject):
 
         self.monitoring_details_text_changed.emit(self._monitoring_details_text)
 
-
     # --- Callback Handlers for Monitoring Service ---
 
     def _handle_monitoring_status_update(self, message: str, level: str):
@@ -453,7 +396,6 @@ class DashboardViewModel(QObject):
                   self._recent_alerts = self._recent_alerts[-5:]
              self.recent_alerts_updated.emit(self._recent_alerts.copy()) # Emit copy
 
-
     def _handle_monitoring_result(self, result: MonitoringResult):
         """Callback for when MonitoringService completes a check."""
         # Note: This might not be strictly needed if the service only calls
@@ -466,15 +408,16 @@ class DashboardViewModel(QObject):
         # TODO: Update P&L history for graph if implementing
         # self.pnl_history_updated.emit(...)
 
-
     def _handle_threshold_exceeded(self, result: MonitoringResult):
         """Callback for when MonitoringService detects threshold breach."""
-        self._logger.error(f"THRESHOLD EXCEEDED reported by MonitoringService! Value: {result.minimum_value}")
-        # Update state to reflect monitoring stopped
+        active_monitoring_platform = self._monitoring_platform # Store before clearing state
+
+        self._logger.error(f"THRESHOLD EXCEEDED reported by MonitoringService! Value: {result.minimum_value}, Platform: {active_monitoring_platform}")
+
+        # --- Update internal state and UI signals ---
         self._is_monitoring_globally_active = False
-        stopped_platform = self._monitoring_platform
-        self._monitoring_platform = None
-        self._current_pnl_text = f"LOCKOUT (${result.minimum_value:,.2f})" # Update P&L display
+        self._monitoring_platform = None # Clear which platform IS monitored
+        self._current_pnl_text = f"LOCKOUT (${result.minimum_value:,.2f})"
         self.current_pnl_text_changed.emit(self._current_pnl_text)
 
         # Add alert
@@ -484,15 +427,60 @@ class DashboardViewModel(QObject):
         if len(self._recent_alerts) > 5: self._recent_alerts = self._recent_alerts[-5:]
         self.recent_alerts_updated.emit(self._recent_alerts.copy())
 
-        # Log and update status
-        self.activity_log_appended.emit(f"THRESHOLD EXCEEDED! Detected: ${result.minimum_value:.2f}. Initiating lockout.", "ERROR")
+        # Log and update status bar
+        self.activity_log_appended.emit(f"THRESHOLD EXCEEDED! Detected: ${result.minimum_value:.2f}. Initiating lockout for {active_monitoring_platform}.", "ERROR")
         self.status_message_changed.emit("Lockout triggered!", "ERROR")
-        self._update_button_states()
+        self._update_button_states() # Reflect inactive monitoring state
         self._update_status_display()
-        # The actual lockout logic (overlay, CT command) is handled by the LockoutService,
-        # which should be triggered by the MonitoringService or the main application logic
-        # in response to the `on_threshold_exceeded` callback it received.
 
+        # --- Trigger automatic lockout ---
+        if active_monitoring_platform: # Ensure we know which platform triggered it
+            self._logger.info(f"Threshold exceeded for {active_monitoring_platform}. Triggering automatic lockout.")
+            self.activity_log_appended.emit(f"Initiating automatic lockout sequence for {active_monitoring_platform}...", "INFO")
+            # Fetch necessary data
+            duration = self._config_repo.get_lockout_duration()
+            flatten_res = self._region_service.get_regions_by_platform(active_monitoring_platform, "flatten")
+
+            if flatten_res.is_failure or not flatten_res.value:
+                err = flatten_res.error if flatten_res.is_failure else "No flatten regions found"
+                self._logger.error(f"Cannot perform automatic lockout: Failed to get flatten regions: {err}")
+                self.activity_log_appended.emit(f"LOCKOUT FAILED: Could not get flatten regions: {err}", "ERROR")
+                self.status_message_changed.emit(f"Lockout Failed: Missing flatten regions for {active_monitoring_platform}", "ERROR")
+                return # Stop if flatten regions are missing
+
+            # Format flatten positions
+            flatten_positions_for_service = []
+            for region in flatten_res.value:
+                x, y, w, h = region.coordinates
+                flatten_positions_for_service.append({"coords": (x, y, x + w, y + h)})
+
+            # Check fullscreen setting (example - adjust key if different)
+            fullscreen_enabled = self._config_repo.get_global_setting("fullscreen_overlay", True)
+
+            # --- *** THE CRUCIAL CALL *** ---
+            # Call lockout service to perform the actual lockout
+            lockout_start_res = self._lockout_service.perform_lockout(
+                platform=active_monitoring_platform,
+                flatten_positions=flatten_positions_for_service,
+                lockout_duration=duration,
+                fullscreen=fullscreen_enabled,
+                # Pass the status update callback so lockout steps are logged in UI
+                on_status_update=self._handle_monitoring_status_update
+            )
+            # --- *** END CRUCIAL CALL *** ---
+
+            if lockout_start_res.is_failure:
+                self._logger.error(f"Failed to initiate automatic lockout task: {lockout_start_res.error}")
+                self.activity_log_appended.emit(f"LOCKOUT START FAILED: {lockout_start_res.error}", "ERROR")
+                self.status_message_changed.emit(f"Lockout Start Failed: {lockout_start_res.error}", "ERROR")
+            else:
+                self._logger.info(f"Automatic lockout sequence task initiated successfully for {active_monitoring_platform}.")
+                self.activity_log_appended.emit(f"Automatic lockout sequence initiated for {active_monitoring_platform}.", "INFO")
+                # Status bar already shows "Lockout triggered!"
+        else:
+             # This case should be rare if monitoring was active
+             self._logger.error("Threshold exceeded but could not determine which platform was being monitored. Lockout not triggered.")
+             self.activity_log_appended.emit("Threshold exceeded but monitoring platform unknown. Lockout skipped.", "ERROR")
 
     def _handle_monitoring_error(self, error_msg: str):
         """Callback for errors reported by MonitoringService."""
@@ -516,7 +504,6 @@ class DashboardViewModel(QObject):
         self.status_message_changed.emit(f"Monitoring error: {error_msg}", "ERROR")
         self._update_button_states()
         self._update_status_display()
-
 
     # --- Optional: Periodic Status Check (If needed) ---
     # def _check_monitoring_status(self):
