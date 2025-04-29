@@ -8,8 +8,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QSizePolicy,
     QSpacerItem
 )
-from PySide6.QtCore import Slot, Qt, QSize
-from PySide6.QtGui import QPixmap, QFont # Added QFont
+from PySide6.QtGui import QPixmap, QFont
 
 # --- Application Imports ---
 from src.presentation.styles.style_manager import StyleManager
@@ -21,7 +20,6 @@ from src.presentation.components.ui_components import (
 class OcrCalibrationView(QWidget):
     """
     View for the OCR Calibration tab.
-
     Displays the source image, allows user input for expected value,
     shows calibration progress and results (including detected formats
     and OCR parameters), and provides controls to start calibration and
@@ -41,7 +39,11 @@ class OcrCalibrationView(QWidget):
         self.pattern_checkboxes: Dict[str, QCheckBox] = {}
         self._setup_ui()
         self._connect_signals()
-        self._apply_initial_vm_state() # Apply state after connections
+        # --- MODIFIED: Schedule initial signal refresh ---
+        # Schedule the ViewModel to re-emit its state signals once the event loop starts
+        self.view_model._logger.debug("View: Scheduling initial UI refresh via VM.refresh_ui_signals.")
+        QTimer.singleShot(0, self.view_model.refresh_ui_signals)
+        # --- END MODIFIED ---
 
     def _setup_ui(self):
         """Creates and arranges the UI elements for the OCR calibration tab."""
@@ -114,7 +116,9 @@ class OcrCalibrationView(QWidget):
         value_layout.addStretch(1) # Push elements up
 
         top_splitter.addWidget(value_group)
-        top_splitter.setSizes([self.width() // 2, self.width() // 2]) # Attempt initial equal split
+        # Set initial sizes after widgets are added
+        QTimer.singleShot(0, lambda: top_splitter.setSizes([top_splitter.width() // 2, top_splitter.width() // 2]))
+
 
         # --- Detected Number Formats Section ---
         self.pattern_group = GroupHeader("DETECTED NUMBER FORMATS (Read-Only)")
@@ -187,7 +191,7 @@ class OcrCalibrationView(QWidget):
 
         # Connect toggle signal and set initial visibility
         self.advanced_group.toggled.connect(advanced_content_widget.setVisible)
-        advanced_content_widget.setVisible(False)
+        advanced_content_widget.setVisible(False) # Start collapsed
 
         main_layout.addWidget(self.advanced_group)
         main_layout.addStretch(1) # Push everything above this up
@@ -206,6 +210,7 @@ class OcrCalibrationView(QWidget):
         bottom_button_layout.addWidget(self.save_manual_edits_button)
         bottom_button_layout.addWidget(self.save_calibrated_button)
         main_layout.addLayout(bottom_button_layout)
+
 
     def _connect_signals(self):
         """Connect signals from widgets to ViewModel slots and vice versa."""
@@ -229,6 +234,9 @@ class OcrCalibrationView(QWidget):
         self.invert_colors_checkbox.toggled.connect(self.view_model.set_invert_colors)
 
         # --- ViewModel -> View ---
+        # These connections remain, the View slots will now be called by
+        # the signals emitted from refresh_ui_signals initially,
+        # and then by regular state changes later.
         self.view_model.calibration_source_preview_changed.connect(self._update_source_preview)
         self.view_model.calibration_source_status_text_changed.connect(self.source_status_label.setText)
         self.view_model.can_calibrate_changed.connect(self.calibrate_button.setEnabled)
@@ -250,62 +258,20 @@ class OcrCalibrationView(QWidget):
         self.view_model.can_save_calibrated_profile_changed.connect(self.save_calibrated_button.setEnabled)
         self.view_model.can_save_manual_edits_changed.connect(self.save_manual_edits_button.setEnabled)
 
-    def _apply_initial_vm_state(self):
-        """Applies the current state from the ViewModel to the widgets."""
-        self.view_model._logger.debug("OcrCalibrationView applying initial VM state...")
+    # --- REMOVED METHOD ---
+    # def _apply_initial_vm_state(self):
+    #     """REMOVED: No longer needed with the refresh_ui_signals approach."""
+    #     pass
+    # --- END REMOVED METHOD ---
 
-        # Safely access ViewModel attributes using getattr with defaults
-        vm_source_pixmap = getattr(self.view_model, '_source_preview_pixmap', QPixmap())
-        vm_source_status = getattr(self.view_model, '_source_status_text', "N/A")
-        vm_can_calibrate = getattr(self.view_model, '_calibration_source_image_path', None) is not None
-
-        # Apply source preview and status
-        self._update_source_preview(vm_source_pixmap)
-        self.source_status_label.setText(vm_source_status)
-        self.calibrate_button.setEnabled(vm_can_calibrate)
-
-        # Apply OCR Parameters from the VM's current profile state
-        ocr_profile = getattr(self.view_model, '_current_ocr_profile', None)
-        if ocr_profile:
-            self.scale_factor_spinbox.setValue(ocr_profile.scale_factor)
-            self.block_size_spinbox.setValue(ocr_profile.threshold_block_size)
-            self.c_value_spinbox.setValue(ocr_profile.threshold_c)
-            self.denoise_h_spinbox.setValue(ocr_profile.denoise_h)
-            self.tesseract_config_input.setText(ocr_profile.tesseract_config)
-            self.invert_colors_checkbox.setChecked(ocr_profile.invert_colors)
-        else:
-            self.view_model._logger.warning("Applying default OCR parameters as VM state was missing.")
-            # Set UI to defaults explicitly if profile wasn't loaded
-            self.scale_factor_spinbox.setValue(2.0)
-            self.block_size_spinbox.setValue(11)
-            self.c_value_spinbox.setValue(2)
-            self.denoise_h_spinbox.setValue(10)
-            self.tesseract_config_input.setText("--oem 3 --psm 6")
-            self.invert_colors_checkbox.setChecked(False)
-
-        # Apply calibration status and progress (usually 'Ready' initially)
-        self._update_calibration_status("Ready.", "ready")
-        self._handle_calibration_in_progress(False) # Ensure progress bar is hidden
-
-        # Apply pattern display (usually hidden initially)
-        self.pattern_group.setVisible(False)
-        self._update_detected_patterns({}) # Clear patterns
-
-        # Apply button enablement
-        self.save_calibrated_button.setEnabled(False) # No calibration result yet
-        # Enable manual save if a platform is selected
-        self.save_manual_edits_button.setEnabled(bool(getattr(self.view_model, '_selected_platform', None)))
-
-        self.view_model._logger.debug("OcrCalibrationView initial VM state applied.")
-
+    # --- Slots for ViewModel Signals (Remain Unchanged) ---
     @Slot(QPixmap)
     def _update_source_preview(self, pixmap: QPixmap):
         """Updates the source image preview."""
         if pixmap and not pixmap.isNull():
-            # Scale pixmap to fit the label while preserving aspect ratio
-            # Use label's current size for better responsiveness if window is resized
+            # Scale pixmap using the label's current size hints for responsiveness
             scaled_pixmap = pixmap.scaled(
-                self.source_preview_label.size(), # Scale to fit current label size
+                self.source_preview_label.size(), # Scale to fit label size
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
@@ -324,12 +290,10 @@ class OcrCalibrationView(QWidget):
             self.calibration_progress_bar.setFormat("Calibrating... %p%")
         else:
             self.calibration_progress_bar.setFormat("") # Clear text when done
-
         self.calibrate_button.setDisabled(in_progress)
         self.expected_value_input.setDisabled(in_progress)
         # Also disable editing advanced params during calibration
-        # Check if group exists before disabling
-        if hasattr(self, 'advanced_group'):
+        if hasattr(self, 'advanced_group'): # Check if group exists
             self.advanced_group.setDisabled(in_progress)
 
     @Slot(int, str)
@@ -343,10 +307,11 @@ class OcrCalibrationView(QWidget):
         """Updates the main calibration status label text and color."""
         self.calibration_status_label.setText(message)
         # Set state property based on color for QSS styling
-        state_map = {"green": "success", "red": "error", "orange": "busy"}
-        state = state_map.get(color_name, "ready") # Default to 'ready'
+        state_map = {"green": "success", "red": "error", "orange": "busy", "black": "busy"} # Map black to busy too
+        # Explicitly map gray to a neutral state like 'info' or 'neutral'
+        state = state_map.get(color_name, "info" if color_name == "gray" else "ready") # Default to 'ready' otherwise
         self.calibration_status_label.setProperty("state", state)
-        # Force style refresh
+        # Force style refresh (Important if using QSS based on the state property)
         self.calibration_status_label.style().unpolish(self.calibration_status_label)
         self.calibration_status_label.style().polish(self.calibration_status_label)
 
@@ -354,7 +319,7 @@ class OcrCalibrationView(QWidget):
     def _update_detected_patterns(self, patterns_state: Dict[str, bool]):
         """Updates the checkboxes for detected number formats."""
         for key, checkbox in self.pattern_checkboxes.items():
-            if checkbox:  # Check if checkbox exists
+            if checkbox: # Check if checkbox exists in our dictionary
                 is_detected = patterns_state.get(key, False)
                 checkbox.setChecked(is_detected)
                 checkbox.setProperty("detected", "true" if is_detected else "false")

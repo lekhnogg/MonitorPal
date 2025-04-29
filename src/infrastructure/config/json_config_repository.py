@@ -56,29 +56,14 @@ class JsonConfigRepository(IConfigRepository):
             "first_run": True,
             "base_data_path": default_base_data_path,
             "cold_turkey_blocker": "",
-            "stop_loss_threshold": -100.0,
-            "lockout_duration": 15,
+            "stop_loss_threshold": -500.0,
+            "lockout_duration": 5,
             "monitor_interval_seconds": 2.0,
             "current_platform": "",
             # Platform-specific settings structure (key is platform name)
             "platforms": {
-                # Example structure for a platform (populated dynamically)
-                # "NinjaTrader": {
-                #     "cold_turkey_block_name": "NTBlock", # Configured name
-                #     "verified_cold_turkey_block": None,  # Verified name (or null)
-                # --- ADDED KEY ---
-                #     "platform_executable_path": "C:/Path/To/NinjaTrader.exe", # User-defined path
-                # --- END ADDED KEY ---
-                #     "monitor_region": { ... } or null,
-                #     "flatten_regions": { "Flatten_1": { ... } },
-                #     "platform_profile": { ... }
-                # }
-            },
-            # --- Deprecated fields ---
-            "default_platforms": ["Quantower", "NinjaTrader", "Tradovate", "TradingView"],
-            "verified_blocks": [],
-            "block_settings": {},
-            "platform_profiles": {}
+                # Structure will be populated dynamically, no example needed here
+            }
         }
 
         self.logger.debug(f"JsonConfigRepository initialized. Config path: {self.config_file}")
@@ -195,59 +180,8 @@ class JsonConfigRepository(IConfigRepository):
                           plat_settings["platform_executable_path"] = None # Ensure it's None if missing/null
                      # --- END ADDED ---
 
-        self._migrate_legacy_settings(final_config)
+
         return final_config
-
-    def _migrate_legacy_settings(self, config: Dict[str, Any]):
-        """Migrates data from deprecated keys if they exist."""
-        modified = False
-        # (Migration logic for verified_blocks, block_settings, platform_profiles remains unchanged)
-        # ... (keep existing migration code here) ...
-        if "verified_blocks" in config and isinstance(config["verified_blocks"], list):
-            self.logger.info("Migrating legacy 'verified_blocks' list...")
-            platforms_node = config.setdefault("platforms", {})
-            for item in config["verified_blocks"]:
-                if isinstance(item, dict) and "platform" in item and "block_name" in item:
-                    platform_name = item["platform"]
-                    block_name = item["block_name"]
-                    if platform_name and block_name:
-                        plat_settings = platforms_node.setdefault(platform_name, {})
-                        if plat_settings.get("verified_cold_turkey_block") is None:
-                             plat_settings["verified_cold_turkey_block"] = block_name
-                             modified = True
-                             self.logger.debug(f"  Migrated verified block '{block_name}' for '{platform_name}'.")
-            config["verified_blocks"] = []
-            modified = True
-
-        if "block_settings" in config and isinstance(config["block_settings"], dict):
-             self.logger.info("Migrating legacy 'block_settings' dictionary...")
-             platforms_node = config.setdefault("platforms", {})
-             for platform_name, block_name in config["block_settings"].items():
-                 if platform_name and block_name:
-                      plat_settings = platforms_node.setdefault(platform_name, {})
-                      if not plat_settings.get("cold_turkey_block_name"):
-                           plat_settings["cold_turkey_block_name"] = block_name
-                           modified = True
-                           self.logger.debug(f"  Migrated configured block '{block_name}' for '{platform_name}'.")
-             config["block_settings"] = {}
-             modified = True
-
-        if "platform_profiles" in config and isinstance(config["platform_profiles"], dict):
-            self.logger.info("Migrating legacy 'platform_profiles' dictionary...")
-            platforms_node = config.setdefault("platforms", {})
-            for platform_name, profile_dict in config["platform_profiles"].items():
-                if platform_name and isinstance(profile_dict, dict):
-                     plat_settings = platforms_node.setdefault(platform_name, {})
-                     if not plat_settings.get("platform_profile"):
-                          plat_settings["platform_profile"] = profile_dict
-                          modified = True
-                          self.logger.debug(f"  Migrated profile for '{platform_name}'.")
-            config["platform_profiles"] = {}
-            modified = True
-
-        if modified:
-            self.logger.info("Saving migrated configuration...")
-            self.save_config(config)
 
     def save_config(self, config: Dict[str, Any]) -> Result[bool]:
         """Save configuration to storage."""
