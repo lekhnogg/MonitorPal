@@ -1,63 +1,56 @@
 # src/presentation/components/qt_region_selector.py
 """
-Qt-native region selection tool for the monitoring service.
-
-Provides a UI for selecting screen regions to monitor using Qt components.
+Qt-native region selection tool using QDialog and QMainWindow overlay.
+Styling is handled via StyleManager and QSS.
 """
 import time
 from typing import Tuple, Optional
 
-from PySide6.QtCore import Qt, QRect, QPoint, QSize, QTimer, Signal, QObject, QEventLoop
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QGuiApplication, QScreen, QPixmap, QCursor
+# --- Qt Imports ---
+from PySide6.QtCore import Qt, QRect, QPoint, QSize, QTimer, Signal, QEventLoop
+from PySide6.QtGui import QPainter, QPen, QColor, QGuiApplication, QPixmap, QCursor
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QMainWindow, QWidget, QRubberBand
 )
 
-from src.domain.services.i_background_task_service import Worker
-from src.domain.services.i_logger_service import ILoggerService
+# --- Application Imports ---
+from src.presentation.styles.style_manager import StyleManager
+# Removed imports for Worker and ILoggerService as the Worker class is removed
 
 
 class RegionSelectorDialog(QDialog):
     """Dialog for showing instructions before region selection."""
 
     def __init__(self, message: str, parent=None):
-        """
-        Initialize the instruction dialog.
-
-        Args:
-            message: Instruction message to display
-            parent: Parent widget
-        """
+        """Initialize the instruction dialog."""
         super().__init__(parent)
-        self.setWindowFlags(
-            self.windowFlags() |
-            Qt.WindowStaysOnTopHint
-        )
+        self.setObjectName("RegionSelectorDialog") # Set object name for QSS
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         self.setWindowTitle("Region Selection")
         self.setModal(True)
-        self.setFixedWidth(450)
+        # Let QSS control sizing if possible, but set a minimum/fixed if needed
+        self.setMinimumWidth(400)
+        # Apply component stylesheet
+        self.setStyleSheet(StyleManager.get_component_style("region_selector_dialog"))
 
         # Layout
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
 
-        # Message with icon in horizontal layout
+        # Message with icon
         message_layout = QHBoxLayout()
-
-        # Add icon
         icon_label = QLabel()
-        icon_label.setFixedSize(32, 32)
-        icon_label.setStyleSheet("background-color: #3a7ca5; border-radius: 4px;")
+        icon_label.setObjectName("dialogIconLabel")
+        icon_label.setFixedSize(32, 32) # Keep fixed size for icon placeholder
         message_layout.addWidget(icon_label, 0)
 
-        # Message with HTML formatting
         formatted_message = message.replace("\n", "<br>")
         msg_label = QLabel(f"<b>{formatted_message}</b>")
+        msg_label.setObjectName("dialogMessageLabel")
         msg_label.setWordWrap(True)
         msg_label.setTextFormat(Qt.RichText)
         message_layout.addWidget(msg_label, 1)
-
         layout.addLayout(message_layout)
 
         # Buttons
@@ -65,148 +58,128 @@ class RegionSelectorDialog(QDialog):
         button_layout.addStretch()
 
         self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setObjectName("dialogCancelButton")
         self.cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_btn)
 
         self.continue_btn = QPushButton("Continue")
+        self.continue_btn.setObjectName("dialogContinueButton")
         self.continue_btn.setDefault(True)
         self.continue_btn.clicked.connect(self.accept)
-        self.continue_btn.setStyleSheet(
-            "background-color: #3a7ca5; color: white; padding: 8px 16px;"
-        )
         button_layout.addWidget(self.continue_btn)
-
         layout.addLayout(button_layout)
 
-        # Center on screen
         self.center_on_screen()
 
     def center_on_screen(self):
         """Center dialog on the primary screen."""
-        frame_geo = self.frameGeometry()
-        screen = QGuiApplication.primaryScreen()
-        center_point = screen.availableGeometry().center()
-        frame_geo.moveCenter(center_point)
-        self.move(frame_geo.topLeft())
+        try:
+            screen = QGuiApplication.primaryScreen()
+            if screen:
+                center_point = screen.availableGeometry().center()
+                frame_geo = self.frameGeometry()
+                frame_geo.moveCenter(center_point)
+                self.move(frame_geo.topLeft())
+        except Exception as e:
+            print(f"Error centering dialog: {e}") # Use logger if available
 
 
 class QtRegionSelector(QMainWindow):
     """
-    A full-screen, semi-transparent overlay that lets the user click and drag
-    to select a rectangular region using Qt's native components.
+    Full-screen overlay for selecting a rectangular region.
+    Styling for internal labels is handled by QSS.
+    Background and selection border are drawn manually in paintEvent.
     """
-    region_selected = Signal(tuple)  # (x, y, width, height)
+    region_selected = Signal(tuple)  # Emits global (x, y, width, height)
     selection_cancelled = Signal()
 
     def __init__(self, parent=None):
         """Initialize the region selection tool."""
         super().__init__(parent)
+        self.setObjectName("QtRegionSelectorOverlay") # Object name for main window
 
-        # Make this window borderless, topmost
-        self.setWindowFlags(
-            Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint |
-            Qt.Tool  # So it doesn't appear in taskbar
-        )
-
-        # Make the background translucent
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        # Set geometry to cover all screens
-        desktop = QApplication.desktop() if hasattr(QApplication, 'desktop') else None
-        if desktop:
-            # Use virtual desktop that spans all monitors
-            self.screen_geometry = desktop.virtualGeometry()
-        else:
-            # Fallback to QGuiApplication for Qt6
-            screens = QGuiApplication.screens()
-            if len(screens) > 1:
-                # Combine geometries of all screens
-                left = min(screen.geometry().left() for screen in screens)
-                top = min(screen.geometry().top() for screen in screens)
-                right = max(screen.geometry().right() for screen in screens)
-                bottom = max(screen.geometry().bottom() for screen in screens)
-                self.screen_geometry = QRect(left, top, right - left, bottom - top)
-            else:
-                self.screen_geometry = QGuiApplication.primaryScreen().geometry()
-
+        # Calculate geometry covering all screens using QGuiApplication
+        virtual_geo = QGuiApplication.primaryScreen().virtualGeometry()
+        self.screen_geometry = virtual_geo
         self.setGeometry(self.screen_geometry)
 
-        # Set the cursor to crosshair
         self.setCursor(Qt.CrossCursor)
 
-        # Create a central widget
+        # Central widget (may not be strictly necessary if not applying complex QSS to main window)
+        # But useful as a parent for labels if styling the main window directly causes issues.
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
+        # Apply specific styles to the central widget or its children via QSS
+        self.central_widget.setObjectName("selectorCentralWidget")
+        self.central_widget.setStyleSheet(StyleManager.get_component_style("qt_region_selector"))
 
-        # Create a rubber band for selection
-        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
 
-        # Variables for storing the selection
+        # Rubber band for visual feedback during drag
+        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self.central_widget) # Parent is central widget
+
+        # State variables
         self.origin = QPoint()
-        self.current = QPoint()
-        self.start_pos = None
-        self.selection_rect = None
+        self.selection_rect: Optional[QRect] = None # Store the selection rectangle relative to the window
         self.is_selecting = False
 
-        # Instructions label
-        self.instructions = QLabel("Click and drag to select a region. Press Esc to cancel.", self)
-        self.instructions.setStyleSheet(
-            "color: white; background-color: rgba(0, 0, 0, 150); padding: 10px; border-radius: 5px;"
-        )
+        # Instructions label (parented to central widget)
+        self.instructions = QLabel("Click and drag to select a region. Press Esc to cancel.", self.central_widget)
+        self.instructions.setObjectName("selectorInstructionsLabel")
         self.instructions.setAlignment(Qt.AlignCenter)
-        self.instructions.adjustSize()
+        self.instructions.adjustSize() # Adjust size based on content and QSS padding/font
+        # Position near bottom-center AFTER adjusting size
         self.instructions.move(
             (self.width() - self.instructions.width()) // 2,
             self.height() - self.instructions.height() - 50
         )
+        self.instructions.show() # Ensure it's visible
 
-        # Dimensions label
-        self.dimensions_label = QLabel(self)
-        self.dimensions_label.setStyleSheet(
-            "color: white; background-color: rgba(0, 0, 0, 150); padding: 5px; border-radius: 3px;"
-        )
-        self.dimensions_label.hide()
+        # Dimensions label (parented to central widget)
+        self.dimensions_label = QLabel(self.central_widget)
+        self.dimensions_label.setObjectName("selectorDimensionsLabel")
+        self.dimensions_label.hide() # Initially hidden
 
     def paintEvent(self, event):
-        """Paint the overlay with the selection rectangle."""
+        """Paint the overlay background and selection border."""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Fill entire screen with semi-transparent background
+        # Draw semi-transparent background overlay directly on the main window
         painter.fillRect(self.rect(), QColor(0, 0, 0, 80))
 
-        # If selection in progress, highlight the selected area
+        # Selection rectangle border is drawn manually for clarity over transparency
         if self.is_selecting and self.selection_rect:
-            # Draw inner clear rectangle for the selected area
-            painter.setCompositionMode(QPainter.CompositionMode_Clear)
-            painter.fillRect(self.selection_rect, Qt.transparent)
+             # Draw red border around selection rectangle
+             pen = QPen(QColor(255, 0, 0, 200), 2) # Slightly transparent red
+             pen.setStyle(Qt.PenStyle.SolidLine)
+             painter.setPen(pen)
+             painter.setBrush(Qt.BrushStyle.NoBrush) # Don't fill the rect here
+             # Draw the rectangle based on the stored selection_rect
+             painter.drawRect(self.selection_rect)
 
-            # Reset to normal composition mode for the border
-            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+             # Note: The visual "clearing" is handled by the rubber band now.
+             # The manual clearing in paintEvent is removed as QRubberBand handles it better.
 
-            # Draw red border around selection
-            pen = QPen(QColor(255, 0, 0), 2)
-            painter.setPen(pen)
-            painter.drawRect(self.selection_rect)
 
     def mousePressEvent(self, event):
-        """Handle mouse press - start region selection."""
+        """Start selection."""
         if event.button() == Qt.LeftButton:
-            self.origin = event.pos()
+            self.origin = event.pos() # Position relative to this window
+            # Start rubber band geometry relative to its parent (central_widget)
+            # mapFromParent is not needed if origin is already relative to window
             self.rubber_band.setGeometry(QRect(self.origin, QSize()))
             self.rubber_band.show()
+            self.selection_rect = QRect(self.origin, QSize()) # Initialize selection rect
             self.is_selecting = True
-            self.start_pos = event.pos()
-            self.selection_rect = QRect(self.start_pos, self.start_pos)
-            self.current = event.pos()
-            self.update()
+            self.update() # Redraw to show initial state if needed
 
     def mouseMoveEvent(self, event):
-        """Handle mouse movement - update selection rectangle."""
+        """Update selection rectangle and rubber band."""
         if self.is_selecting:
-            self.current = event.pos()
-            self.selection_rect = QRect(self.start_pos, self.current).normalized()
+            current_pos = event.pos()
+            self.selection_rect = QRect(self.origin, current_pos).normalized()
+            # Update rubber band geometry (relative to its parent)
             self.rubber_band.setGeometry(self.selection_rect)
 
             # Update dimensions label
@@ -214,205 +187,133 @@ class QtRegionSelector(QMainWindow):
             height = self.selection_rect.height()
             self.dimensions_label.setText(f"{width} × {height} px")
             self.dimensions_label.adjustSize()
-
-            # Position the dimensions label near the current mouse position
-            label_x = event.pos().x() + 15
-            label_y = event.pos().y() + 15
-
-            # Ensure the label stays within screen bounds
-            if label_x + self.dimensions_label.width() > self.width():
-                label_x = self.width() - self.dimensions_label.width() - 10
-            if label_y + self.dimensions_label.height() > self.height():
-                label_y = self.height() - self.dimensions_label.height() - 10
-
-            self.dimensions_label.move(label_x, label_y)
+            # Position label relative to cursor, ensuring it stays within bounds
+            label_pos = event.pos() + QPoint(15, 15) # Offset from cursor
+            label_pos.setX(min(label_pos.x(), self.width() - self.dimensions_label.width() - 5))
+            label_pos.setY(min(label_pos.y(), self.height() - self.dimensions_label.height() - 5))
+            label_pos.setX(max(label_pos.x(), 5))
+            label_pos.setY(max(label_pos.y(), 5))
+            self.dimensions_label.move(label_pos)
             self.dimensions_label.show()
-
-            self.update()
+            # No need to call self.update() here, QRubberBand handles its own painting mostly
 
     def mouseReleaseEvent(self, event):
-        """Handle mouse release - finalize selection and close."""
+        """Finalize selection."""
         if event.button() == Qt.LeftButton and self.is_selecting:
             self.is_selecting = False
+            self.rubber_band.hide() # Hide rubber band
+            self.dimensions_label.hide() # Hide dimensions
 
-            # Ensure we have a valid selection (not just a click)
-            min_size = 5  # Minimum area to recognize as an intentional selection
-            if self.selection_rect.width() > min_size and self.selection_rect.height() > min_size:
-                # Convert to (x, y, width, height) format
-                local_x = self.selection_rect.x()
-                local_y = self.selection_rect.y()
-                width = self.selection_rect.width()
-                height = self.selection_rect.height()
-
-                # Convert to global coordinates by adding the window's position
-                global_point = self.mapToGlobal(QPoint(local_x, local_y))
-                global_x = global_point.x()
-                global_y = global_point.y()
-
-                # Emit the signal with the global coordinates
-                self.region_selected.emit((global_x, global_y, width, height))
-
-                # Give a brief moment to see the final selection
-                QTimer.singleShot(200, self.close)
+            min_size = 5
+            # Use the final selection_rect stored during mouseMove
+            if self.selection_rect and self.selection_rect.width() > min_size and self.selection_rect.height() > min_size:
+                # Get coordinates relative to the window
+                local_rect = self.selection_rect
+                # Map the top-left corner to global screen coordinates
+                global_top_left = self.mapToGlobal(local_rect.topLeft())
+                # Emit global coordinates
+                self.region_selected.emit((
+                    global_top_left.x(),
+                    global_top_left.y(),
+                    local_rect.width(),
+                    local_rect.height()
+                ))
+                QTimer.singleShot(50, self.close) # Close quickly after selection
             else:
-                # Reset if it was just a click or tiny movement
-                self.rubber_band.hide()
-                self.selection_rect = None
-                self.dimensions_label.hide()
-                self.update()
+                 # Selection too small or cancelled during drag, reset
+                 self.selection_rect = None
+                 self.update() # Repaint to remove any drawn border
 
     def keyPressEvent(self, event):
-        """Handle key press - cancel on Escape, confirm on Enter."""
+        """Handle Escape key for cancellation."""
         if event.key() == Qt.Key_Escape:
             self.selection_cancelled.emit()
             self.close()
-        # Accept Enter/Return to confirm current selection
-        elif event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.selection_rect:
-            if self.selection_rect.width() > 5 and self.selection_rect.height() > 5:
-                x = self.selection_rect.x()
-                y = self.selection_rect.y()
-                width = self.selection_rect.width()
-                height = self.selection_rect.height()
-                self.region_selected.emit((x, y, width, height))
-            self.close()
+        # Optional: Confirm with Enter/Return (already handled in mouseRelease)
+        # elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+        #     self.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, self.mapFromGlobal(QCursor.pos()), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
 
 
-class QtRegionSelectorWorker(Worker[Optional[Tuple[int, int, int, int]]]):
-    """Worker for selecting a region from the screen using Qt components."""
-
-    def __init__(self, message: str, logger: ILoggerService):
-        """Initialize the worker."""
-        super().__init__()
-        self.message = message
-        self.logger = logger
-        self.selected_region = None
-
-    def execute(self) -> Optional[Tuple[int, int, int, int]]:
-        """Execute the region selection process."""
-        try:
-            app = QApplication.instance()
-            if not app:
-                self.logger.error("No QApplication instance found")
-                return None
-
-            # Show instruction dialog
-            dialog = RegionSelectorDialog(self.message)
-            if dialog.exec() != QDialog.Accepted:
-                return None
-
-            # Create signals for communication
-            self.region_selector = QtRegionSelector()
-
-            # Connect signals
-            self.region_selector.region_selected.connect(self._on_region_selected)
-            self.region_selector.selection_cancelled.connect(self._on_selection_cancelled)
-
-            # Show the selector
-            self.region_selector.show()
-            self.region_selector.activateWindow()
-
-            # Wait for selection (max 60 seconds)
-            timeout = 60  # seconds
-            start_time = time.time()
-
-            while self.selected_region is None:
-                app.processEvents()
-
-                # Check for timeout
-                if time.time() - start_time > timeout:
-                    self.logger.warning("Region selection timed out")
-                    return None
-
-                # Check for cancellation
-                if self.cancel_requested:
-                    self.logger.info("Region selection cancelled")
-                    self.region_selector.close()
-                    return None
-
-                # Sleep to reduce CPU usage
-                time.sleep(0.1)
-
-            return self.selected_region
-
-        except Exception as e:
-            self.logger.error(f"Error in region selection: {e}")
-            import traceback
-            self.logger.error(traceback.format_exc())
-            return None
-
-    def _on_region_selected(self, region):
-        """Handle region selection."""
-        self.selected_region = region
-
-    def _on_selection_cancelled(self):
-        """Handle cancellation."""
-        self.selected_region = None
-
-
+# --- Orchestration Function ---
 def select_region_qt(message="Select a region by clicking and dragging") -> Optional[Tuple[int, int, int, int]]:
     """
-    Display an instruction dialog, then a full-screen overlay to allow the user
-    to select a rectangular region using Qt components.
+    Displays instruction dialog, then full-screen overlay for region selection.
+    Uses QEventLoop to block synchronously while processing UI events.
 
     Args:
-        message: Instruction message to display
+        message: Instruction message for the dialog.
 
     Returns:
-        The selected region as (left, top, width, height), or None if canceled
+        Selected region (x, y, width, height) in global screen coordinates, or None if cancelled.
     """
     try:
-        # Ensure we have a QApplication instance
         app = QApplication.instance()
         if not app:
-            print("No QApplication instance found. Cannot create selection tool.")
+            print("ERROR: No QApplication instance found for select_region_qt.") # Use logger
             return None
 
-        # Create instruction dialog
+        # 1. Show Instructions
         dialog = RegionSelectorDialog(message)
-
-        # Show dialog and wait for user response
         if dialog.exec() != QDialog.Accepted:
+            print("Region selection cancelled at dialog.") # Use logger
             return None
+        app.processEvents() # Ensure dialog closes visually
 
-        # Process events to ensure dialog is fully closed
-        app.processEvents()
-
-        # Create region selector
-        selected_region = None
-        selection_done = False
+        # 2. Prepare Selector and State
+        selected_region: Optional[Tuple[int, int, int, int]] = None
+        selection_done = False # Flag to break the event loop
 
         selector = QtRegionSelector()
 
-        # Connect signals
-        def on_region_selected(region):
+        # 3. Connect Signals
+        def on_region_selected(region_tuple):
             nonlocal selected_region, selection_done
-            selected_region = region
+            print(f"Signal received: region_selected {region_tuple}") # Debugging
+            selected_region = region_tuple
             selection_done = True
 
         def on_selection_cancelled():
             nonlocal selection_done
+            print("Signal received: selection_cancelled") # Debugging
             selection_done = True
 
         selector.region_selected.connect(on_region_selected)
         selector.selection_cancelled.connect(on_selection_cancelled)
 
-        # Show selector
+        # 4. Show Selector and Wait using QEventLoop
         selector.show()
-        selector.activateWindow()
+        selector.activateWindow() # Try to bring it to front
 
-        # Wait for selection to complete using QEventLoop instead of sleep
         loop = QEventLoop()
+        # Use a QTimer to periodically check the flag and quit the loop,
+        # allowing other Qt events (like painting, mouse handling) to process.
         timer = QTimer()
-        timer.setInterval(50)  # 50ms checks
+        timer.setInterval(100) # Check every 100ms
         timer.timeout.connect(lambda: loop.quit() if selection_done else None)
         timer.start()
-        loop.exec()  # Much more responsive than sleep approach
+
+        print("Starting region selection event loop...") # Debugging
+        loop.exec() # Blocks here until loop.quit() is called
+        print("Region selection event loop finished.") # Debugging
         timer.stop()
-        print(selected_region)
+
+        # 5. Ensure selector is closed after loop exits
+        # Check isVisible() before closing to avoid errors if already closed by user (Esc)
+        if selector.isVisible():
+            selector.close()
+            selector.deleteLater() # Schedule for deletion
+
+        print(f"Returning selected region: {selected_region}") # Debugging
         return selected_region
 
     except Exception as e:
         import traceback
-        print(f"Error in region selection: {e}")
-        print(traceback.format_exc())
+        print(f"ERROR during region selection process: {e}\n{traceback.format_exc()}") # Use logger
+        # Clean up selector if it exists and an error occurred
+        if 'selector' in locals() and isinstance(selector, QMainWindow) and selector.isVisible():
+             try:
+                  selector.close()
+                  selector.deleteLater()
+             except Exception as cleanup_e:
+                  print(f"Error closing selector during exception handling: {cleanup_e}")
         return None

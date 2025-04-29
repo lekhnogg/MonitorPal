@@ -19,12 +19,13 @@ from src.presentation.components.ui_components import (
 )
 # Import plotting library if you choose one (e.g., pyqtgraph)
 # import pyqtgraph as pg # Example
+# Import StyleManager for QSS styling
+from src.presentation.styles.style_manager import StyleManager
+
 
 class HistoryView(QWidget):
     """
     View for the History tab.
-
-    Displays historical P&L graph, session history table, and related controls.
     """
 
     # Define table columns for consistency
@@ -38,20 +39,11 @@ class HistoryView(QWidget):
     }
 
     def __init__(self, view_model: HistoryViewModel, parent: QWidget = None):
-        """
-        Initialize the HistoryView.
-
-        Args:
-            view_model: The corresponding HistoryViewModel instance.
-            parent: Optional parent widget.
-        """
         super().__init__(parent)
         self.view_model = view_model
         self._setup_ui()
         self._connect_signals()
         self._apply_initial_vm_state()
-        # Request initial data load by emitting signal changes from VM init
-        # (Or explicitly call VM load methods if needed, but signal emission is preferred)
 
     def _setup_ui(self):
         """Creates and arranges the UI elements for the history tab."""
@@ -59,78 +51,76 @@ class HistoryView(QWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(15)
 
+        # Apply history view styles
+        self.setStyleSheet(StyleManager.get_view_style("history_view"))
+
         # --- Top Section: Graph and Controls ---
         graph_group = QGroupBox("P&L History Graph")
+        graph_group.setObjectName("graphGroup")
         graph_group_layout = QVBoxLayout(graph_group)
         graph_group_layout.setSpacing(8)
 
-        # Graph Placeholder / Actual Graph Widget
-        # Replace QLabel with your actual plotting widget
-        # Example using pyqtgraph (ensure installed: pip install pyqtgraph):
-        # pg.setConfigOption('background', 'w') # White background
-        # pg.setConfigOption('foreground', 'k') # Black foreground
-        # self.plot_widget = pg.PlotWidget()
-        # self.pnl_curve = self.plot_widget.plot(pen='b') # Blue line
-        # self.threshold_line = pg.InfiniteLine(angle=0, movable=False, pen=pg.mkPen('r', style=Qt.DashLine))
-        # self.plot_widget.addItem(self.threshold_line)
-        # self.plot_widget.setLabel('left', 'P&L', units='$')
-        # self.plot_widget.setLabel('bottom', 'Time')
-        # date_axis = pg.DateAxisItem(orientation='bottom')
-        # self.plot_widget.setAxisItems({'bottom': date_axis})
-        # graph_group_layout.addWidget(self.plot_widget, 1) # Give stretch
-        # --- End pyqtgraph Example ---
-
-        # --- Simple Placeholder ---
+        # Graph Placeholder
         self.graph_placeholder = QLabel("[ P&L Graph Area ]")
+        self.graph_placeholder.setObjectName("graphPlaceholder")
         self.graph_placeholder.setAlignment(Qt.AlignCenter)
-        self.graph_placeholder.setMinimumHeight(200) # Decent starting height
+        self.graph_placeholder.setMinimumHeight(200)
         self.graph_placeholder.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.graph_placeholder.setStyleSheet("background-color: #ecf0f1; border: 1px dashed #bdc3c7; color: #7f8c8d;")
-        graph_group_layout.addWidget(self.graph_placeholder, 1) # Allow graph to stretch
-        # --- End Simple Placeholder ---
+        graph_group_layout.addWidget(self.graph_placeholder, 1)
 
         # Graph Controls
         graph_controls_layout = QHBoxLayout()
         graph_controls_layout.addWidget(QLabel("Time Range:"))
         self.time_range_combo = QComboBox()
-        # Options will be populated by ViewModel signal
+        self.time_range_combo.setObjectName("timeRangeCombo")
         graph_controls_layout.addWidget(self.time_range_combo)
         graph_controls_layout.addStretch(1)
+
         self.threshold_line_checkbox = QCheckBox("Show Threshold Line")
+        self.threshold_line_checkbox.setObjectName("thresholdLineCheckbox")
         graph_controls_layout.addWidget(self.threshold_line_checkbox)
         graph_group_layout.addLayout(graph_controls_layout)
 
-        main_layout.addWidget(graph_group, 1) # Graph takes priority vertical space
+        main_layout.addWidget(graph_group, 1)
 
         # --- Bottom Section: Session History Table and Controls ---
         history_group = QGroupBox("Session History")
+        history_group.setObjectName("historyGroup")
         history_layout = QVBoxLayout(history_group)
         history_layout.setSpacing(8)
 
         self.history_table = QTableWidget()
+        self.history_table.setObjectName("historyTable")
         self.history_table.setColumnCount(len(self.SESSION_HISTORY_COLUMNS))
-        self.history_table.setHorizontalHeaderLabels([label for label, index in sorted(self.SESSION_HISTORY_COLUMNS.values(), key=lambda item: item[1])])
-        self.history_table.verticalHeader().setVisible(False) # Hide row numbers
-        self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers) # Read-only
-        self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows) # Select whole rows
-        self.history_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection) # Select one row at a time
+        self.history_table.setHorizontalHeaderLabels(
+            [label for label, index in sorted(self.SESSION_HISTORY_COLUMNS.values(), key=lambda item: item[1])])
+        self.history_table.verticalHeader().setVisible(False)
+        self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.history_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.history_table.setAlternatingRowColors(True)
+
         # Adjust column widths
         header = self.history_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch) # Stretch columns initially
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(self.SESSION_HISTORY_COLUMNS["date"][1], QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self.SESSION_HISTORY_COLUMNS["start_time"][1], QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self.SESSION_HISTORY_COLUMNS["duration"][1], QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.SESSION_HISTORY_COLUMNS["start_time"][1],
+                                    QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.SESSION_HISTORY_COLUMNS["duration"][1],
+                                    QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(self.SESSION_HISTORY_COLUMNS["locked"][1], QHeaderView.ResizeMode.ResizeToContents)
 
-        history_layout.addWidget(self.history_table, 1) # Allow table to stretch
+        history_layout.addWidget(self.history_table, 1)
 
         # History Controls
         history_controls_layout = QHBoxLayout()
         self.clear_history_button = DangerButton("Clear History")
+        self.clear_history_button.setObjectName("clearHistoryButton")
         self.generate_report_button = StyledButton("Generate Report")
+        self.generate_report_button.setObjectName("generateReportButton")
         self.details_button = SecondaryButton("View Details...")
-        self.details_button.setEnabled(False) # Disabled until a row is selected
+        self.details_button.setObjectName("detailsButton")
+        self.details_button.setEnabled(False)
 
         history_controls_layout.addWidget(self.clear_history_button)
         history_controls_layout.addWidget(self.generate_report_button)
@@ -138,7 +128,7 @@ class HistoryView(QWidget):
         history_controls_layout.addWidget(self.details_button)
         history_layout.addLayout(history_controls_layout)
 
-        main_layout.addWidget(history_group, 1) # Give table section equal vertical space
+        main_layout.addWidget(history_group, 1)
 
 
     def _connect_signals(self):

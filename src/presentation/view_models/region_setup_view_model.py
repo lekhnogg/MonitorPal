@@ -35,6 +35,7 @@ class RegionSetupViewModel(QObject):
     monitor_region_preview_changed = Signal(QPixmap) # Send QPixmap for display
     can_delete_monitor_region_changed = Signal(bool)
     can_flash_monitor_region_changed = Signal(bool)
+    monitor_region_saved = Signal(str)  # Emits the platform name for which it was saved
 
     # Flatten Position Regions Section
     # Signal carries List[Dict], where each dict has keys like 'name', 'coords_text', 'preview_pixmap'
@@ -150,6 +151,9 @@ class RegionSetupViewModel(QObject):
             self.status_message_changed.emit(f"Failed to save monitor region: {save_result.error}", "ERROR")
             # Show critical message maybe? self.ui_service.show_message(...)
             return
+
+        # --- Emit the new signal on successful save ---
+        self.monitor_region_saved.emit(self._selected_platform)
 
         self.status_message_changed.emit(f"Successfully defined/updated monitor region: {coordinates}", "SUCCESS")
 

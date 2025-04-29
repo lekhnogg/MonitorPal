@@ -198,7 +198,7 @@ class OcrCalibrationViewModel(QObject):
     calibration_source_preview_changed = Signal(QPixmap)
     calibration_source_status_text_changed = Signal(str)
     can_calibrate_changed = Signal(bool)
-
+    expected_value_changed = Signal(str)
     calibration_in_progress_changed = Signal(bool)
     calibration_progress_changed = Signal(int, str)
     calibration_status_text_changed = Signal(str, str) # message, color
@@ -252,6 +252,7 @@ class OcrCalibrationViewModel(QObject):
         self._current_ocr_profile: OcrProfile = OcrProfile() # Start with default
         self._source_preview_pixmap: QPixmap = QPixmap()
         self._source_status_text: str = "N/A"
+
         self._logger.debug("Initializing OcrCalibrationViewModel...")
         self._platform_selection_service.register_platform_change_listener(
             self._handle_platform_selection_change
@@ -457,46 +458,68 @@ class OcrCalibrationViewModel(QObject):
         """Updates progress signal."""
         self.calibration_progress_changed.emit(percent, message)
 
-
     @Slot(object)
     def _handle_calibration_completed(self, result_data: Optional[Dict[str, Any]]):
         """Handles the result from the CalibrationWorker."""
         self._logger.info(f"Calibration completed. Result data received: {'Yes' if result_data else 'No'}")
         self._is_calibrating = False
         self.calibration_in_progress_changed.emit(False)
-        self._last_calibration_result = result_data # Store raw result
+        self._last_calibration_result = result_data  # Store raw result
 
         if result_data:
+            # --- Extract results from the dictionary ---
             calibrated_ocr_profile = result_data.get("ocr_profile")
             detected_patterns = result_data.get("patterns", {})
             matched_value = result_data.get("matched_value", "N/A")
             difference = result_data.get("difference", 0)
 
+            # --- Validate the received OCR profile ---
             if not calibrated_ocr_profile or not isinstance(calibrated_ocr_profile, OcrProfile):
-                 self._handle_calibration_error("Calibration result missing or invalid OCR profile data.")
-                 return
+                self._logger.error(
+                    f"Calibration result missing or invalid OCR profile data: {type(calibrated_ocr_profile)}")
+                # Handle error case - maybe revert to previous profile or defaults?
+                # Call the error handler for consistency
+                self._handle_calibration_error("Internal Error: Calibration returned invalid profile data.")
+                return
 
-            self._update_ocr_profile_state(calibrated_ocr_profile) # Updates internal state and emits signals
+            # --- Update UI with the successfully calibrated parameters ---
+            self._update_ocr_profile_state(
+                calibrated_ocr_profile)  # Updates internal state and emits signals for advanced params UI
 
+            # --- Update detected patterns display ---
+            # Determine which pattern keys are present in the successful result
             pattern_keys = list(detected_patterns.keys())
-            pattern_display_state = {key: (key in pattern_keys) for key in ["dollar", "negative", "negative_dash", "regular"]}
+            pattern_display_state = {key: (key in pattern_keys) for key in
+                                     ["dollar", "negative", "negative_dash", "regular"]}
             self.detected_patterns_changed.emit(pattern_display_state)
-            self.show_detected_patterns_changed.emit(bool(pattern_keys))
+            self.show_detected_patterns_changed.emit(True)  # Ensure patterns are visible
 
+            # --- Update Status Label with Success Message ---
             status_msg = f"Calibration successful! Detected value: {matched_value}"
-            if difference > 0.001: status_msg += f" (Note: Matched within ${difference:.2f} tolerance)"
-            self.calibration_status_text_changed.emit(status_msg, "green")
-            self.status_message_changed.emit("Calibration successful. Review and save.", "SUCCESS")
+            # Add note about tolerance if the match wasn't exact (e.g., difference threshold 0.001)
+            if difference > 0.001:
+                status_msg += f" (Note: Matched within ${difference:.2f} tolerance)"
+            self.calibration_status_text_changed.emit(status_msg, "green")  # Keep the success message visible
 
-            self.can_save_calibrated_profile_changed.emit(True) # Enable calibrated save
-            self.can_save_manual_edits_changed.emit(True) # Also enable manual save
+            # --- Emit general status message ---
+            self.status_message_changed.emit("Calibration successful. Review parameters and save.", "SUCCESS")
+
+            # --- Enable Save Buttons ---
+            self.can_save_calibrated_profile_changed.emit(True)  # Enable calibrated save
+            # Also enable manual save, as the parameters are now populated with calibrated values
+            self.can_save_manual_edits_changed.emit(True)
 
         else:
-            # Calibration Failed (Worker returned None)
-            self._handle_calibration_error("Calibration failed to find a suitable profile and pattern combination.")
-            # Keep existing profile params displayed, don't enable save calibrated
+            # Calibration Failed (Worker returned None or an error handled internally)
+            # The error message should have already been emitted by the worker via _handle_calibration_error
+            # Ensure UI state reflects failure (done in _handle_calibration_error)
+            # If _handle_calibration_error wasn't called for some reason, call it here
+            if not self._is_calibrating:  # Check if error handler already ran
+                self._handle_calibration_error("Calibration failed to find a suitable profile and pattern combination.")
+            # Ensure save buttons are correctly disabled
             self.can_save_calibrated_profile_changed.emit(False)
-            self.can_save_manual_edits_changed.emit(True) # Still allow saving if user tweaks params
+            # Allow manual saving if the user wants to tweak the *existing* parameters
+            self.can_save_manual_edits_changed.emit(self._selected_platform is not None)
 
 
     @Slot(str)
@@ -513,6 +536,18 @@ class OcrCalibrationViewModel(QObject):
         self.can_save_calibrated_profile_changed.emit(False)
         self.can_save_manual_edits_changed.emit(True) # Allow manual save even if calibration failed
 
+    @Slot(str)
+    def handle_monitor_region_saved(self, platform_name: str):
+        """Slot triggered when the monitor region is saved elsewhere."""
+        # Check if the saved region belongs to the platform this VM currently cares about
+        if self._selected_platform and platform_name == self._selected_platform:
+            self._logger.debug(
+                f"Monitor region saved for current platform ({platform_name}), reloading calibration source.")
+            # Call the existing method to reload the source image
+            # Ensure _load_calibration_source uses self._selected_platform or accepts it
+            self._load_calibration_source(self._selected_platform)
+        else:
+            self._logger.debug(f"Ignoring monitor_region_saved signal for different platform ({platform_name}).")
 
     # --- Slots to update internal _current_ocr_profile from UI edits ---
     # These are needed for save_manual_ocr_edits to work correctly
@@ -556,39 +591,97 @@ class OcrCalibrationViewModel(QObject):
          if self._current_ocr_profile.invert_colors != value:
               self._current_ocr_profile.invert_colors = value
               self.can_save_manual_edits_changed.emit(True)
+
+
     # --- End Slots for UI edits ---
 
 
     # --- Private Helper Methods ---
 
     def _update_for_platform(self, platform: str):
-        """Loads calibration source image and current profile for the platform."""
+        """Loads calibration source and profile, updates internal state, emits signals."""
         self._selected_platform = platform
-        self._logger.info(f"Updating calibration view for platform: {platform}")
+        self._logger.info(f"Updating calibration view for platform: {platform or 'None'}")
+
+        # --- Reset state ---
         self._expected_value = ""
+        self.expected_value_changed.emit("")
         self._is_calibrating = False
         self._last_calibration_result = None
         self.calibration_in_progress_changed.emit(False)
         self.can_save_calibrated_profile_changed.emit(False)
-        self.show_detected_patterns_changed.emit(False)
-        self.detected_patterns_changed.emit({})
+        # --- Default values for local vars before loading ---
+        loaded_patterns = {}
+        status_message = "N/A"
+        status_color = "gray"
+        # --- ADD INITIALIZATION HERE ---
+        show_patterns = False # Default to False
+        # --- END ADD ---
+        allow_manual_save = False
+        pattern_display_state = {}
+
 
         if not platform:
-             self._clear_calibration_source()
-             self._update_ocr_profile_state(OcrProfile())
-             self.can_save_manual_edits_changed.emit(False) # Cannot save manual edits without platform
-             return
-
-        profile_res = self._profile_service.get_profile(platform)
-        if profile_res.is_success:
-             self._update_ocr_profile_state(profile_res.value.ocr_profile)
+            # Handle case where no platform is selected
+            self._clear_calibration_source()
+            default_profile = self._profile_service._get_platform_default_ocr_profile("")
+            self._update_ocr_profile_state(default_profile)
+            loaded_patterns = self._profile_service._get_default_patterns_for_platform(None)
+            allow_manual_save = False
+            status_message = "Select Platform" # Will be overwritten by _clear_calibration_source status
+            status_color = "gray"
+            show_patterns = False # Explicitly false if no platform
         else:
-             self._logger.error(f"Failed to load profile for {platform} on view update: {profile_res.error}")
-             self.status_message_changed.emit(f"Error loading profile: {profile_res.error}", "ERROR")
-             self._update_ocr_profile_state(OcrProfile())
+            # Platform is selected, load its profile
+            profile_res = self._profile_service.get_profile(platform)
+            if profile_res.is_success:
+                loaded_platform_profile = profile_res.value
+                self._update_ocr_profile_state(loaded_platform_profile.ocr_profile)
+                loaded_patterns = loaded_platform_profile.numeric_patterns or {}
+                allow_manual_save = True
+                status_message = f"Loaded saved profile for {platform}."
+                status_color = "gray"
+                show_patterns = True # Show patterns for loaded profile
+            else:
+                self._logger.error(f"Failed to load profile for {platform}: {profile_res.error}")
+                self.status_message_changed.emit(f"Error loading profile: {profile_res.error}", "ERROR")
+                default_profile = self._profile_service._get_platform_default_ocr_profile(platform)
+                self._update_ocr_profile_state(default_profile)
+                loaded_patterns = self._profile_service._get_default_patterns_for_platform(platform)
+                allow_manual_save = True
+                status_message = f"Error loading profile. Using defaults."
+                status_color = "orange"
+                show_patterns = True # Still show patterns section even if default
 
-        self.can_save_manual_edits_changed.emit(True) # Allow manual save once platform loaded
-        self._load_calibration_source(platform)
+        # --- Calculate pattern display state ---
+        pattern_display_state = {key: (key in loaded_patterns) for key in ["dollar", "negative", "negative_dash", "regular"]}
+
+        # --- Update manual save button state ---
+        self.can_save_manual_edits_changed.emit(allow_manual_save)
+
+        # --- Load preview and determine calibration source status ---
+        self._load_calibration_source(platform) # Sets self._source_status_text
+
+        # --- Determine final status message/color ---
+        final_status_msg = status_message # Start with status from profile load
+        final_status_color = status_color
+        # If source loading failed, that status takes precedence
+        if not self._calibration_source_image_path and platform:
+             final_status_msg = self._source_status_text
+             final_status_color = "orange" # Indicate warning if source missing
+
+        # --- STORE LAST STATE for initial sync ---
+        self._last_calibration_status_text = final_status_msg
+        self._last_calibration_status_color = final_status_color
+        self._last_pattern_state = pattern_display_state
+        self._last_patterns_visible = show_patterns # <<< Safe to use now
+        # --- END STORE ---
+
+        # --- EMIT SIGNALS ---
+        self.detected_patterns_changed.emit(pattern_display_state)
+        self.show_detected_patterns_changed.emit(show_patterns)
+        self.calibration_status_text_changed.emit(final_status_msg, final_status_color)
+        # Other signals like OCR params and source preview are emitted by their respective helpers
 
     def _clear_calibration_source(self):
         self._calibration_source_image_path = None
@@ -601,82 +694,78 @@ class OcrCalibrationViewModel(QObject):
         self.calibration_status_text_changed.emit(self._source_status_text, "gray")
 
     def _load_calibration_source(self, platform: str):
-        """Loads the monitor region screenshot for the specified platform."""
+        """Loads the monitor region screenshot, emits preview/status signals
+           ONLY for the source preview section."""
         if not platform:
-            self._clear_calibration_source() # This helper also updates internal state now
+            self._clear_calibration_source() # Handles resetting state and emitting signals
             return
 
-        # --- Reset state before loading ---
+        # --- Reset specific source state before loading ---
         preview_pixmap = QPixmap()
         status_text = ""
         can_calibrate = False
-        self._calibration_source_image_path = None # Clear path initially
-        # --- End Reset ---
+        self._calibration_source_image_path = None
 
         region_result = self._region_service.get_monitor_region(platform)
-
         if region_result.is_success and region_result.value:
             monitor_region = region_result.value
             screenshot_path = monitor_region.screenshot_path
-
             if screenshot_path and os.path.exists(screenshot_path):
-                self._logger.debug(f"Found screenshot path: {screenshot_path}")
+                # Attempt to load image data
                 load_res = self._region_service.load_region_screenshot(monitor_region)
                 if load_res.is_success:
+                    # Attempt to convert to QPixmap
                     pixmap_res = self._screenshot_service.to_pyside_pixmap(load_res.value)
                     if pixmap_res.is_success:
                         preview_pixmap = pixmap_res.value
-                        status_text = f"Using screenshot from Monitor region: {os.path.basename(screenshot_path)}"
+                        status_text = f"Source: {os.path.basename(screenshot_path)}"
                         can_calibrate = True
-                        self._calibration_source_image_path = screenshot_path # Store path
-                        self._logger.debug(f"Successfully loaded and converted preview for {platform}.")
-                    else:
-                        status_text = "Error: Failed to convert screenshot preview."
-                        self._logger.warning(f"Failed to convert screenshot to QPixmap for {platform}: {pixmap_res.error}")
-                else:
-                    status_text = f"Error: Failed to load screenshot file: {os.path.basename(screenshot_path)}"
-                    self._logger.warning(f"Failed to load screenshot file {screenshot_path}: {load_res.error}")
-            elif screenshot_path:
-                 status_text = f"Monitor Region defined, but screenshot file not found: {os.path.basename(screenshot_path)}"
-                 self._logger.warning(f"Screenshot file path exists in config but not on disk: {screenshot_path}")
-            else:
-                 status_text = "Monitor Region defined, but no screenshot path recorded."
-                 self._logger.debug(f"Monitor region loaded for {platform}, but no screenshot path associated.")
-        elif region_result.is_failure:
-            status_text = f"Error loading region data: {region_result.error}"
-            self._logger.warning(f"Failed to load monitor region for {platform}: {region_result.error}")
-        else: # Not defined
-            status_text = "P&L Monitor Region not defined for this platform."
-            self._logger.debug(f"Monitor region not defined for {platform}.")
+                        self._calibration_source_image_path = screenshot_path # Store path on success
+                    else: status_text = "Error: Failed converting preview."
+                else: status_text = f"Error: Failed loading {os.path.basename(screenshot_path)}"
+            elif screenshot_path: status_text = f"Error: Screenshot file missing."
+            else: status_text = "Monitor Region defined, no screenshot path."
+        elif region_result.is_failure: status_text = f"Error loading region data."
+        else: status_text = "P&L Monitor Region not defined."
 
-        # --- Store state internally ---
+        # --- Store internal state related ONLY to the source preview ---
         self._source_preview_pixmap = preview_pixmap
         self._source_status_text = status_text
-        # self._calibration_source_image_path is set above if successful
-        # --- End Store state ---
+        # Note: _calibration_source_image_path is set above if successful
 
-        # --- Emit signals using stored state ---
+        # --- Emit signals to update ONLY the source preview part of the View ---
         self.calibration_source_preview_changed.emit(self._source_preview_pixmap)
         self.calibration_source_status_text_changed.emit(self._source_status_text)
         self.can_calibrate_changed.emit(can_calibrate)
-        # Update calibration status text based on whether calibration is possible
-        initial_calib_status = "Enter value shown above and click Calibrate." if can_calibrate else status_text
-        initial_calib_color = "gray" # Always start gray until calibration runs
-        self.calibration_status_text_changed.emit(initial_calib_status, initial_calib_color)
+        # ---> REMOVED emission of the main calibration_status_text_changed signal
 
     def _update_ocr_profile_state(self, ocr_profile: OcrProfile):
-        """Updates internal state and emits signals for OCR parameters."""
+        """Updates internal state AND emits signals for OCR parameters.""" # Docstring updated
         if not isinstance(ocr_profile, OcrProfile):
-             self._logger.error(f"Invalid OCR profile type received: {type(ocr_profile)}. Resetting to default.")
+             self._logger.error(f"Invalid OCR profile type received: {type(ocr_profile)}. Using default.")
              ocr_profile = OcrProfile()
 
-        self._current_ocr_profile = dataclasses.replace(ocr_profile) # Store a copy
+        # Store a copy
+        block_size = int(ocr_profile.threshold_block_size)
+        if block_size < 3: block_size = 3
+        if block_size % 2 == 0: block_size += 1
+        new_profile = dataclasses.replace(ocr_profile, threshold_block_size=block_size)
 
+        # Check if state actually changed before updating/emitting (optional optimization)
+        # if self._current_ocr_profile == new_profile:
+        #      self.logger.debug("OCR profile state unchanged, skipping signal emissions.")
+        #      return
+
+        self._current_ocr_profile = new_profile # Update internal state
+        self._logger.debug(f"Internal OCR profile state updated to: {self._current_ocr_profile}. Emitting signals...")
+
+        # --- Emit signals for ALL OCR parameters based on the new state ---
         self.scale_factor_changed.emit(self._current_ocr_profile.scale_factor)
         self.threshold_block_size_changed.emit(self._current_ocr_profile.threshold_block_size)
         self.threshold_c_changed.emit(self._current_ocr_profile.threshold_c)
         self.denoise_h_changed.emit(self._current_ocr_profile.denoise_h)
         self.tesseract_config_changed.emit(self._current_ocr_profile.tesseract_config)
         self.invert_colors_changed.emit(self._current_ocr_profile.invert_colors)
-        # Enable manual saving whenever profile state is updated (load, reset, calibration)
+
+        # Enable manual saving whenever profile state is updated
         self.can_save_manual_edits_changed.emit(self._selected_platform is not None)

@@ -4,7 +4,7 @@ import os
 import re
 import cv2
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Optional
 from PIL import Image
 
 from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
@@ -25,6 +25,29 @@ class OcrAnalysisService(IOcrAnalysisService):
             logger: Logger service for logging
         """
         self.logger = logger
+
+    def get_default_patterns(self, platform_name: Optional[str] = None) -> Dict[str, str]:
+        """
+        Provides a default set of numeric extraction regex patterns.
+        Currently returns the same default for all platforms.
+
+        Args:
+            platform_name: Optional platform name (currently unused, but keeps signature)
+
+        Returns:
+            A dictionary of default regex patterns.
+        """
+        self.logger.debug(f"Providing default numeric patterns (Platform context: {platform_name or 'N/A'})")
+        # This is the same default pattern set used in PlatformProfile.__post_init__
+        # Having it here centralizes it if needed elsewhere or for future customization.
+        return {
+            "dollar": r'[$§]?([\d,]+(?:[.,]\d+)?)',  # Matches optional $, §, then digits/commas, optional decimal part
+            "negative": r'\((?:[$§]?)([\d,]+(?:[.,]\d+)?)\)',  # Matches (optional $), digits/commas/decimal, )
+            "negative_dash": r'[-~–—]\s*[$§]?([\d,]+(?:[.,]\d+)?)',
+            # Matches dash/tilde, optional space/currency, digits/commas/decimal
+            "regular": r'(?<![$§])([-~–—]?[\d,]+(?:[.,]\d+)?)'
+            # Matches optional dash/tilde, digits/commas/decimal ONLY if NOT preceded by $ or §
+        }
 
     def detect_optimal_ocr_parameters(self, image_path: str) -> Result[OcrProfile]:
         """Detect optimal OCR parameters from an image."""

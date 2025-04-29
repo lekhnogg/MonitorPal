@@ -10,6 +10,9 @@ from PySide6.QtCore import Qt, Slot
 # Import your custom button styles
 from src.presentation.components.ui_components import StyledButton, DangerButton
 
+
+
+
 class RegionEntryWidget(QWidget): # Renamed from RegionEntry
     """
     Widget for displaying a single flatten region entry with details and actions.

@@ -1,3 +1,4 @@
+# src/presentation/components/ui_components.py
 """
 Standardized UI components for consistent look and feel.
 
@@ -14,6 +15,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor, QIcon
 import time
 
+# Import the StyleManager for component-specific styles
+from src.presentation.styles.style_manager import StyleManager
+
 class StyledButton(QPushButton):
     """Standard blue button for regular actions."""
     def __init__(self, text, parent=None, icon=None, max_width=None):
@@ -27,23 +31,8 @@ class StyledButton(QPushButton):
         if max_width:
             self.setMaximumWidth(max_width)
 
-        # Use minimal styling to preserve original size
-        self.setStyleSheet("""
-            QPushButton {
-                background-color: #3a7ca5;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #2a6b94;
-            }
-            QPushButton:pressed {
-                background-color: #1a5a83;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #888888;
-            }
-        """)
+        # Apply styling using StyleManager
+        self.setStyleSheet(StyleManager.get_button_style("styled_button"))
 
     def set_loading(self, is_loading=True):
         """Set button to loading state (disabled + loading text)."""
@@ -67,22 +56,8 @@ class ActionButton(QPushButton):
         if max_width:
             self.setMaximumWidth(max_width)
 
-        self.setStyleSheet("""
-            QPushButton {
-                background-color: #5cb85c;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #4cae4c;
-            }
-            QPushButton:pressed {
-                background-color: #3c903c;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #888888;
-            }
-        """)
+        # Apply styling using StyleManager
+        self.setStyleSheet(StyleManager.get_button_style("action_button"))
 
 
 class WarningButton(QPushButton):
@@ -96,22 +71,8 @@ class WarningButton(QPushButton):
         if max_width:
             self.setMaximumWidth(max_width)
 
-        self.setStyleSheet("""
-            QPushButton {
-                background-color: #f0ad4e;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #eea236;
-            }
-            QPushButton:pressed {
-                background-color: #de9226;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #888888;
-            }
-        """)
+        # Apply styling using StyleManager
+        self.setStyleSheet(StyleManager.get_button_style("warning_button"))
 
 
 class DangerButton(QPushButton):
@@ -125,22 +86,8 @@ class DangerButton(QPushButton):
         if max_width:
             self.setMaximumWidth(max_width)
 
-        self.setStyleSheet("""
-            QPushButton {
-                background-color: #d9534f;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #c9302c;
-            }
-            QPushButton:pressed {
-                background-color: #b92c28;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #888888;
-            }
-        """)
+        # Apply styling using StyleManager
+        self.setStyleSheet(StyleManager.get_button_style("danger_button"))
 
 
 class SecondaryButton(QPushButton):
@@ -154,42 +101,15 @@ class SecondaryButton(QPushButton):
         if max_width:
             self.setMaximumWidth(max_width)
 
-        self.setStyleSheet("""
-            QPushButton {
-                background-color: #f0f0f0;
-                color: #333333;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-            QPushButton:disabled {
-                background-color: #f5f5f5;
-                color: #aaaaaa;
-            }
-        """)
+        # Apply styling using StyleManager
+        self.setStyleSheet(StyleManager.get_button_style("secondary_button"))
 
 
 class GroupHeader(QGroupBox):
     """Standard group box with consistent styling."""
     def __init__(self, title, parent=None):
         super().__init__(title, parent)
-        self.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #cccccc;
-                border-radius: 6px;
-                margin-top: 10px;
-                padding-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top center;
-                padding: 0 5px;
-            }
-        """)
+        # Use default QSS styling from application.qss
 
 
 class LogDisplay(QTextEdit):
@@ -199,21 +119,34 @@ class LogDisplay(QTextEdit):
         super().__init__(parent)
         self.setReadOnly(True)
         self.setMinimumHeight(200)
+
+        # Apply styling using StyleManager
+        self.setStyleSheet(StyleManager.get_component_style("log_display"))
+
         self.color_map = {
-            "INFO": "white",         # Changed from "black"
-            "SUCCESS": "green",
-            "WARNING": "red",
-            "ERROR": "#8B008B",     # Changed from "red" to dark magenta hex
-            "DEBUG": "gray"
+            "INFO": "#2980b9",      # Blue
+            "SUCCESS": "#27ae60",   # Green
+            "WARNING": "#f39c12",   # Orange
+            "ERROR": "#e74c3c",     # Red
+            "DEBUG": "#7f8c8d"      # Gray
         }
 
     def append_message(self, message: str, level: str = "INFO"):
         """Append a message with the appropriate color based on level."""
-        color = self.color_map.get(level.upper(), "black")
+        color = self.color_map.get(level.upper(), "#2d3436")  # Default to dark gray
 
+        # Format with timestamp for better readability
         timestamp = time.strftime("%H:%M:%S")
-        formatted_message = f"<span style='color:{color};'>[{timestamp} {level}] {message}</span>"
-        self.append(formatted_message)
+
+        # HTML formatting for better visual structure
+        formatted_html = f"""
+        <div style="margin: 2px 0;">
+            <span style="color: #7f8c8d; font-size: 8pt;">[{timestamp}]</span>
+            <span style="color: {color}; font-weight: bold;">[{level}]</span>
+            <span style="color: #2d3436;"> {message}</span>
+        </div>
+        """
+        self.append(formatted_html)
 
         # Ensure the latest message is visible
         cursor = self.textCursor()

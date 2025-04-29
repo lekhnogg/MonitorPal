@@ -1,0 +1,22 @@
+/* src/presentation/styles/stylesheets/components/buttons/warning_button.qss */
+QPushButton {
+    background-color: #f39c12;
+    color: white;
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-weight: bold;
+    min-height: 25px;
+}
+
+QPushButton:hover {
+    background-color: #f1c40f;
+}
+
+QPushButton:pressed {
+    background-color: #d68910;
+}
+
+QPushButton:disabled {
+    background-color: #bdc3c7;
+    color: #7f8c8d;
+}

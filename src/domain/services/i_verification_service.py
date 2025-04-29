@@ -1,115 +1,92 @@
-#src/domain/services/i_verification_service.py
+# src/domain/services/i_verification_service.py
 
+"""
+Interface for the Verification Service.
+
+Defines methods for verifying Cold Turkey Blocker configuration and integration.
+"""
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import Optional, Callable
+
+# Import Result for type hinting
 from src.domain.common.result import Result
 
 
 class IVerificationService(ABC):
     """
-    Service for verifying platform blocks in Cold Turkey Blocker.
-
-    This service coordinates the verification process, handling rate limiting,
-    background threading, and user feedback for Cold Turkey Blocker verification.
+    Interface for verifying platform blocking configurations.
     """
 
     @abstractmethod
-    def verify_platform_block(self, platform: str, block_name: str, cancellable: bool = True) -> Result[bool]:
+    def verify_platform_block(self,
+                              platform: str,
+                              block_name: str,
+                              # --- ADDED PARAMETER ---
+                              platform_executable_path: str,
+                              # --- END ADDED ---
+                              on_started: Callable[[], None],
+                              on_completed: Callable[[bool, str], None],
+                              on_error: Callable[[str, str], None]) -> Result[bool]:
         """
-        Verify that a Cold Turkey block exists and is properly configured for a specific trading platform.
+        Starts the asynchronous verification process for a block/platform.
 
-        This method coordinates the verification process in a background thread, with rate limiting
-        and cancellation support.
+        Implementations should trigger checks (e.g., UI, file monitoring,
+        process launch checks) to confirm the specified block effectively
+        prevents the target platform (identified by platform_executable_path)
+        from running or being accessed. Updates configuration repository
+        via callbacks upon successful verification.
 
         Args:
-            platform: The trading platform name (e.g., "Quantower")
-            block_name: Name of the block in Cold Turkey Blocker
-            cancellable: Whether the verification process can be cancelled
+            platform: Name of the trading platform.
+            block_name: Name of the Cold Turkey block to verify.
+            platform_executable_path: Full path to the trading platform's executable.
+            on_started: Callback function executed when verification starts.
+            on_completed: Callback function executed on completion
+                          (args: overall_success (bool), platform_name (str)).
+            on_error: Callback function executed on error
+                      (args: error_message (str), platform_name (str)).
 
         Returns:
-            Result containing True if verification succeeded, False otherwise
+            Result.ok(True) if the verification task was started successfully.
+            Result.fail(error) if starting the task failed immediately.
         """
         pass
 
     @abstractmethod
     def cancel_verification(self) -> Result[bool]:
         """
-        Cancel any running verification task.
+        Request cancellation of any ongoing verification task.
 
         Returns:
-            Result containing True if a task was cancelled, False if no task was running
+            Result indicating if cancellation request was successful.
+            Does not guarantee immediate termination.
         """
         pass
 
     @abstractmethod
     def is_verification_in_progress(self) -> bool:
-        """
-        Check if a verification task is currently running.
-
-        Returns:
-            True if verification is in progress, False otherwise
-        """
+        """Check if a verification task is currently running."""
         pass
 
     @abstractmethod
     def get_cooldown_remaining(self) -> int:
         """
-        Get the remaining cooldown time in seconds before another verification can be started.
-
-        Returns:
-            Seconds remaining in cooldown, or 0 if no cooldown is active
+        Get the remaining cooldown time in seconds before another
+        verification can be started.
         """
         pass
 
-    @abstractmethod
-    def get_verified_blocks(self) -> Result[List[Dict[str, Any]]]:
-        """
-        Get list of verified platform blocks.
-
-        Returns:
-            Result containing a list of platform block configurations
-        """
-        pass
+    # --- Optional Helper Methods ---
 
     @abstractmethod
-    def remove_verified_block(self, platform: str) -> Result[bool]:
-        """
-        Remove a verified platform block from the saved configuration.
-
-        Args:
-            platform: Platform to remove verification for
-
-        Returns:
-            Result containing True if removal succeeded, False otherwise
-        """
-        pass
-
-    @abstractmethod
-    def clear_verified_blocks(self) -> Result[bool]:
-        """
-        Clear all verified platform blocks.
-
-        Returns:
-            Result containing True if clearing succeeded, False otherwise
-        """
+    def is_blocker_path_configured(self) -> bool:
+        """Check if the path to the blocker executable is configured and valid."""
         pass
 
     @abstractmethod
     def is_verification_complete(self) -> bool:
         """
-        Check if at least one platform block has been verified.
-
-        Returns:
-            True if at least one platform has been verified
-        """
-        pass
-
-    @abstractmethod
-    def is_blocker_path_configured(self) -> bool:
-        """
-        Check if Cold Turkey Blocker path is configured.
-
-        Returns:
-            True if Cold Turkey Blocker path is configured, False otherwise
+        Check if the currently selected platform is considered verified
+        based on stored configuration.
         """
         pass

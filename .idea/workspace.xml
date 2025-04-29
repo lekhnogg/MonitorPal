@@ -4,12 +4,50 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="MVMM implemented, mostly works, havent checked everything but going to start changing UI to make it pretty">
-      <change afterPath="$PROJECT_DIR$/resources/resources.qrc" afterDir="false" />
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Working on OCR calibration not updating upon launch. potentially added a bunch of garbage code. this needs assessing.">
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/style_manager.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/application.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/buttons/action_button.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/buttons/danger_button.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/buttons/secondary_button.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/buttons/styled_button.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/buttons/warning_button.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/log_display.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/qt_region_selector.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/region_entry_widget.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/components/region_selector_dialog.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/style_views/dashboard_view.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/style_views/history_view.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/style_views/ocr_calibration_view.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/style_views/region_setup_view.qss" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/style_views/settings_view.qss" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/models/platform_profile.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/models/platform_profile.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_cold_turkey_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_cold_turkey_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_config_repository_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_config_repository_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_verification_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_verification_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/config/json_config_repository.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/config/profile_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ocr/ocr_analysis_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ocr/ocr_analysis_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/verification_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_cold_turkey_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/components/platform_selector_toolbar.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/components/ui_components.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/ui_components.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/ocr_calibration_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/ocr_calibration_view_model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/region_setup_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/region_setup_view_model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/settings_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/settings_view_model.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/history_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/history_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/main_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/main_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/ocr_calibration_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/ocr_calibration_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/region_setup_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/region_setup_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/settings_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/settings_view.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -94,16 +132,20 @@
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;git-widget-placeholder&quot;: &quot;SingleRegion&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/Gabe/PycharmProjects/MonitorPal/src/presentation/styles/stylesheets&quot;,
     &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.LLMConfigurable&quot;
   }
 }</component>
   <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\presentation\styles\stylesheets" />
+    </key>
     <key name="MoveFile.RECENT_KEYS">
-      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\presentation\views" />
-      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\ui" />
-      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\domain\services" />
-      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform\workers" />
-      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\infrastructure\platform" />
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\presentation\styles\stylesheets\components" />
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\presentation\styles" />
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\presentation\stylesheets\buttons" />
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\presentation\stylesheets\style_views" />
+      <recent name="C:\Users\Gabe\PycharmProjects\MonitorPal\src\presentation\stylesheets" />
     </key>
   </component>
   <component name="RunManager">
@@ -335,7 +377,23 @@
       <option name="project" value="LOCAL" />
       <updated>1744759618645</updated>
     </task>
-    <option name="localTasksCounter" value="22" />
+    <task id="LOCAL-00022" summary="MVVM works, nearly all functionality works, icons work. now time to make things look pretty and user friendly.">
+      <option name="closed" value="true" />
+      <created>1744765781696</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1744765781696</updated>
+    </task>
+    <task id="LOCAL-00023" summary="MVVM works, nearly all functionality works, icons work. now time to make things look pretty and user friendly.">
+      <option name="closed" value="true" />
+      <created>1744766587037</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1744766587037</updated>
+    </task>
+    <option name="localTasksCounter" value="24" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -355,6 +413,8 @@
     <MESSAGE value="Single region stuff pretty much complete, jsut cleaning up now" />
     <MESSAGE value="deleted depracated methods from ocr" />
     <MESSAGE value="MVMM implemented, mostly works, havent checked everything but going to start changing UI to make it pretty" />
-    <option name="LAST_COMMIT_MESSAGE" value="MVMM implemented, mostly works, havent checked everything but going to start changing UI to make it pretty" />
+    <MESSAGE value="MVVM works, nearly all functionality works, icons work. now time to make things look pretty and user friendly." />
+    <MESSAGE value="Working on OCR calibration not updating upon launch. potentially added a bunch of garbage code. this needs assessing." />
+    <option name="LAST_COMMIT_MESSAGE" value="Working on OCR calibration not updating upon launch. potentially added a bunch of garbage code. this needs assessing." />
   </component>
 </project>

@@ -1,222 +1,104 @@
-#src/domain/services/i_background_task_service.py
-"""
-Thread service interface for application-wide threading.
+# src/domain/services/i_background_task_service.py
 
-Defines the contract for thread management services in the application.
-Includes messaging system for safe cross-thread communication.
+"""
+Interface for Background Task Service and Worker definition.
 """
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Callable, List, TypeVar, Generic, Protocol
-import threading
+from typing import TypeVar, Generic, Optional, Callable, List, Dict, Any # Added Dict, Any
 
+# Import Result for type hinting
 from src.domain.common.result import Result
 
+
 T = TypeVar('T')
-U = TypeVar('U')
-
-
-class CancellationToken:
-    """
-    Token for coordinating cancellation across threads.
-    Provides thread-safe cancellation state checking and waiting.
-    """
-
-    def __init__(self):
-        """Initialize a new cancellation token."""
-        self._cancelled = False
-        self._event = threading.Event()
-        self._lock = threading.RLock()
-
-    def cancel(self) -> None:
-        """Mark the token as cancelled and signal any waiting threads."""
-        with self._lock:
-            self._cancelled = True
-            self._event.set()
-
-    @property
-    def is_cancelled(self) -> bool:
-        """Check if cancellation has been requested."""
-        with self._lock:
-            return self._cancelled
-
-    def wait(self, timeout: Optional[float] = None) -> bool:
-        """
-        Wait for cancellation or timeout.
-
-        Args:
-            timeout: Maximum time to wait in seconds, or None to wait indefinitely
-
-        Returns:
-            True if the token was cancelled, False if timeout occurred
-        """
-        return self._event.wait(timeout)
-
-    def throw_if_cancelled(self) -> None:
-        """
-        Throw a TaskCancelledException if cancellation has been requested.
-
-        Raises:
-            TaskCancelledException: If cancellation has been requested
-        """
-        if self.is_cancelled:
-            raise TaskCancelledException("Task was cancelled")
-
-
-class TaskCancelledException(Exception):
-    """Exception raised when a task is cancelled."""
-    pass
-
-
-class WorkerObserver(Protocol):
-    """Protocol defining the interface for worker observation."""
-
-    def on_started(self) -> None: ...
-
-    def on_progress(self, percent: int, message: str) -> None: ...
-
-    def on_completed(self, result: Any) -> None: ...
-
-    def on_error(self, error: str) -> None: ...
-
 
 class Worker(Generic[T]):
     """
-    Base class for background workers that can be executed by the thread service.
-
-    Worker tasks are executed in a background thread and can report progress,
-    completion with a result, or errors.
+    Abstract base class for workers that perform tasks in background threads.
+    Includes support for cancellation and progress reporting.
     """
 
     def __init__(self):
         """Initialize the worker."""
-        # Cancellation support
-        self._cancellation_token = CancellationToken()
-
-        # Callbacks for progress reporting
+        self._cancel_requested = False
+        # Initialize callbacks to None
         self.on_started_callback: Optional[Callable[[], None]] = None
         self.on_progress_callback: Optional[Callable[[int, str], None]] = None
-        self.on_completed_callback: Optional[Callable[[T], None]] = None
+        self.on_completed_callback: Optional[Callable[[Any], None]] = None # Use Any for flexibility
         self.on_error_callback: Optional[Callable[[str], None]] = None
-
-        # Observer list
-        self._observers: List[WorkerObserver] = []
-
-    @property
-    def cancel_requested(self) -> bool:
-        """Check if cancellation has been requested."""
-        return self._cancellation_token.is_cancelled
-
-    def set_on_started(self, callback: Callable[[], None]) -> None:
-        """Set callback for when worker starts."""
-        self.on_started_callback = callback
-
-    def set_on_progress(self, callback: Callable[[int, str], None]) -> None:
-        """Set callback for progress updates."""
-        self.on_progress_callback = callback
-
-    def set_on_completed(self, callback: Callable[[T], None]) -> None:
-        """Set callback for when worker completes successfully."""
-        self.on_completed_callback = callback
-
-    def set_on_error(self, callback: Callable[[str], None]) -> None:
-        """Set callback for when worker encounters an error."""
-        self.on_error_callback = callback
-
-    def add_observer(self, observer: WorkerObserver) -> None:
-        """Add an observer to receive all worker events."""
-        if observer not in self._observers:
-            self._observers.append(observer)
-
-    def remove_observer(self, observer: WorkerObserver) -> None:
-        """Remove an observer from the worker."""
-        if observer in self._observers:
-            self._observers.remove(observer)
-
-    def report_started(self) -> None:
-        """Report that the worker has started."""
-        if self.on_started_callback:
-            self.on_started_callback()
-
-        for observer in self._observers:
-            observer.on_started()
-
-    def report_progress(self, percent: int, message: str = "") -> None:
-        """Report progress update."""
-        if self.on_progress_callback:
-            self.on_progress_callback(percent, message)
-
-        for observer in self._observers:
-            observer.on_progress(percent, message)
-
-    def report_completed(self, result: T) -> None:
-        """Report that the worker has completed successfully."""
-        if self.on_completed_callback:
-            self.on_completed_callback(result)
-
-        for observer in self._observers:
-            observer.on_completed(result)
-
-    def report_error(self, error: str) -> None:
-        """Report that the worker has encountered an error."""
-        if self.on_error_callback:
-            self.on_error_callback(error)
-
-        for observer in self._observers:
-            observer.on_error(error)
-
-    def initialize(self) -> None:
-        """
-        Initialize the worker before execution.
-
-        Override this method to perform setup operations before execute().
-        """
-        pass
-
-    def cleanup(self) -> None:
-        """
-        Clean up worker resources.
-
-        Override this method to perform cleanup operations after execute().
-        Called regardless of whether execute() completes successfully or not.
-        """
-        pass
-
-    def check_cancellation(self) -> None:
-        """
-        Check if cancellation has been requested and raise exception if so.
-
-        Raises:
-            TaskCancelledException: If cancellation has been requested
-        """
-        self._cancellation_token.throw_if_cancelled()
 
     @abstractmethod
     def execute(self) -> T:
         """
-        Execute the worker's task.
-
-        This method is called in a background thread and should return a result.
+        The main task execution logic. This method is called by the background thread.
+        Implementations should periodically check `self.cancel_requested`.
 
         Returns:
-            The result of the worker's execution
-
-        Raises:
-            TaskCancelledException: If the task is cancelled
-            Exception: For any other execution errors
+            The result of the task execution.
         """
         pass
 
+    @property
+    def cancel_requested(self) -> bool:
+        """Check if cancellation has been requested."""
+        return self._cancel_requested
+
     def cancel(self) -> None:
-        """Request cancellation of the worker's task."""
-        self._cancellation_token.cancel()
+        """Request cancellation of the task."""
+        self._cancel_requested = True
+
+    # --- Callback Setters ---
+    def set_on_started(self, callback: Optional[Callable[[], None]]):
+        """Set the callback function for when the task starts."""
+        self.on_started_callback = callback
+
+    def set_on_progress(self, callback: Optional[Callable[[int, str], None]]):
+        """Set the callback function for progress updates."""
+        self.on_progress_callback = callback
+
+    def set_on_completed(self, callback: Optional[Callable[[Any], None]]):
+        """Set the callback function for successful completion."""
+        self.on_completed_callback = callback
+
+    def set_on_error(self, callback: Optional[Callable[[str], None]]):
+        """Set the callback function for errors."""
+        self.on_error_callback = callback
+
+    # --- Callback Triggers (for worker implementation use) ---
+    def report_started(self):
+        """Utility method for worker implementations to report start."""
+        if self.on_started_callback:
+            try:
+                self.on_started_callback()
+            except Exception as e:
+                # Log this error? Worker needs logger access or service needs to handle
+                print(f"ERROR in worker's on_started callback: {e}")
+
+    def report_progress(self, percent: int, message: str):
+        """Utility method for worker implementations to report progress."""
+        if self.on_progress_callback:
+            try:
+                self.on_progress_callback(percent, message)
+            except Exception as e:
+                print(f"ERROR in worker's on_progress callback: {e}")
+
+    # Note: Completed is handled by the service wrapper usually
+    # def report_completed(self, result: T): # Not typically called directly by worker
+    #     if self.on_completed_callback:
+    #         self.on_completed_callback(result)
+
+    def report_error(self, error_message: str):
+        """Utility method for worker implementations to report errors."""
+        if self.on_error_callback:
+            try:
+                self.on_error_callback(error_message)
+            except Exception as e:
+                print(f"ERROR in worker's on_error callback: {e}")
 
 
 class IBackgroundTaskService(ABC):
     """
-    Interface for thread management services.
-
-    Defines methods for executing tasks in background threads
-    and managing thread lifecycle.
+    Interface for executing tasks in background threads.
     """
 
     @abstractmethod
@@ -224,82 +106,110 @@ class IBackgroundTaskService(ABC):
         """
         Execute a worker in a background thread.
 
+        Does not automatically handle worker cleanup or result restoration.
+        The caller is responsible for managing the task lifecycle if needed.
+
         Args:
-            task_id: Unique identifier for the task
-            worker: Worker to execute
+            task_id: A unique identifier for the task.
+            worker: The Worker instance containing the execution logic.
 
         Returns:
-            Result indicating success or failure
+            Result.ok(True) if task started successfully.
+            Result.fail(error) if task ID is duplicate or start failed.
         """
         pass
 
     @abstractmethod
     def execute_task_and_restore_result(self, task_id: str, worker: Worker[T]) -> Result[bool]:
         """
-        Execute a task that will be automatically cleaned up when completed.
+        Execute a task and ensure its results (including Result objects) are handled
+        correctly, potentially restoring them from a thread-safe format.
+        Manages cleanup of task resources upon completion or error.
 
         Args:
-            task_id: Unique identifier for the task
-            worker: Worker to execute
+            task_id: A unique identifier for the task.
+            worker: The Worker instance containing the execution logic.
 
         Returns:
-            Result indicating success or failure
+            Result.ok(True) if task started successfully.
+            Result.fail(error) if task ID is duplicate or start failed.
         """
         pass
 
     @abstractmethod
     def execute_ui_task(self, task_id: str, worker: Worker[T],
-                        ui_callback: Callable[[T], None]) -> Result[bool]:
+                        ui_callback: Callable[[Any], None]) -> Result[bool]: # Use Any result type
         """
-        Execute a task with a UI callback for the result.
+        Execute a task with a callback that is guaranteed to run on the UI thread.
 
         Args:
-            task_id: Unique identifier for the task
-            worker: Worker to execute
-            ui_callback: Callback to be executed on the UI thread with the result
+            task_id: A unique identifier for the task.
+            worker: The Worker instance containing the execution logic.
+            ui_callback: The function to call on the UI thread with the worker's result.
 
         Returns:
-            Result indicating success or failure
+            Result.ok(True) if task started successfully.
+            Result.fail(error) if task ID is duplicate or start failed.
         """
         pass
 
     @abstractmethod
     def cancel_task(self, task_id: str) -> Result[bool]:
         """
-        Cancel a background task.
+        Request cancellation of a specific background task.
 
         Args:
-            task_id: Identifier of the task to cancel
+            task_id: The identifier of the task to cancel.
 
         Returns:
-            Result indicating success or failure
+            Result indicating if the cancellation request was successfully sent.
+            Does not guarantee immediate task termination. Returns fail if task not found.
         """
         pass
 
     @abstractmethod
     def is_task_running(self, task_id: str) -> bool:
         """
-        Check if a task is currently running.
+        Check if a task with the given ID is currently running.
 
         Args:
-            task_id: Identifier of the task to check
+            task_id: The identifier of the task.
 
         Returns:
-            True if the task is running, False otherwise
+            True if the task is considered active, False otherwise.
         """
         pass
 
     @abstractmethod
     def get_running_tasks(self) -> List[str]:
         """
-        Get a list of all running task IDs.
+        Get a list of IDs for all currently running tasks.
 
         Returns:
-            List of task identifiers for running tasks
+            A list of task identifiers.
         """
         pass
 
     @abstractmethod
     def cancel_all_tasks(self) -> None:
-        """Cancel all running background tasks."""
+        """
+        Request cancellation of all currently running background tasks.
+        """
+        pass
+
+    @abstractmethod
+    def wait_for_task(self, task_id: str, timeout_ms: int = 30000) -> Result[bool]:
+        """
+        Block the calling thread until the specified task completes or times out.
+        USE WITH CAUTION, especially on the main UI thread.
+
+        Args:
+            task_id: The identifier of the task to wait for.
+            timeout_ms: Maximum time to wait in milliseconds.
+
+        Returns:
+            Result.ok(True) if the task completed within the timeout.
+            Result.ok(False) if the task was not running initially.
+            Result.fail(error) if the timeout occurred or another error happened.
+        """
         pass

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Slot, Qt, QSize # Added QSize
 from PySide6.QtGui import QPixmap
 
+from src.presentation.styles.style_manager import StyleManager
 # --- Application Imports ---
 from src.presentation.view_models.region_setup_view_model import RegionSetupViewModel
 # Import custom UI components
@@ -46,38 +47,38 @@ class RegionSetupView(QWidget):
 
     def _setup_ui(self):
         """Creates and arranges the UI elements for the region setup tab."""
+        # Use a QVBoxLayout instead of a Splitter
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        main_layout.setSpacing(15) # Increased spacing between groups
 
-        # --- Splitter for Monitor and Flatten Regions ---
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_layout.addWidget(splitter, 1) # Allow splitter to stretch
+        # Apply region setup view styles (or rely on global application.qss)
+        # self.setStyleSheet(StyleManager.get_view_style("region_setup_view"))
 
-        # --- Left Side: P&L Monitoring Region ---
-        monitor_widget = QWidget()
-        monitor_layout = QVBoxLayout(monitor_widget)
-        monitor_layout.setContentsMargins(0, 0, 0, 0) # Remove internal margins
-
+        # --- Top Section: P&L Monitoring Region ---
         monitor_group = QGroupBox("P&L Monitoring Region")
+        monitor_group.setObjectName("monitorRegionGroup")
         monitor_group_layout = QVBoxLayout(monitor_group)
         monitor_group_layout.setSpacing(8)
 
-        # Preview Area
+        # Preview Area - Give it a maximum height
         self.monitor_preview_label = QLabel("No Preview Available")
-        self.monitor_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.monitor_preview_label.setStyleSheet(
-            "border: 1px solid #ccc; background-color: #f0f0f0; color: #555;"
-            "min-height: 150px;" # Ensure decent initial height
-        )
-        self.monitor_preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding) # Allow stretch
-        monitor_group_layout.addWidget(self.monitor_preview_label, 1) # Allow stretch
+        self.monitor_preview_label.setObjectName("monitorPreviewLabel") # For QSS targeting
+        # REMOVED: Alignment handled by QSS
+        # self.monitor_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.monitor_preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # Expand horizontally, preferred vertically
+        self.monitor_preview_label.setMaximumHeight(150) # <<<--- SET MAX HEIGHT
+        self.monitor_preview_label.setMinimumHeight(100) # <<<--- SET MIN HEIGHT (optional)
+        monitor_group_layout.addWidget(self.monitor_preview_label) # Don't give it stretch factor
 
         # Status and Coords Labels
         self.monitor_status_label = QLabel("Status: N/A")
+        self.monitor_status_label.setObjectName("monitorStatusLabel") # For QSS targeting
+        self.monitor_status_label.setProperty("state", "notDefined") # Initial state
         monitor_group_layout.addWidget(self.monitor_status_label)
 
         self.monitor_coords_label = QLabel("Coordinates: N/A")
+        self.monitor_coords_label.setObjectName("monitorCoordsLabel") # Add if specific style needed
         monitor_group_layout.addWidget(self.monitor_coords_label)
 
         # Action Buttons
@@ -87,49 +88,47 @@ class RegionSetupView(QWidget):
         self.delete_monitor_button = DangerButton("Delete Region")
 
         monitor_button_layout.addWidget(self.define_edit_monitor_button)
-        monitor_button_layout.addStretch() # Push flash/delete right
+        monitor_button_layout.addStretch()  # Push flash/delete right
         monitor_button_layout.addWidget(self.flash_monitor_button)
         monitor_button_layout.addWidget(self.delete_monitor_button)
         monitor_group_layout.addLayout(monitor_button_layout)
 
-        monitor_layout.addWidget(monitor_group)
-        splitter.addWidget(monitor_widget)
+        # Add Monitor Group Box to the main layout
+        main_layout.addWidget(monitor_group) # Added directly to main layout
 
-        # --- Right Side: Flatten Position Regions ---
-        flatten_widget = QWidget()
-        flatten_layout = QVBoxLayout(flatten_widget)
-        flatten_layout.setContentsMargins(0, 0, 0, 0)
-
+        # --- Middle Section: Flatten Position Regions ---
         flatten_group = QGroupBox("Flatten Position Regions")
+        flatten_group.setObjectName("flattenRegionGroup")
         flatten_group_layout = QVBoxLayout(flatten_group)
         flatten_group_layout.setSpacing(5)
 
         self.flatten_list_widget = QListWidget()
-        self.flatten_list_widget.setStyleSheet("QListWidget { border: 1px solid #ccc; }") # Add border for clarity
-        self.flatten_list_widget.setSpacing(3) # Space between items
-        flatten_group_layout.addWidget(self.flatten_list_widget, 1) # Allow stretch
+        self.flatten_list_widget.setObjectName("flattenListWidget") # For QSS targeting
+        # Styling handled by QSS
+        # self.flatten_list_widget.setSpacing(3) # Handled by QSS
+        # Allow the list widget to take available vertical space
+        flatten_group_layout.addWidget(self.flatten_list_widget, 1) # <<<--- ADD STRETCH FACTOR
 
         self.add_flatten_button = ActionButton("+ Add Region")
-        flatten_group_layout.addWidget(self.add_flatten_button, 0, Qt.AlignmentFlag.AlignRight) # Align right
+        flatten_group_layout.addWidget(self.add_flatten_button, 0, Qt.AlignmentFlag.AlignRight)  # Align right
 
-        flatten_layout.addWidget(flatten_group)
-        splitter.addWidget(flatten_widget)
+        # Add Flatten Group Box to the main layout, allow it to stretch vertically
+        main_layout.addWidget(flatten_group, 1) # <<<--- ADD STRETCH FACTOR
 
-        # --- Optional Help Section ---
+        # --- Bottom Section: Help ---
         help_group = QGroupBox("Help")
+        help_group.setObjectName("helpGroup")
         help_layout = QVBoxLayout(help_group)
+
         help_text = QLabel(
-             "1. Define a P&L monitoring region where your platform displays your current profit/loss.\n"
-             "2. Add Flatten Position regions for buttons that close all your positions.\n"
-             "3. Use 'Flash' to highlight regions and confirm correct placement."
+            "1. Define a P&L monitoring region where your platform displays your current profit/loss.\n"
+            "2. Add Flatten Position regions for buttons that close all your positions.\n"
+            "3. Use 'Flash' to highlight regions and confirm correct placement."
         )
+        help_text.setObjectName("helpText") # For QSS targeting
         help_text.setWordWrap(True)
         help_layout.addWidget(help_text)
-        main_layout.addWidget(help_group) # Add at the bottom
-
-
-        # --- Set initial splitter sizes ---
-        splitter.setSizes([self.width() // 2, self.width() // 2]) # Equal initial split
+        main_layout.addWidget(help_group) # Add help at the bottom, no stretch
 
     def _connect_signals(self):
         """Connect signals from widgets to ViewModel slots and vice versa."""
@@ -188,13 +187,18 @@ class RegionSetupView(QWidget):
     def _update_monitor_status_label(self, status: str):
         """Updates the monitor region status label."""
         self.monitor_status_label.setText(f"Status: {status}")
-        # Optional: Change style based on status
+
+        # Update the state property for CSS styling
         if status == "Defined":
-             self.monitor_status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.monitor_status_label.setProperty("state", "defined")
         elif status == "Not Defined":
-             self.monitor_status_label.setStyleSheet("color: grey; font-style: italic;")
-        else: # Error or Select Platform
-             self.monitor_status_label.setStyleSheet("color: orange;")
+            self.monitor_status_label.setProperty("state", "notDefined")
+        else:  # Error or Select Platform
+            self.monitor_status_label.setProperty("state", "error")
+
+        # Force style update
+        self.monitor_status_label.style().unpolish(self.monitor_status_label)
+        self.monitor_status_label.style().polish(self.monitor_status_label)
 
 
     @Slot(QPixmap)

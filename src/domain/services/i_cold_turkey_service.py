@@ -1,65 +1,68 @@
-#src/domain/services/i_cold_turkey_service.py
+# src/domain/services/i_cold_turkey_service.py
 
+"""
+Interface for interacting with Cold Turkey Blocker.
+"""
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
+from typing import Optional
+
+# Import Result for type hinting
 from src.domain.common.result import Result
 
 
 class IColdTurkeyService(ABC):
-    """Interface for Cold Turkey Blocker integration."""
+    """
+    Interface for services that interact with Cold Turkey Blocker.
+    """
 
     @abstractmethod
     def execute_block_command(self, block_name: str, duration_minutes: int) -> Result[bool]:
-        """Execute a block command to lock a specific block."""
-        pass
-
-    @abstractmethod
-    def verify_block(self, block_name: str, platform: Optional[str] = None,
-                     register_if_valid: bool = False) -> Result[bool]:
         """
-        Verify that a block exists and is properly configured in Cold Turkey.
+        Executes the command-line instruction to start a specific block
+        for a given duration.
 
         Args:
-            block_name: Name of the block in Cold Turkey Blocker
-            platform: Optional platform name to associate with the block
-            register_if_valid: Whether to register the block if verification succeeds
+            block_name: The name of the block defined in Cold Turkey.
+            duration_minutes: The duration for the block in minutes.
 
         Returns:
-            Result containing True if verification succeeded, False otherwise
+            Result.ok(True) if the command was executed successfully (doesn't guarantee block effectiveness).
+            Result.fail(error) if the command execution failed (e.g., process error, timeout).
         """
         pass
+
+    # REMOVED: verify_block method signature
 
     @abstractmethod
     def get_blocker_path(self) -> Result[str]:
-        """Get the path to the Cold Turkey executable."""
+        """
+        Gets the configured path to the Cold Turkey Blocker executable.
+
+        Returns:
+            Result containing the path string or an error if not configured/found.
+        """
         pass
 
     @abstractmethod
     def set_blocker_path(self, path: str) -> Result[bool]:
-        """Set the path to the Cold Turkey executable."""
-        pass
+        """
+        Sets and persists the path to the Cold Turkey Blocker executable.
 
-    @abstractmethod
-    def get_verified_blocks(self) -> Result[List[Dict[str, Any]]]:
-        """Get list of verified platform blocks."""
-        pass
+        Args:
+            path: The full path to the executable.
 
-    @abstractmethod
-    def add_verified_block(self, platform: str, block_name: str) -> Result[bool]:
-        """Add a verified platform block to the saved configuration."""
-        pass
-
-    @abstractmethod
-    def remove_verified_block(self, platform: str) -> Result[bool]:
-        """Remove a verified platform block from the saved configuration."""
-        pass
-
-    @abstractmethod
-    def clear_verified_blocks(self) -> Result[bool]:
-        """Clear all verified platform blocks."""
+        Returns:
+            Result indicating success or failure of saving the path.
+        """
         pass
 
     @abstractmethod
     def is_blocker_path_configured(self) -> bool:
-        """Check if Cold Turkey Blocker path is configured."""
+        """
+        Checks if the Cold Turkey Blocker path is configured and points
+        to an existing file.
+
+        Returns:
+            True if configured and exists, False otherwise.
+        """
         pass

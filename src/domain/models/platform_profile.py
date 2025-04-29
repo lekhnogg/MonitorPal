@@ -25,16 +25,14 @@ class PlatformProfile:
     """Complete profile for a trading platform."""
     platform_name: str
     ocr_profile: OcrProfile = None
-    numeric_patterns: Dict[str, str] = None
+    numeric_patterns: Optional[Dict[str, str]] = None # Type hint changed to Optional
     is_enabled: bool = True
     additional_settings: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
+        # Only handle ocr_profile default here now
         if self.ocr_profile is None:
             self.ocr_profile = OcrProfile()
-        if self.numeric_patterns is None:
-            self.numeric_patterns = {
-                "dollar": r'\$([\d,]+\.?\d*)',
-                "negative": r'\((?:\$)?([\d,]+\.?\d*)\)',
-                "regular": r'(?<!\$)(-?[\d,]+\.?\d*)'
-            }
+        # numeric_patterns default is no longer handled here.
+        # It will be None unless explicitly provided during creation
+        # or loaded/defaulted by the ProfileService.
