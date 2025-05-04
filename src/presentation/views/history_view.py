@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QSizePolicy
 )
-from PySide6.QtCore import Slot, Qt, QDateTime # Import QDateTime
+from PySide6.QtCore import Slot, Qt, QDateTime, QTimer  # Import QDateTime
 from PySide6.QtGui import QColor
 
 # --- Application Imports ---
@@ -43,16 +43,14 @@ class HistoryView(QWidget):
         self.view_model = view_model
         self._setup_ui()
         self._connect_signals()
-        self._apply_initial_vm_state()
+        self.view_model._logger.debug("View: Scheduling initial UI refresh via VM.refresh_ui_signals.")
+        QTimer.singleShot(0, self.view_model.refresh_ui_signals)
 
     def _setup_ui(self):
         """Creates and arranges the UI elements for the history tab."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(15)
-
-        # Apply history view styles
-        self.setStyleSheet(StyleManager.get_view_style("history_view"))
 
         # --- Top Section: Graph and Controls ---
         graph_group = QGroupBox("P&L History Graph")
@@ -156,22 +154,6 @@ class HistoryView(QWidget):
         self.view_model.can_generate_report_changed.connect(self.generate_report_button.setEnabled)
         # Details button enablement handled by table selection
 
-    def _apply_initial_vm_state(self):
-        """Applies the current state from the ViewModel to the widgets."""
-        # Trigger update slots/methods using the VM's current internal state attributes
-        self._update_time_range_options(self.view_model._time_range_options)
-        self.time_range_combo.setCurrentText(self.view_model._current_time_range)
-        self._update_threshold_line_visibility(self.view_model._show_threshold_line)
-        self._update_threshold_line_value(self.view_model._current_threshold)
-        self._update_graph(self.view_model._graph_data)
-        self._update_session_history_table(self.view_model._session_history)
-        # Button states based on initial data presence
-        has_data = bool(self.view_model._graph_data) or bool(self.view_model._session_history)
-        self.clear_history_button.setEnabled(has_data)
-        self.generate_report_button.setEnabled(has_data)
-        self.details_button.setEnabled(False)  # Details only enabled on selection
-    # --- Slots for ViewModel Signals ---
-
     @Slot(object) # Expects GraphDataType = List[Tuple[float, float]]
     def _update_graph(self, graph_data: List[Tuple[float, float]]):
         """Updates the P&L graph with new data."""
@@ -243,21 +225,24 @@ class HistoryView(QWidget):
                 # Special formatting/alignment
                 if key == "min_pnl":
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                    # Optional: Color based on value
                     try:
                         # Attempt to extract float from string like '-$134.50'
                         pnl_val_str = str(value).replace('$', '').replace(',', '')
                         pnl_val = float(pnl_val_str)
                         if pnl_val < 0:
+                            # QTableWidgetItem also doesn't support properties - use direct styling
                             item.setForeground(QColor("red"))
                         else:
                             item.setForeground(QColor("green"))
                     except ValueError:
-                        pass # Keep default color if conversion fails
+                        pass
                 elif key == "locked":
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     item.setText("Yes" if value else "No")
-                    if value: item.setForeground(QColor("red")); item.setBackground(QColor("#ffe0e0"))
+                    if value:
+                        # Direct styling - no properties
+                        item.setForeground(QColor("red"))
+                        item.setBackground(QColor("#ffe0e0"))
                 elif key == "threshold":
                      item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                      item.setText(f"${float(value):,.2f}" if isinstance(value, (int, float)) else str(value))

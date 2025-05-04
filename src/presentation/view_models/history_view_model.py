@@ -145,7 +145,25 @@ class HistoryViewModel(QObject):
         self._logger.warning(f"Show Session Details requested for row {row_index} (Not Implemented Yet). Data: {session_data}")
         self.status_message_changed.emit(f"Details view for session on {session_data.get('date')} not yet implemented.", "INFO")
 
+    @Slot()
+    def refresh_ui_signals(self):
+        """Emits all signals reflecting the current state for initial UI sync."""
+        self._logger.debug(f"HistoryViewModel Refreshing UI signals for {self._selected_platform or 'None'}")
+        # Emit all relevant signals based on current internal state
+        self.pnl_graph_data_updated.emit(self._graph_data)
+        self.graph_time_range_options_changed.emit(self._time_range_options)
+        self.graph_current_time_range_changed.emit(self._current_time_range)
+        self.graph_threshold_line_visibility_changed.emit(self._show_threshold_line)
+        self.graph_threshold_value_changed.emit(self._current_threshold)
+        self.session_history_updated.emit(self._session_history)
+        # Calculate button states based on current data
+        has_data = bool(self._graph_data) or bool(self._session_history)
+        self.can_clear_history_changed.emit(has_data)
+        self.can_generate_report_changed.emit(has_data)
+
     # --- Private Helper / Update Methods ---
+
+
 
     @Slot(str)
     def _handle_platform_selection_change(self, platform: str):
@@ -161,38 +179,40 @@ class HistoryViewModel(QObject):
         # Reset state before loading
         self._graph_data = []
         self._session_history = []
-        self.can_clear_history_changed.emit(False) # Disable until data loaded
-        self.can_generate_report_changed.emit(False)
+        # Keep button states disabled until data potentially loaded
+        # self.can_clear_history_changed.emit(False)
+        # self.can_generate_report_changed.emit(False)
 
         if not platform:
             # Clear displays if no platform selected
             self.pnl_graph_data_updated.emit(self._graph_data)
             self.session_history_updated.emit(self._session_history)
             self.graph_threshold_value_changed.emit(0.0) # Reset threshold line value
+            self.can_clear_history_changed.emit(False) # Disable buttons
+            self.can_generate_report_changed.emit(False)
             return
 
-        # --- Load Threshold for Graph ---
-        self._current_threshold = self._config_repo.get_stop_loss_threshold()
+        # --- Load PLATFORM-SPECIFIC Threshold for Graph ---
+        threshold_res = self._config_repo.get_platform_stop_loss_threshold(platform)
+        # Use default from repo if loading fails
+        self._current_threshold = threshold_res.value if threshold_res.is_success else self._config_repo.DEFAULT_PLATFORM_THRESHOLD
+        if threshold_res.is_failure:
+            self._logger.warning(f"History View: Failed load threshold for {platform}: {threshold_res.error}. Using default.")
+        # Emit the threshold value for the graph line
         self.graph_threshold_value_changed.emit(self._current_threshold)
+        # --- END Load Threshold ---
 
         # --- Load Graph and Session Data ---
-        # TODO: Replace placeholders with actual data loading logic.
-        # This will depend heavily on *how* history is stored.
-        # Option A: Load from MonitoringService's in-memory history (simple, limited)
-        # Option B: Load from log files saved by MonitoringWorker (more persistent)
-        # Option C: Load from a dedicated database/service (most robust)
+        # (Keep your existing logic or placeholder logic here)
+        self._load_graph_data()
+        self._load_session_history()
 
-        # --- Placeholder Loading Logic ---
-        self._load_graph_data() # Loads graph based on _current_time_range
-        self._load_session_history() # Loads session table data
-
-        # --- Update Button States ---
-        # Enable buttons if data was loaded successfully (or based on other criteria)
+        # --- Update Button States based on loaded data ---
         has_data = bool(self._graph_data) or bool(self._session_history)
         self.can_clear_history_changed.emit(has_data)
         self.can_generate_report_changed.emit(has_data)
 
-        # Emit time range options (usually static)
+        # --- Emit other initial states for the view ---
         self.graph_time_range_options_changed.emit(self._time_range_options)
         self.graph_current_time_range_changed.emit(self._current_time_range)
         self.graph_threshold_line_visibility_changed.emit(self._show_threshold_line)

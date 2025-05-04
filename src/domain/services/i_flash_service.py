@@ -1,20 +1,19 @@
 # src/domain/services/i_flash_service.py
 from abc import ABC, abstractmethod
+from typing import List, Tuple
 from src.domain.common.result import Result
 
 class IFlashService(ABC):
+
     @abstractmethod
-    def flash_region(self, platform: str, region_type: str, region_name: str) -> Result[None]:
+    def flash_regions(self, list_of_coords: List[Tuple[int, int, int, int]]) -> Result[None]:
         """
-        Activates the specified platform's window and visually flashes the
-        given region on screen for user identification.
+        Flashes multiple screen regions simultaneously given their coordinates.
 
         Args:
-            platform: The name of the platform.
-            region_type: The type of region ('monitor' or 'flatten').
-            region_name: The specific name of the region.
+            list_of_coords: A list of coordinate tuples (x, y, w, h) for the regions.
 
         Returns:
-            Result.ok(None) on success, Result.fail(error) on failure.
+            Result indicating if the flashing task was successfully started.
         """
         pass

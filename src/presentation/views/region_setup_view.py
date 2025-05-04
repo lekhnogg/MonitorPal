@@ -7,8 +7,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QSplitter, QListWidget,
     QListWidgetItem, QPushButton, QSizePolicy # Added QPushButton
 )
-from PySide6.QtCore import Slot, Qt, QSize # Added QSize
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Slot, Qt, QSize, QTimer  # Added QSize
+from PySide6.QtGui import QPixmap, QColor
 
 from src.presentation.styles.style_manager import StyleManager
 # --- Application Imports ---
@@ -42,8 +42,9 @@ class RegionSetupView(QWidget):
         self.view_model = view_model
         self._setup_ui()
         self._connect_signals()
-        self._apply_initial_vm_state()
-        # No explicit _apply_initial_state needed if ViewModel emits on init
+        # Schedule the VM to emit its initial state signals shortly after setup
+        self.view_model._logger.debug("View: Scheduling initial UI refresh via VM.refresh_ui_signals.")
+        QTimer.singleShot(0, self.view_model.refresh_ui_signals)
 
     def _setup_ui(self):
         """Creates and arranges the UI elements for the region setup tab."""
@@ -51,9 +52,6 @@ class RegionSetupView(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(15) # Increased spacing between groups
-
-        # Apply region setup view styles (or rely on global application.qss)
-        # self.setStyleSheet(StyleManager.get_view_style("region_setup_view"))
 
         # --- Top Section: P&L Monitoring Region ---
         monitor_group = QGroupBox("P&L Monitoring Region")
@@ -67,8 +65,8 @@ class RegionSetupView(QWidget):
         # REMOVED: Alignment handled by QSS
         # self.monitor_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.monitor_preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # Expand horizontally, preferred vertically
-        self.monitor_preview_label.setMaximumHeight(150) # <<<--- SET MAX HEIGHT
-        self.monitor_preview_label.setMinimumHeight(100) # <<<--- SET MIN HEIGHT (optional)
+        self.monitor_preview_label.setMaximumHeight(75) # <<<--- SET MAX HEIGHT
+        self.monitor_preview_label.setMinimumHeight(50) # <<<--- SET MIN HEIGHT (optional)
         monitor_group_layout.addWidget(self.monitor_preview_label) # Don't give it stretch factor
 
         # Status and Coords Labels
@@ -160,28 +158,6 @@ class RegionSetupView(QWidget):
         self.view_model.flatten_regions_list_updated.connect(self._update_flatten_list)
         self.view_model.can_add_flatten_region_changed.connect(self.add_flatten_button.setEnabled)
 
-    def _apply_initial_vm_state(self):
-        """Applies the current state from the ViewModel to the widgets."""
-        # NOTE: This requires RegionSetupViewModel to store these states internally
-        #       after its initial _load_regions_for_platform call.
-        # Example internal VM attributes needed:
-        # self.view_model._monitor_status_text
-        # self.view_model._monitor_coords_text
-        # self.view_model._monitor_preview_pixmap
-        # self.view_model._can_delete_monitor
-        # self.view_model._can_flash_monitor
-        # self.view_model._flatten_list_data
-        # self.view_model._can_add_flatten
-
-        # Trigger update slots using the VM's current internal state
-        self._update_monitor_status_label(getattr(self.view_model, '_monitor_status_text', "N/A"))
-        self.monitor_coords_label.setText(getattr(self.view_model, '_monitor_coords_text', "N/A"))
-        self._update_monitor_preview(getattr(self.view_model, '_monitor_preview_pixmap', QPixmap()))
-        self.delete_monitor_button.setEnabled(getattr(self.view_model, '_can_delete_monitor', False))
-        self.flash_monitor_button.setEnabled(getattr(self.view_model, '_can_flash_monitor', False))
-        self._update_flatten_list(getattr(self.view_model, '_flatten_list_data', []))
-        self.add_flatten_button.setEnabled(getattr(self.view_model, '_can_add_flatten', False))
-    # --- Slots for ViewModel Signals ---
 
     @Slot(str)
     def _update_monitor_status_label(self, status: str):
@@ -217,39 +193,47 @@ class RegionSetupView(QWidget):
             self.monitor_preview_label.setPixmap(QPixmap()) # Clear image
             self.monitor_preview_label.setText("No Preview Available")
 
-
     @Slot(list)
     def _update_flatten_list(self, flatten_regions_data: List[Dict[str, Any]]):
-        """Clears and repopulates the flatten regions list."""
+        """Clears and repopulates the flatten regions list using RegionEntryWidget."""
+        self.view_model._logger.debug(f"VIEW: Updating flatten list with {len(flatten_regions_data)} items.")
         self.flatten_list_widget.clear()
 
         if not flatten_regions_data:
             # Optionally display a placeholder item
             placeholder_item = QListWidgetItem("No flatten regions defined.")
-            placeholder_item.setForeground(Qt.GlobalColor.gray)
-            placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsSelectable) # Make non-selectable
+            placeholder_item.setData(Qt.ItemDataRole.UserRole, "placeholder")
+            placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.flatten_list_widget.addItem(placeholder_item)
+            # Set minimum size to prevent collapse when empty?
+            # self.flatten_list_widget.setMinimumHeight(50)
             return
+
+        # self.flatten_list_widget.setMinimumHeight(0) # Reset minimum height if needed
 
         for region_data in flatten_regions_data:
             region_name = region_data.get("name", "Unknown")
             coords_text = region_data.get("coords_text", "N/A")
             preview_pixmap = region_data.get("preview_pixmap", QPixmap())
 
-            # --- Create the custom RegionEntryWidget ---
-            # Note: Pass ViewModel methods wrapped in lambdas to capture the correct region_name
+            # --- Create the custom RegionEntryWidget (NO callbacks passed) ---
             entry_widget = RegionEntryWidget(
                 region_id=region_name,
                 coords_text=coords_text,
-                preview_pixmap=preview_pixmap,
-                on_edit=lambda name=region_name: self.view_model.edit_flatten_region(name),
-                on_delete=lambda name=region_name: self.view_model.delete_flatten_region(name),
-                on_flash=lambda name=region_name: self.view_model.flash_flatten_region(name)
+                preview_pixmap=preview_pixmap
+                # No on_edit, on_delete, on_flash arguments here
             )
+
+            # --- Connect the widget's explicit signals to the ViewModel slots ---
+            # Make sure the ViewModel slots (@Slot(str)) exist and expect a string
+            entry_widget.edit_requested.connect(self.view_model.edit_flatten_region)
+            entry_widget.delete_requested.connect(self.view_model.delete_flatten_region)
+            entry_widget.flash_requested.connect(self.view_model.flash_flatten_region)
+            # --- End signal connections ---
 
             # --- Create QListWidgetItem and set the custom widget ---
             list_item = QListWidgetItem(self.flatten_list_widget)
-            # Set size hint based on the widget's preferred size
+            # Set size hint based on the widget's preferred size for proper layout
             list_item.setSizeHint(entry_widget.sizeHint())
             # Add the item to the list *before* setting the widget
             self.flatten_list_widget.addItem(list_item)

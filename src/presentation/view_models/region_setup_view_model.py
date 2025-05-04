@@ -87,8 +87,6 @@ class RegionSetupViewModel(QObject):
         self._load_regions_for_platform(initial_platform)
         self._logger.debug("RegionSetupViewModel initialized.")
 
-
-
     # --- Command Slots (Called by the View) ---
 
     @Slot()
@@ -160,7 +158,6 @@ class RegionSetupViewModel(QObject):
         # --- Refresh the display for the current platform ---
         self._load_monitor_region(self._selected_platform)
 
-
     @Slot()
     def delete_monitor_region(self):
         """Deletes the single monitor region for the current platform."""
@@ -191,19 +188,28 @@ class RegionSetupViewModel(QObject):
         # Refresh display
         self._load_monitor_region(self._selected_platform)
 
-
     @Slot()
     def flash_monitor_region(self):
         """Flashes the monitor region for the current platform."""
         if not self._selected_platform:
-             self.status_message_changed.emit("No platform selected.", "ERROR")
-             return
+            self.status_message_changed.emit("No platform selected.", "ERROR")
+            return
 
+        # 1. Get Region Object
+        region_result = self._region_service.get_monitor_region(self._selected_platform)
+        if region_result.is_failure or not region_result.value or not region_result.value.coordinates:
+            self.status_message_changed.emit(f"Monitor region not found or invalid for {self._selected_platform}.",
+                                             "ERROR")
+            return
+
+        # 2. Extract Coordinates
+        coords = region_result.value.coordinates
+
+        # 3. Call flash_regions with a list containing the single tuple
         self.status_message_changed.emit(f"Flashing monitor region for {self._selected_platform}...", "INFO")
-        flash_result = self._flash_service.flash_region(self._selected_platform, "monitor", "monitor")
+        flash_result = self._flash_service.flash_regions([coords])  # Pass as a list
         if flash_result.is_failure:
-             self.status_message_changed.emit(f"Failed to initiate flash: {flash_result.error}", "ERROR")
-        # No success message needed here, service logs success internally
+            self.status_message_changed.emit(f"Failed to initiate flash: {flash_result.error}", "ERROR")
 
     @Slot()
     def add_flatten_region(self):
@@ -273,6 +279,7 @@ class RegionSetupViewModel(QObject):
     @Slot(str) # Expects the region name (ID for the entry widget)
     def edit_flatten_region(self, region_name: str):
         """Starts the process to edit an existing flatten region."""
+        self._logger.critical(f"VM SLOT EDIT: Received Name='{region_name}' (Type: {type(region_name)})")
         if not self._selected_platform:
             self.status_message_changed.emit("No platform selected.", "ERROR")
             return
@@ -324,46 +331,80 @@ class RegionSetupViewModel(QObject):
         # Refresh the flatten list display
         self._load_flatten_regions(self._selected_platform)
 
-    @Slot(str) # Expects the region name
+    @Slot(str)  # Expects the region name
     def delete_flatten_region(self, region_name: str):
         """Deletes a specific flatten region."""
+        self._logger.critical(f"VM SLOT DELETE: Received Name='{region_name}' (Type: {type(region_name)})")
+        # <<< If the above log shows Name='False', the problem is BEFORE this method runs >>>
+
         if not self._selected_platform:
-             self.status_message_changed.emit("No platform selected.", "ERROR"); return
+            self.status_message_changed.emit("No platform selected.", "ERROR");
+            return
 
         confirm_result = self._ui_service.show_confirmation("Confirm Delete",
-             f"Delete the flatten region '{region_name}' for {self._selected_platform}?"
-        )
-        if confirm_result.is_failure or not confirm_result.value:
-             self.status_message_changed.emit(f"Deletion of flatten region '{region_name}' cancelled.", "INFO")
-             return
+                                                            f"Delete the flatten region '{region_name}' for {self._selected_platform}?"
+                                                            )
+        self._logger.debug(
+            f"Confirmation result: Value={confirm_result.unwrap_or(None)}, Success={confirm_result.is_success}")
 
+        if confirm_result.is_failure or not confirm_result.value:  # Checks for error OR False value (cancel)
+            self.status_message_changed.emit(f"Deletion of flatten region '{region_name}' cancelled.", "INFO")
+            return
+
+        # If confirmed
         self.status_message_changed.emit(f"Deleting flatten region '{region_name}'...", "INFO")
 
-        # Call service (Repository removes from flatten_regions dict)
-        delete_result = self._region_service.delete_region(self._selected_platform, "flatten", region_name)
+        # Capture arguments just before the single call
+        arg_platform = self._selected_platform
+        arg_type = "flatten"
+        arg_name = region_name
+        self._logger.critical(
+            f"!!!! VERIFY ARGS !!!! Platform='{arg_platform}', Type='{arg_type}', Name='{arg_name}' (Type: {type(arg_name)})")
 
+        # --- SINGLE CORRECT CALL ---
+        delete_result = self._region_service.delete_region(arg_platform, arg_type, arg_name)
+        # --- END SINGLE CORRECT CALL ---
+
+        self._logger.debug(
+            f"Service delete_region result: Success={delete_result.is_success}, Value={delete_result.unwrap_or(None)}, Error={delete_result.error if delete_result.is_failure else 'N/A'}")
+
+        # Handle result (ignoring Validation errors like "Not Found")
         if delete_result.is_failure and delete_result.error.category != ErrorCategory.VALIDATION:
-             # Ignore "Not Found" validation errors
-             self.status_message_changed.emit(f"Failed to delete flatten region '{region_name}': {delete_result.error}", "ERROR")
-             return
+            self.status_message_changed.emit(f"Failed to delete flatten region '{region_name}': {delete_result.error}",
+                                             "ERROR")
+            # Decide if UI should refresh on failure - probably yes to show error state?
+            # return # Optionally stop before refresh on failure
+        elif delete_result.is_success and not delete_result.value:
+            self.status_message_changed.emit(f"Flatten region '{region_name}' not found in configuration.", "WARNING")
+        elif delete_result.is_success and delete_result.value:
+            self.status_message_changed.emit(f"Deleted flatten region {region_name}", "SUCCESS")
 
-        self.status_message_changed.emit(f"Deleted flatten region {region_name}", "SUCCESS")
         # Refresh the flatten list display
         self._load_flatten_regions(self._selected_platform)
 
-
-    @Slot(str) # Expects the region name
+    @Slot(str)  # Expects the region name
     def flash_flatten_region(self, region_name: str):
         """Flashes a specific flatten region."""
         if not self._selected_platform:
-             self.status_message_changed.emit("No platform selected.", "ERROR")
-             return
+            self.status_message_changed.emit("No platform selected.", "ERROR")
+            return
 
-        self.status_message_changed.emit(f"Flashing flatten region '{region_name}' for {self._selected_platform}...", "INFO")
-        flash_result = self._flash_service.flash_region(self._selected_platform, "flatten", region_name)
+        # 1. Get Region Object
+        region_result = self._region_service.get_region(self._selected_platform, "flatten", region_name)
+        if region_result.is_failure or not region_result.value or not region_result.value.coordinates:
+            self.status_message_changed.emit(f"Flatten region '{region_name}' not found or invalid.", "ERROR")
+            return
+
+        # 2. Extract Coordinates
+        coords = region_result.value.coordinates
+
+        # 3. Call flash_regions with a list containing the single tuple
+        self.status_message_changed.emit(f"Flashing flatten region '{region_name}' for {self._selected_platform}...",
+                                         "INFO")
+        flash_result = self._flash_service.flash_regions([coords])  # Pass as a list
         if flash_result.is_failure:
-             self.status_message_changed.emit(f"Failed to initiate flash for '{region_name}': {flash_result.error}", "ERROR")
-
+            self.status_message_changed.emit(f"Failed to initiate flash for '{region_name}': {flash_result.error}",
+                                             "ERROR")
 
     # --- Private Helper / Update Methods ---
 
@@ -457,6 +498,20 @@ class RegionSetupViewModel(QObject):
         self._flatten_list_data = flatten_region_list_data
         self.flatten_regions_list_updated.emit(self._flatten_list_data)
 
+    @Slot()
+    def refresh_ui_signals(self):
+        """Emits all signals reflecting the current state for initial UI sync."""
+        self._logger.debug(f"RegionSetupViewModel Refreshing UI signals for {self._selected_platform or 'None'}")
+        # Emit all relevant signals based on current internal state
+        self.monitor_region_status_changed.emit(self._monitor_status_text)
+        self.monitor_region_coords_text_changed.emit(self._monitor_coords_text)
+        self.monitor_region_preview_changed.emit(self._monitor_preview_pixmap)
+        self.can_delete_monitor_region_changed.emit(self._can_delete_monitor)
+        self.can_flash_monitor_region_changed.emit(self._can_flash_monitor)
+        # Note: monitor_region_saved is only emitted on actual save, not initial load
+        self.flatten_regions_list_updated.emit(self._flatten_list_data)
+        self.can_add_flatten_region_changed.emit(self._can_add_flatten)
+        # No need to re-emit status_message_changed unless there's an initial one
 
     def _load_region_preview(self, region: Region) -> QPixmap:
         """Helper to load and convert a region's screenshot to QPixmap."""

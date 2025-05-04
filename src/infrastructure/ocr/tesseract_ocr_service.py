@@ -43,41 +43,72 @@ class TesseractOcrService(IOcrService):
 
 
     def extract_text_with_profile(self, image: Image.Image, profile: OcrProfile) -> Result[str]:
-        """Extract text from an image using a specific OCR profile."""
+        """
+        Extract text from an image using a specific OCR profile.
+        Includes preprocessing and cleaning common currency codes.
+        """
         try:
             self.logger.debug("Extracting text with custom profile")
 
-            # Preprocess with profile parameters
+            # Step 1: Preprocess image using profile parameters
             preprocess_result = self._preprocess_with_profile(image, profile)
             if preprocess_result.is_failure:
-                return Result.fail(preprocess_result.error)
+                # Pass through the preprocessing error
+                return preprocess_result # Contains Result.fail(error)
 
             processed_image = preprocess_result.value
 
-            # Use profile's tesseract config
+            # Step 2: Perform OCR using profile's Tesseract config
             custom_config = profile.tesseract_config
-
-            # Perform OCR
             extracted_text = pytesseract.image_to_string(processed_image, config=custom_config)
-            extracted_text = extracted_text.strip()
 
+            # Step 3: Basic text cleanup (strip whitespace)
+            extracted_text = extracted_text.strip()
+            self.logger.debug(f"Raw extracted text: '{extracted_text}'")
+
+            # Step 4: Remove common currency codes (case-insensitive)
+            # List common codes you expect to encounter
+            currency_codes = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
+            # Build regex pattern: \b(USD|EUR|...)\b
+            # \b ensures we match whole words to avoid removing parts of other words
+            pattern = r'\b(' + '|'.join(currency_codes) + r')\b'
+            cleaned_text = re.sub(pattern, '', extracted_text, flags=re.IGNORECASE).strip()
+
+            # Optional: Additional cleaning like removing extra spaces if needed
+            cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip() # Replace multiple spaces with one
+
+            if cleaned_text != extracted_text:
+                self.logger.debug(f"Cleaned currency codes: '{cleaned_text}'")
+
+            # Log the final cleaned text
             self.logger.debug(
-                f"Extracted text with profile: {extracted_text[:100]}" + ("..." if len(extracted_text) > 100 else ""))
-            return Result.ok(extracted_text)
+                f"Final cleaned text: {cleaned_text[:100]}" + ("..." if len(cleaned_text) > 100 else ""))
+
+            # Return the cleaned text
+            return Result.ok(cleaned_text)
+
         except FileNotFoundError as e:
             error = ResourceError(
-                message="Tesseract OCR executable not found",
+                message="Tesseract OCR executable not found or not in PATH.",
                 inner_error=e
             )
-            self.logger.error(str(error))
+            self.logger.error(str(error), exc_info=True) # Log traceback for FileNotFoundError
             return Result.fail(error)
+        except pytesseract.TesseractNotFoundError as e:
+             error = ResourceError(
+                 message="Tesseract not found. Check installation and path.",
+                 inner_error=e
+             )
+             self.logger.error(str(error), exc_info=True)
+             return Result.fail(error)
         except Exception as e:
+            # Catch other potential errors during OCR or cleaning
             error = ResourceError(
-                message="Text extraction with profile failed",
+                message=f"Text extraction failed: {type(e).__name__}",
                 details={"image_size": f"{image.width}x{image.height}" if hasattr(image, 'width') else "unknown"},
                 inner_error=e
             )
-            self.logger.error(str(error))
+            self.logger.error(str(error), exc_info=True) # Log traceback for other errors
             return Result.fail(error)
 
     def extract_numeric_values_with_patterns(self, text: str, patterns: Dict[str, str]) -> Result[List[float]]:
@@ -167,120 +198,71 @@ class TesseractOcrService(IOcrService):
             return Result.fail(error_msg)
 
     def _preprocess_with_profile(self, image: Image.Image, profile: OcrProfile) -> Result[Image.Image]:
-        """Preprocess an image using profile parameters with improved handling for colored text."""
+        """
+        Preprocess image: Grayscale -> Invert? -> Resize -> Normalize -> Threshold.
+        """
         try:
-            self.logger.debug("Preprocessing image with profile parameters")
+            self.logger.debug(f"Preprocessing with profile: {profile}")
 
-            # Convert to numpy
-            img_np = np.array(image)
+            # 1. Convert to Grayscale NumPy array
+            img_gray_np = np.array(image.convert('L'))
+            if img_gray_np is None:
+                return Result.fail(ResourceError("Failed to convert image to grayscale numpy array."))
 
-            # Check if the image is color (has 3 channels)
-            is_color = len(img_np.shape) == 3 and img_np.shape[2] >= 3
+            processed_np = img_gray_np
 
-            # Special handling for red text on dark background
-            if is_color:
-                # Calculate channel averages to detect dominant colors
-                r_avg = np.mean(img_np[:, :, 0])
-                g_avg = np.mean(img_np[:, :, 1])
-                b_avg = np.mean(img_np[:, :, 2])
-
-                # Check if red is the dominant color (red higher than other channels)
-                is_red_dominant = r_avg > g_avg * 1.5 and r_avg > b_avg * 1.5
-
-                # Check if background is dark
-                brightness = (r_avg + g_avg + b_avg) / 3
-                is_dark_bg = brightness < 128
-
-                # For red text on dark background, use red channel with enhanced contrast
-                if is_red_dominant and is_dark_bg:
-                    self.logger.debug("Detected red text on dark background, applying special processing")
-
-                    # Extract just the red channel
-                    red_channel = img_np[:, :, 0].copy()
-
-                    # Apply contrast enhancement to the red channel
-                    # Stretch the histogram to improve contrast
-                    min_val = np.percentile(red_channel, 5)  # 5th percentile for black level
-                    max_val = np.percentile(red_channel, 95)  # 95th percentile for white level
-
-                    # Ensure we don't divide by zero
-                    if max_val > min_val:
-                        # Stretch the histogram
-                        red_channel = np.clip((red_channel - min_val) * (255.0 / (max_val - min_val)), 0, 255).astype(
-                            np.uint8)
-
-                    # Apply morphological operations to enhance thin lines (like - and $)
-                    kernel = np.ones((2, 2), np.uint8)
-                    red_channel = cv2.dilate(red_channel, kernel, iterations=1)
-
-                    # Set this as our grayscale image
-                    img_gray = red_channel
-
-                    # Force inversion for this case, since we're looking for red text
-                    img_gray = cv2.bitwise_not(img_gray)
-
-                    # Skip the standard inversion logic below since we've handled it
-                    skip_standard_inversion = True
-                else:
-                    # Standard grayscale conversion for non-red-text cases
-                    img_gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-                    skip_standard_inversion = False
-            else:
-                # Non-color image, use as is
-                img_gray = img_np
-                skip_standard_inversion = False
-
-            # Apply color inversion if specified in profile and not already handled
-            if profile.invert_colors and not skip_standard_inversion:
+            # 2. Inversion (Crucial: Ensure profile.invert_colors=True for light text/dark bg)
+            if profile.invert_colors:
                 self.logger.debug("Inverting image colors")
-                img_gray = cv2.bitwise_not(img_gray)
+                processed_np = cv2.bitwise_not(processed_np)
+            # At this point, we expect dark text on a light background
 
-            # Apply profile parameters
-            h, w = img_gray.shape
-            img_resized = cv2.resize(
-                img_gray,
-                (int(w * profile.scale_factor), int(h * profile.scale_factor)),
-                interpolation=cv2.INTER_CUBIC
+            # 3. Resizing
+            h, w = processed_np.shape
+            scale = max(1.0, profile.scale_factor)
+            if scale != 1.0:
+                new_width = int(w * scale)
+                new_height = int(h * scale)
+                if new_width > 0 and new_height > 0:
+                    processed_np = cv2.resize(processed_np, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+                    self.logger.debug(f"Resized image to {new_width}x{new_height} (Factor: {scale})")
+                else:
+                    self.logger.warning(f"Skipping resize due to invalid dimensions ({new_width}x{new_height})")
+            else:
+                 self.logger.debug("Skipping resize as scale factor is 1.0")
+
+            # 4. Normalize Contrast (NEW STEP)
+            # Stretch intensity values to full 0-255 range AFTER potential inversion/resizing
+            cv2.normalize(processed_np, processed_np, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+            self.logger.debug("Normalized image contrast")
+            # Optional Alternative: CLAHE for local contrast
+            # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            # processed_np = clahe.apply(processed_np)
+            # self.logger.debug("Applied CLAHE")
+
+            # 5. Thresholding (Otsu)
+            # Apply to the normalized image
+            _, img_thresh = cv2.threshold(
+                processed_np, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
             )
+            self.logger.debug("Applied Otsu's thresholding")
 
-            # For better OCR of financial symbols, we need to adjust the threshold parameters
-            threshold_block_size = profile.threshold_block_size
-            threshold_c = profile.threshold_c
+            # 6. Final Conversion
+            processed_image = Image.fromarray(img_thresh)
 
-            # Ensure block size is odd
-            if threshold_block_size % 2 == 0:
-                threshold_block_size += 1
+            # --- Optional Debug Save ---
+            # try: ... save processed_image ...
+            # except ...
 
-            img_thresh = cv2.adaptiveThreshold(
-                img_resized,
-                255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY,
-                threshold_block_size,
-                threshold_c
-            )
-
-            # Apply less aggressive denoising to preserve thin lines
-            reduced_h = max(5, profile.denoise_h // 2)  # Reduce strength of denoising
-            img_denoised = cv2.fastNlMeansDenoising(
-                img_thresh,
-                None,
-                reduced_h,
-                profile.denoise_template_window_size,
-                profile.denoise_search_window_size
-            )
-
-            # Convert back to PIL Image
-            processed_image = Image.fromarray(img_denoised)
             return Result.ok(processed_image)
 
         except Exception as e:
             error = ResourceError(
                 message="Image preprocessing with profile failed",
-                details={"image_size": f"{image.width}x{image.height}" if hasattr(image, 'width') else "unknown"},
+                details={"image_size": f"{image.width}x{image.height}" if image else "unknown"},
                 inner_error=e
             )
-            self.logger.error(str(error))
+            self.logger.error(str(error), exc_info=True) # Log with traceback
             return Result.fail(error)
 
     def _clean_and_convert_value(self, value_str: str, full_match: str) -> Optional[float]:

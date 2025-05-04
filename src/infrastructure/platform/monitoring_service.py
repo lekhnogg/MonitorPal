@@ -74,30 +74,34 @@ class MonitoringWorker(Worker[bool]):
     def execute(self) -> bool:
         """Execute the monitoring process."""
         self.logger.info(f"Starting monitoring for {self.platform}")
-        self.report_status(f"Starting monitoring for {self.platform}", "INFO")
-
+        # --- Outer try block to catch fundamental errors ---
         try:
-            # =================== REMOVED os.makedirs LINE ===================
-            # The directory (self.monitoring_directory) is ensured by PathService/MonitoringService
-            # ================================================================
+            self.logger.critical("!!!! Worker execute: Main TRY block entered !!!!") # <<< ADD THIS LOGGING >>>
 
             # Get platform window information
             platform_window_result = self.platform_detection_service.detect_platform_window(
                 self.platform, timeout=10)
 
+            self.logger.critical(f"!!!! Worker execute: detect_platform_window Result: {platform_window_result.is_success} !!!!") # <<< ADD THIS LOGGING >>>
+
             if platform_window_result.is_failure:
-                self.report_error(f"Failed to detect {self.platform} window: {platform_window_result.error}")
-                return False
+                error_msg = f"Failed to detect {self.platform} window: {platform_window_result.error}"
+                self.logger.error(error_msg) # Log the specific error
+                self.report_error(error_msg)
+                return False # Exit worker if platform can't be detected initially
 
             self.platform_window_info = platform_window_result.value
 
             # Main monitoring loop
             while not self.cancel_requested:
+                # --- Inner try block for errors within a single check cycle ---
                 try:
+                    self.logger.critical("!!!! Worker execute: WHILE loop iteration started !!!!") # <<< ADD THIS LOGGING >>>
+
                     # Increment check count
                     self.check_count += 1
                     self.report_progress(
-                        percent=0,  # Cannot estimate progress for indefinite monitoring
+                        percent=0,
                         message=f"Performing check #{self.check_count}"
                     )
 
@@ -106,27 +110,28 @@ class MonitoringWorker(Worker[bool]):
                         self.platform_window_info)
 
                     if is_active_result.is_failure:
+                        self.logger.warning(f"Error checking platform activity: {is_active_result.error}") # Log warning
                         self.report_status(f"Error checking platform activity: {is_active_result.error}", "WARNING")
+                        # Decide if this error should stop the worker or just skip the check
+                        # For now, let's skip and wait for the next interval
                         time.sleep(self.interval_seconds)
-                        continue
+                        continue # Skip to next iteration
 
                     is_active = is_active_result.value
 
                     # Report platform activity changes
                     if is_active != self.last_active:
-                        if is_active:
-                            self.report_status(f"Platform window became active", "INFO")
-                        else:
-                            self.report_status(f"Platform window became inactive", "WARNING")
+                        activity_state = "active" if is_active else "inactive"
+                        self.report_status(f"Platform window became {activity_state}", "INFO" if is_active else "WARNING")
                         self.last_active = is_active
 
                     # Only check when platform is active
                     if is_active:
-                        # Process this check (uses self.monitoring_directory internally)
-                        check_result = self._process_check()
+                        # Process this check
+                        check_result = self._process_check() # This returns Result[MonitoringResult]
                         if check_result.is_success:
                             result = check_result.value
-                            # Call the completion callback
+                            # Call the completion callback (already handles 'no value' case)
                             self.on_check_complete(result)
                             # If threshold was exceeded, exit the monitoring loop
                             if result.threshold_exceeded:
@@ -135,77 +140,96 @@ class MonitoringWorker(Worker[bool]):
                                     f"Threshold: ${self.threshold:.2f}",
                                     "ERROR"
                                 )
-                                break
+                                break # Exit the while loop on threshold exceeded
                         else:
-                            # Handle the error case
+                            # Handle FAILURE Results from _process_check (e.g., screenshot, OCR errors)
                             error_message = str(check_result.error)
+                            self.logger.error(f"Failed to process monitoring check: {error_message}", exc_info=True) # Log error with traceback
                             self.report_status(
                                 f"Failed to process monitoring check: {error_message}",
                                 "ERROR"
                             )
-                            # Optional: Add a short delay before the next attempt
+                            # Add a short delay before the next attempt after a check failure
                             time.sleep(2)
+                            # Continue to the next iteration of the while loop
+                            continue
                     else:
+                        # Platform is inactive
                         self.report_status("Platform window is inactive, waiting...", "INFO")
 
-                    # Wait for the next interval, checking for cancellation
-                    for _ in range(int(self.interval_seconds)):
+                    # Wait for the next interval, checking for cancellation frequently
+                    wait_step = 0.5 # Check for cancellation every 0.5 seconds
+                    num_steps = int(self.interval_seconds / wait_step)
+                    for _ in range(num_steps):
                         if self.cancel_requested:
-                            break
-                        time.sleep(1)
+                            self.logger.info("Cancellation requested during wait interval.")
+                            break # Exit inner wait loop
+                        time.sleep(wait_step)
+                    if self.cancel_requested:
+                        break # Exit outer while loop
 
-                except Exception as e:
-                    self.logger.error(f"Error in monitoring cycle: {str(e)}")
-                    self.report_status(f"Error in monitoring cycle: {str(e)}", "ERROR")
-                    time.sleep(2)  # Short delay before retrying
+                # --- Catch exceptions occurring *within* a single loop iteration ---
+                except Exception as cycle_err:
+                    self.logger.critical(f"!!!! Worker execute: CAUGHT EXCEPTION in inner try (cycle {self.check_count}): {cycle_err} !!!!", exc_info=True) # <<< ADD THIS LOGGING >>>
+                    self.report_status(f"Error in monitoring cycle: {str(cycle_err)}", "ERROR")
+                    # Decide whether to stop the whole worker or just wait and retry
+                    # Let's wait and retry for now, unless it's a specific critical error
+                    time.sleep(2) # Short delay before retrying next iteration
+            # --- End of inner try ---
+            # --- End of while loop ---
 
-            # Check if we were cancelled or completed
+            # Check if loop exited due to cancellation or completion (threshold exceeded)
             if self.cancel_requested:
-                self.report_status("Monitoring cancelled", "INFO")
+                self.report_status("Monitoring cancelled by request", "INFO")
+                self.logger.info("Monitoring worker execution cancelled by request.")
             else:
-                self.report_status("Monitoring completed", "INFO")
+                # If not cancelled, it must have completed (threshold exceeded)
+                self.report_status("Monitoring completed (threshold exceeded)", "INFO")
+                self.logger.info("Monitoring worker execution completed (threshold exceeded).")
 
-            return True
+            return True # Indicate successful execution (even if stopped by threshold)
 
-        except Exception as e:
-            self.report_error(f"Monitoring error: {str(e)}")
-            return False
-
-        except Exception as e:
-            self.logger.error(f"Monitoring error: {str(e)}")
-            self.report_error(f"Monitoring error: {str(e)}")
-            return False
+        # --- Catch exceptions occurring OUTSIDE the main loop (e.g., during initial setup) ---
+        except Exception as outer_err:
+            self.logger.critical(f"!!!! Worker execute: CAUGHT EXCEPTION in outer try: {outer_err} !!!!", exc_info=True) # <<< ADD THIS LOGGING >>>
+            self.report_error(f"Critical monitoring error: {str(outer_err)}")
+            return False # Indicate worker failed catastrophically
+        finally:
+             self.logger.critical("!!!! Worker execute: FINALLY block reached !!!!") # <<< ADD THIS LOGGING >>>
 
     def _process_check(self) -> Result[MonitoringResult]:
-        """Process a single monitoring check."""
+        """
+        Process a single monitoring check, including OCR and threshold comparison.
+        Handles cases where no numeric values are extracted.
+        """
+        extracted_text = "" # Initialize for robust error reporting
+        screenshot_path = "" # Initialize for robust error reporting
+        profile = None # Initialize
+
         try:
-            # Sanitize the region name to make it safe for filenames
+            # --- 1. Setup Paths ---
             safe_region_name = re.sub(r'[^\w\-]+', '_', self.region_name)
-
-            # Construct the filename for the constantly overwritten screenshot
             screenshot_filename = f"{self.platform}_{safe_region_name}_current.png"
-
-            # Construct the full path within the directory passed to the worker's __init__
-            # self.monitoring_directory was set from the path provided by PathService
             screenshot_path = os.path.join(self.monitoring_directory, screenshot_filename)
 
             self.report_status(f"Capturing screenshot to {screenshot_path} (check #{self.check_count})", "INFO")
 
-            # Capture screenshot - overwrites the existing file at screenshot_path
+            # --- 2. Capture Screenshot ---
             capture_result = self.screenshot_service.capture_and_save(self.region, screenshot_path)
             if capture_result.is_failure:
                 self.report_status(f"Failed to capture screenshot: {capture_result.error}", "ERROR")
-                return Result.fail(capture_result.error)
+                # Return failure Result directly
+                return capture_result
 
-            # --- (OCR logic remains the same as previous correction) ---
-            # Get the profile with all patterns
+            # --- 3. Load Profile ---
             profile_result = self.profile_service.get_profile(self.platform)
             if profile_result.is_failure:
                 self.report_status(f"Failed to get profile: {profile_result.error}", "ERROR")
-                return Result.fail(profile_result.error)
+                # Return failure Result directly
+                return profile_result
             profile = profile_result.value
 
-            # Extract text with OCR using profile
+            # --- 4. Extract Text ---
             try:
                 image = Image.open(screenshot_path)
             except Exception as img_err:
@@ -216,65 +240,87 @@ class MonitoringWorker(Worker[bool]):
             extract_result = self.ocr_service.extract_text_with_profile(image, profile.ocr_profile)
             if extract_result.is_failure:
                 self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
-                return Result.fail(extract_result.error)
-            extracted_text = extract_result.value
+                # Return failure Result directly
+                return extract_result
+            extracted_text = extract_result.value # Store the extracted text
 
-            # Use ALL patterns from the profile instead of just 'negative_dash'
+            # --- 5. Extract Numeric Values ---
             extract_values_result = self.ocr_service.extract_numeric_values_with_patterns(
-                extracted_text, profile.numeric_patterns)  # Use all patterns from profile
+                extracted_text, profile.numeric_patterns)
 
             if extract_values_result.is_failure:
                 self.report_status(f"Failed to extract values: {extract_values_result.error}", "ERROR")
-                return Result.fail(extract_values_result.error)
+                # Return failure Result directly
+                return extract_values_result
             values = extract_values_result.value
 
+            # --- 6. Heuristic Check (Optional - Keep or Remove as desired) ---
+            # This block tries to guess negative values if extraction failed initially
             if not values:
-                # OCR failed to detect values - check if it might be a value with a minus sign
-                if '$' in extracted_text:  # If it looks like a dollar value
-                    # Try to extract the numeric part after the $ sign
+                # Check if it looks like a dollar value that might be missing a sign
+                if '$' in extracted_text:
                     dollar_match = re.search(r'\$\s*([0-9,]+\.?[0-9]*)', extracted_text)
                     if dollar_match:
                         dollar_value = dollar_match.group(1)
-                        self.logger.debug(f"Dollar value found without minus sign: ${dollar_value}")
-
-                        # Clean and convert the value
+                        self.logger.debug(f"Heuristic: Dollar value found without minus sign: ${dollar_value}")
                         try:
-                            # Use the existing cleaner method
-                            cleaned_value = self.ocr_service._clean_and_convert_value(dollar_value, f"${dollar_value}")
+                            # Use the existing cleaner method (assuming _clean_and_convert_value exists on ocr_service)
+                             # noinspection PyProtectedMember
+                            cleaned_value = self.ocr_service._clean_and_convert_value(dollar_value, f"${dollar_value}") # type: ignore
 
-                            # Add a warning about the missing sign
-                            self.report_status(
-                                f"OCR may have missed a minus sign. Treating as negative: ${dollar_value}", "WARNING")
-
-                            # Force negative (this is a heuristic - only do this if you're monitoring losses)
-                            if cleaned_value and cleaned_value > 0:
+                            if cleaned_value is not None and cleaned_value >= 0: # Check conversion succeeded and it's not already negative
+                                self.report_status(
+                                    f"Heuristic: OCR may have missed sign. Treating ${dollar_value} as negative.", "WARNING")
                                 values = [-cleaned_value]  # Force to negative
-                                self.logger.debug(f"Forced value to negative: {values}")
+                                self.logger.debug(f"Heuristic: Forced value to negative: {values}")
                         except Exception as ex:
-                            self.logger.error(f"Error processing potential dollar value: {ex}")
+                            self.logger.error(f"Heuristic: Error processing potential dollar value: {ex}")
+                # Add other heuristics here if needed
 
-            min_value = min(values)
+            # --- 7. *** THE CRITICAL CHECK FOR EMPTY LIST *** ---
+            if not values:
+                # If values list is *still* empty after heuristics (or if heuristic wasn't applied)
+                self.report_status(f"No numeric P&L values identified in text: '{extracted_text}'", "WARNING")
+
+                # Create a MonitoringResult indicating no value was found
+                no_value_result = MonitoringResult(
+                    values=[],
+                    minimum_value=0.0, # Placeholder
+                    threshold=self.threshold,
+                    threshold_exceeded=False, # Cannot exceed threshold
+                    raw_text=extracted_text,
+                    timestamp=time.time(),
+                    region_name=self.region_name,
+                    screenshot_path=screenshot_path
+                )
+                # Inform listeners about the check completion, even with no value
+                self.on_check_complete(no_value_result)
+                # Return success for this check, indicating no unexpected error occurred
+                return Result.ok(no_value_result)
+            # --- END CRITICAL CHECK ---
+
+            # --- 8. Process Found Values (If 'values' was not empty) ---
+            min_value = min(values) # Now safe to call min()
             threshold_exceeded = min_value < self.threshold
             result_screenshot_path = screenshot_path # Default path
 
+            # --- 9. Handle Threshold Breach (Save history screenshot) ---
             if threshold_exceeded:
                 timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
                 timestamp_filename = f"{self.platform}_{safe_region_name}_{timestamp_str}_exceeded.png"
-                # Save within the same monitoring directory (self.monitoring_directory)
                 timestamped_path = os.path.join(self.monitoring_directory, timestamp_filename)
-
                 try:
                     import shutil
                     shutil.copy2(screenshot_path, timestamped_path)
                     self.report_status(f"Threshold exceeded! Saved history to {timestamped_path}", "WARNING")
-                    result_screenshot_path = timestamped_path # Update path for result
+                    result_screenshot_path = timestamped_path # Update path for result object
                 except Exception as copy_err:
                     self.report_status(f"Failed to copy screenshot on threshold breach: {copy_err}", "ERROR")
                     self.logger.error(f"Failed to copy '{screenshot_path}' to '{timestamped_path}': {copy_err}", exc_info=True)
-                    # result_screenshot_path remains the _current.png path
+                    # Keep result_screenshot_path as the _current.png path
 
-            # Create result object
-            result = MonitoringResult(
+            # --- 10. Create Final Result Object ---
+            final_result = MonitoringResult(
                 values=values,
                 minimum_value=min_value,
                 threshold=self.threshold,
@@ -282,18 +328,23 @@ class MonitoringWorker(Worker[bool]):
                 raw_text=extracted_text,
                 timestamp=time.time(),
                 region_name=self.region_name,
-                screenshot_path=result_screenshot_path # Use the correct path
+                screenshot_path=result_screenshot_path
             )
 
+            # --- 11. Report Status & Return Success ---
             self.report_status(f"Detected values in '{self.region_name}': {values}", "INFO")
             self.report_status(f"Current minimum value: ${min_value:.2f}", "INFO")
-
-            return Result.ok(result)
+            # Send result back via callback BEFORE returning success
+            self.on_check_complete(final_result)
+            return Result.ok(final_result)
 
         except Exception as check_err:
+             # --- 12. Catch-All Error Handling ---
              self.logger.error(f"Unexpected error during _process_check: {check_err}", exc_info=True)
+             # Report the error via callback if possible
              self.report_error(f"Internal error during monitoring check: {check_err}")
-             return Result.fail(PlatformError(message=f"Internal check error: {check_err}"))
+             # Return a failure Result containing a domain error
+             return Result.fail(PlatformError(message=f"Internal check error: {check_err}", inner_error=check_err))
 
     def report_status(self, message: str, level: str) -> None:
         """Report a status update."""

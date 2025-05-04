@@ -14,28 +14,27 @@ from src.application.app import get_container
 from src.presentation.views.main_view import MainView
 # Import the Logger service interface (optional, for early logging)
 from src.domain.services.i_logger_service import ILoggerService
+from src.presentation.styles.style_manager import StyleManager
+
 
 def run_application():
-    """
-    Initializes and runs the MonitorPal Qt application.
-    """
     # 1. Create the Qt Application instance
-    #    This needs to be done *before* any other Qt components are created.
     app = QApplication(sys.argv)
 
     # Optional: Set application metadata
     app.setApplicationName("MonitorPal")
-    app.setOrganizationName("GlebDev") # Or your name/organization
-    app.setApplicationVersion("1.0.0") # Update as needed
+    app.setOrganizationName("GlebDev")
+    app.setApplicationVersion("1.0.0")
 
     # Optional: Set a consistent visual style
     app.setStyle("Fusion")
 
+    # ADD THIS LINE to apply your global styles:
+    StyleManager.apply_application_style(app)
+
     # 2. Initialize Dependency Injection and Logging
-    #    get_container() will call initialize_app() if it hasn't run yet.
     try:
         # Make sure src is in the Python path if running main.py directly
-        # This might be needed depending on your execution environment
         src_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if src_path not in sys.path:
             sys.path.insert(0, src_path)
@@ -59,9 +58,6 @@ def run_application():
              print(f"ERROR: Could not even show critical error message box: {qe}", file=sys.stderr)
         sys.exit(1) # Exit if critical setup fails
 
-    # 3. Create the Main Window (View)
-    #    The MainView is responsible for creating its layout (including tabs)
-    #    and obtaining/connecting its necessary ViewModels.
     try:
         # Pass the container so MainView can resolve services/VMs
         main_window = MainView(container=container)
@@ -103,6 +99,7 @@ def run_application():
     #    This call blocks until the application is quit (e.g., window closed).
     logger.info("Starting Qt event loop...")
     exit_code = app.exec()
+
     logger.info(f"Qt event loop finished with exit code: {exit_code}")
 
     # 6. Exit the application

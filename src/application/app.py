@@ -43,7 +43,7 @@ from src.infrastructure.config.profile_service import ProfileService
 from src.infrastructure.platform.platform_selection_service import PlatformSelectionService
 from src.infrastructure.platform.region_service import RegionService
 from src.infrastructure.ocr.ocr_analysis_service import OcrAnalysisService
-from src.infrastructure.ui.flash_service import QtFlashService
+from src.infrastructure.ui.qt_flash_service import QtFlashService
 
 def initialize_app() -> DIContainer:
     container = DIContainer()
@@ -151,8 +151,6 @@ def initialize_app() -> DIContainer:
 
     flash_service = QtFlashService(
         logger=logger,
-        platform_detection=platform_detection_service, # Pass the singleton instance
-        region_service=region_service, # Pass the singleton instance
         ui_service=ui_service, # Pass the singleton instance
         thread_service=thread_service
     )

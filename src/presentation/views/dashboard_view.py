@@ -6,7 +6,7 @@ from typing import List
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QListWidget, QListWidgetItem, QScrollArea
 )
-from PySide6.QtCore import Slot, Qt
+from PySide6.QtCore import Slot, Qt, QTimer
 from PySide6.QtGui import QFont, QColor
 
 # --- Application Imports ---
@@ -16,7 +16,7 @@ from src.presentation.components.ui_components import (
     StyledButton, ActionButton, SecondaryButton, LogDisplay, DangerButton
 )
 from src.presentation.views import resources_rc
-# Import the StyleManager for component-specific styles
+#Import the StyleManager for component-specific styles
 from src.presentation.styles.style_manager import StyleManager
 
 
@@ -37,16 +37,15 @@ class DashboardView(QWidget):
         self.view_model = view_model
         self._setup_ui()
         self._connect_signals()
-        self._apply_initial_vm_state()
+        # Schedule the VM to emit its initial state signals shortly after setup
+        self.view_model._logger.debug("View: Scheduling initial UI refresh via VM.refresh_ui_signals.")
+        QTimer.singleShot(0, self.view_model.refresh_ui_signals)
 
     def _setup_ui(self):
         """Creates and arranges the UI elements for the dashboard."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(12)  # Increased spacing between elements
-
-        # Apply the dashboard-specific styles
-        self.setStyleSheet(StyleManager.get_view_style("dashboard_view"))
 
         # --- Top Row: Header with P&L and Status ---
         header_frame = QFrame()
@@ -66,10 +65,6 @@ class DashboardView(QWidget):
         self.pnl_display_label = QLabel("N/A")
         self.pnl_display_label.setObjectName("pnlDisplayLabel")
         self.pnl_display_label.setProperty("state", "neutral")  # Initial state for styling
-        pnl_font = QFont()
-        pnl_font.setPointSize(26)
-        pnl_font.setBold(True)
-        self.pnl_display_label.setFont(pnl_font)
         pnl_layout.addWidget(self.pnl_display_label)
 
         header_layout.addLayout(pnl_layout)
@@ -92,10 +87,6 @@ class DashboardView(QWidget):
         self.monitoring_status_label = QLabel("Inactive")
         self.monitoring_status_label.setObjectName("monitoringStatusLabel")
         self.monitoring_status_label.setProperty("state", "inactive")  # Initial state for styling
-        status_font = QFont()
-        status_font.setPointSize(18)
-        status_font.setBold(True)
-        self.monitoring_status_label.setFont(status_font)
         status_layout.addWidget(self.monitoring_status_label)
 
         header_layout.addLayout(status_layout)
@@ -136,18 +127,20 @@ class DashboardView(QWidget):
         action_layout.setContentsMargins(15, 8, 15, 8)
 
         action_label = QLabel("QUICK ACTIONS:")
+        # <<< Set property for consistent styling if needed >>>
+        action_label.setProperty("class", "ActionStripLabel")
         action_layout.addWidget(action_label)
 
-        self.start_button = ActionButton("Start", icon=":/icons/play.svg")
-        self.start_button.setFixedWidth(100)
+        self.start_button = ActionButton("Start", icon=":/icons/play.svg")  # Use ActionButton
+        self.start_button.setObjectName("startButton")  # Keep specific objectName if needed by QSS
         action_layout.addWidget(self.start_button)
 
-        self.stop_button = DangerButton("Stop", icon=":/icons/stop-circle.svg")
-        self.stop_button.setFixedWidth(100)
+        self.stop_button = DangerButton("Stop", icon=":/icons/stop-circle.svg")  # Use DangerButton
+        self.stop_button.setObjectName("stopButton")  # Keep specific objectName if needed by QSS
         action_layout.addWidget(self.stop_button)
 
-        self.flash_button = StyledButton("Test Flash", icon=":/icons/zap.svg")
-        self.flash_button.setFixedWidth(100)
+        self.flash_button = StyledButton("Test Flash", icon=":/icons/zap.svg")  # Use StyledButton
+        self.flash_button.setObjectName("flashButton")  # Keep specific objectName if needed by QSS
         action_layout.addWidget(self.flash_button)
 
         action_layout.addStretch()
@@ -238,17 +231,6 @@ class DashboardView(QWidget):
         self.view_model.can_test_flash_changed.connect(self.flash_button.setEnabled)
         self.view_model.recent_alerts_updated.connect(self._update_alerts_list)
         self.view_model.activity_log_appended.connect(self.activity_log_display.append_message)
-
-    def _apply_initial_vm_state(self):
-        """Applies the current state from the ViewModel to the widgets."""
-        # Manually trigger the update slots/methods with current VM state
-        self._update_pnl_display(self.view_model._current_pnl_text)
-        self._update_monitoring_status(self.view_model._monitoring_status_text)
-        self.monitoring_details_label.setText(self.view_model._monitoring_details_text)
-        self.start_button.setEnabled(self.view_model._can_start)
-        self.stop_button.setEnabled(self.view_model._can_stop)
-        self.flash_button.setEnabled(self.view_model._can_test_flash)
-        self._update_alerts_list(self.view_model._recent_alerts)
 
     # --- Slots for ViewModel Signals ---
 

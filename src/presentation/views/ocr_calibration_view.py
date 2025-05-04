@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QProgressBar, QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QSizePolicy,
     QSpacerItem
 )
+# <<< Add QTimer Import >>>
+from PySide6.QtCore import Slot, Qt, QSize, QTimer
 from PySide6.QtGui import QPixmap, QFont
 
 # --- Application Imports ---
@@ -39,11 +41,9 @@ class OcrCalibrationView(QWidget):
         self.pattern_checkboxes: Dict[str, QCheckBox] = {}
         self._setup_ui()
         self._connect_signals()
-        # --- MODIFIED: Schedule initial signal refresh ---
         # Schedule the ViewModel to re-emit its state signals once the event loop starts
         self.view_model._logger.debug("View: Scheduling initial UI refresh via VM.refresh_ui_signals.")
         QTimer.singleShot(0, self.view_model.refresh_ui_signals)
-        # --- END MODIFIED ---
 
     def _setup_ui(self):
         """Creates and arranges the UI elements for the OCR calibration tab."""
@@ -51,12 +51,10 @@ class OcrCalibrationView(QWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(15)
 
-        # Apply OCR calibration view styles
-        self.setStyleSheet(StyleManager.get_view_style("ocr_calibration_view"))
-
         # --- Top Row: Source Image and Calibration Input/Status ---
-        top_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_layout.addWidget(top_splitter, 1) # Allow splitter to take space
+        # <<< Replace QSplitter with QHBoxLayout >>>
+        top_layout = QHBoxLayout()
+        top_layout.setSpacing(15) # Add spacing between the two top groups
 
         # Left Side: Calibration Source Image
         source_group = QGroupBox("CALIBRATION SOURCE IMAGE")
@@ -66,17 +64,20 @@ class OcrCalibrationView(QWidget):
         self.source_preview_label = QLabel("Define Monitor Region with screenshot first.")
         self.source_preview_label.setObjectName("sourcePreviewLabel")
         self.source_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # Allow expanding, crucial for scaling
-        self.source_preview_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.source_preview_label.setMinimumSize(100, 80) # Ensure it doesn't collapse too small
-        source_layout.addWidget(self.source_preview_label, 1) # Allow preview to expand
+        # <<< Adjust SizePolicy and add Maximum Height >>>
+        self.source_preview_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred) # Don't expand aggressively
+        self.source_preview_label.setMinimumSize(100, 50) # Smaller minimum height
+        self.source_preview_label.setMaximumHeight(75)  # <<< SET MAX HEIGHT (like region setup)
+        source_layout.addWidget(self.source_preview_label, 0) # <<< REMOVE STRETCH FACTOR (let QSS/maxHeight control size)
 
         self.source_status_label = QLabel("N/A")
         self.source_status_label.setObjectName("sourceStatusLabel")
         self.source_status_label.setWordWrap(True)
         source_layout.addWidget(self.source_status_label) # No stretch factor
+        source_layout.addStretch(1) # Add stretch *below* content if needed to push it up
 
-        top_splitter.addWidget(source_group)
+        # <<< Add source_group to top_layout >>>
+        top_layout.addWidget(source_group, 1) # Allow horizontal stretch (adjust ratio if needed)
 
         # Right Side: Value Calibration Input & Status
         value_group = QGroupBox("VALUE CALIBRATION")
@@ -101,51 +102,24 @@ class OcrCalibrationView(QWidget):
 
         self.calibration_status_label = QLabel("Ready.")
         self.calibration_status_label.setObjectName("calibrationStatusLabel")
-        self.calibration_status_label.setProperty("state", "ready")  # For stylesheet targeting
+        self.calibration_status_label.setProperty("state", "ready")
         self.calibration_status_label.setWordWrap(True)
-        self.calibration_status_label.setFont(QFont("Arial", 10, QFont.Weight.Bold)) # Example font
         value_layout.addWidget(self.calibration_status_label)
 
         self.calibration_progress_bar = QProgressBar()
         self.calibration_progress_bar.setObjectName("calibrationProgressBar")
         self.calibration_progress_bar.setTextVisible(True)
-        self.calibration_progress_bar.setVisible(False) # Initially hidden
+        self.calibration_progress_bar.setVisible(False)
         self.calibration_progress_bar.setMinimum(0)
         self.calibration_progress_bar.setMaximum(100)
         value_layout.addWidget(self.calibration_progress_bar)
         value_layout.addStretch(1) # Push elements up
 
-        top_splitter.addWidget(value_group)
-        # Set initial sizes after widgets are added
-        QTimer.singleShot(0, lambda: top_splitter.setSizes([top_splitter.width() // 2, top_splitter.width() // 2]))
+        # <<< Add value_group to top_layout >>>
+        top_layout.addWidget(value_group, 1) # Allow horizontal stretch (adjust ratio if needed)
 
-
-        # --- Detected Number Formats Section ---
-        self.pattern_group = GroupHeader("DETECTED NUMBER FORMATS (Read-Only)")
-        self.pattern_group.setObjectName("patternGroup")
-        pattern_content_widget = QWidget() # Use content widget for margin/spacing control
-        pattern_content_layout = QVBoxLayout(pattern_content_widget)
-        pattern_content_layout.setContentsMargins(9, 9, 9, 9)
-        pattern_content_layout.setSpacing(4)
-        patterns_info = {
-            "dollar": "Positive Currency ($123.45, $1,234.56)",
-            "negative": "Negative in Parens ((123.45), ($1,234.56))",
-            "negative_dash": "Negative with Dash (-123.45, -$1,234.56, ~123.45)",
-            "regular": "Plain Numbers (123.45, -123.45, 1234)"
-        }
-        for key, description in patterns_info.items():
-            checkbox = QCheckBox(description)
-            checkbox.setEnabled(False) # Read-only display
-            checkbox.setProperty("detected", "false") # For stylesheet targeting
-            self.pattern_checkboxes[key] = checkbox
-            pattern_content_layout.addWidget(checkbox)
-
-        pattern_group_main_layout = QVBoxLayout(self.pattern_group) # Layout for GroupHeader itself
-        pattern_group_main_layout.setContentsMargins(0, 20, 0, 0) # Adjust top margin for title
-        pattern_group_main_layout.setSpacing(0)
-        pattern_group_main_layout.addWidget(pattern_content_widget)
-        self.pattern_group.setVisible(False) # Initially hidden
-        main_layout.addWidget(self.pattern_group)
+        # <<< Add top_layout to main_layout (NO STRETCH) >>>
+        main_layout.addLayout(top_layout) # Add the QHBoxLayout, don't give it vertical stretch
 
         # --- Advanced OCR Parameters Section ---
         self.advanced_group = GroupHeader("ADVANCED OCR PARAMETERS")
@@ -245,9 +219,6 @@ class OcrCalibrationView(QWidget):
         self.view_model.calibration_progress_changed.connect(self._update_calibration_progress)
         self.view_model.calibration_status_text_changed.connect(self._update_calibration_status)
 
-        self.view_model.detected_patterns_changed.connect(self._update_detected_patterns)
-        self.view_model.show_detected_patterns_changed.connect(self.pattern_group.setVisible)
-
         self.view_model.scale_factor_changed.connect(self.scale_factor_spinbox.setValue)
         self.view_model.threshold_block_size_changed.connect(self.block_size_spinbox.setValue)
         self.view_model.threshold_c_changed.connect(self.c_value_spinbox.setValue)
@@ -258,27 +229,22 @@ class OcrCalibrationView(QWidget):
         self.view_model.can_save_calibrated_profile_changed.connect(self.save_calibrated_button.setEnabled)
         self.view_model.can_save_manual_edits_changed.connect(self.save_manual_edits_button.setEnabled)
 
-    # --- REMOVED METHOD ---
-    # def _apply_initial_vm_state(self):
-    #     """REMOVED: No longer needed with the refresh_ui_signals approach."""
-    #     pass
-    # --- END REMOVED METHOD ---
-
     # --- Slots for ViewModel Signals (Remain Unchanged) ---
     @Slot(QPixmap)
     def _update_source_preview(self, pixmap: QPixmap):
         """Updates the source image preview."""
         if pixmap and not pixmap.isNull():
-            # Scale pixmap using the label's current size hints for responsiveness
+            # Scale pixmap to fit the label's *maximum* allowed size now
             scaled_pixmap = pixmap.scaled(
-                self.source_preview_label.size(), # Scale to fit label size
+                self.source_preview_label.maximumWidth(),  # Use label's max width constraint
+                self.source_preview_label.maximumHeight(),  # Use label's max height constraint
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
             self.source_preview_label.setPixmap(scaled_pixmap)
-            self.source_preview_label.setText("") # Clear placeholder
+            self.source_preview_label.setText("")  # Clear placeholder
         else:
-            self.source_preview_label.setPixmap(QPixmap()) # Clear image
+            self.source_preview_label.setPixmap(QPixmap())  # Clear image
             self.source_preview_label.setText("Define Monitor Region with screenshot first.")
 
     @Slot(bool)
@@ -314,15 +280,3 @@ class OcrCalibrationView(QWidget):
         # Force style refresh (Important if using QSS based on the state property)
         self.calibration_status_label.style().unpolish(self.calibration_status_label)
         self.calibration_status_label.style().polish(self.calibration_status_label)
-
-    @Slot(dict)
-    def _update_detected_patterns(self, patterns_state: Dict[str, bool]):
-        """Updates the checkboxes for detected number formats."""
-        for key, checkbox in self.pattern_checkboxes.items():
-            if checkbox: # Check if checkbox exists in our dictionary
-                is_detected = patterns_state.get(key, False)
-                checkbox.setChecked(is_detected)
-                checkbox.setProperty("detected", "true" if is_detected else "false")
-                # Force style refresh
-                checkbox.style().unpolish(checkbox)
-                checkbox.style().polish(checkbox)

@@ -4,26 +4,32 @@ from typing import Tuple, Callable
 
 # --- Qt Imports ---
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Slot, Signal
+from PySide6.QtGui import QPixmap
 
 # --- Application Imports ---
 # Import your custom button styles
-from src.presentation.components.ui_components import StyledButton, DangerButton
+from src.presentation.components.ui_components import StyledButton, DangerButton, SecondaryButton
 
 
 
 
-class RegionEntryWidget(QWidget): # Renamed from RegionEntry
+class RegionEntryWidget(QWidget):
     """
     Widget for displaying a single flatten region entry with details and actions.
+    Emits signals when action buttons are clicked.
     """
+    # --- Define explicit signals ---
+    delete_requested = Signal(str) # Emits region_id string
+    edit_requested = Signal(str)   # Emits region_id string
+    flash_requested = Signal(str)  # Emits region_id string
+    # --- End signal definition ---
+
     def __init__(self,
-                 region_id: str, # This is the region 'name' (e.g., "Flatten_1")
+                 region_id: str, # This is the region 'name'
                  coords_text: str, # Pass formatted coords text directly
                  preview_pixmap: 'QPixmap', # Pass the QPixmap for preview
-                 on_edit: Callable[[], None], # Callback expects no args now
-                 on_delete: Callable[[], None], # Callback expects no args now
-                 on_flash: Callable[[], None], # Callback expects no args now
+                 # REMOVED CALLBACK ARGUMENTS: on_edit, on_delete, on_flash
                  parent: QWidget = None):
         """
         Initialize the RegionEntryWidget.
@@ -32,19 +38,12 @@ class RegionEntryWidget(QWidget): # Renamed from RegionEntry
             region_id: The unique name/ID of the region.
             coords_text: Formatted string of coordinates "(x, y, w, h)".
             preview_pixmap: QPixmap object for the preview image (can be empty).
-            on_edit: Callback function to trigger when Edit is clicked.
-            on_delete: Callback function to trigger when Delete is clicked.
-            on_flash: Callback function to trigger when Flash is clicked.
             parent: Optional parent widget.
         """
         super().__init__(parent)
+        self._region_id = region_id # Store the region ID
 
-        # Store callbacks for button connections
-        self._on_edit = on_edit
-        self._on_delete = on_delete
-        self._on_flash = on_flash
-
-        # Use a vertical layout for the whole entry
+        # --- UI Setup ---
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(5, 5, 5, 5) # Padding around the entry
         main_layout.setSpacing(4) # Spacing between elements
@@ -59,18 +58,19 @@ class RegionEntryWidget(QWidget): # Renamed from RegionEntry
         top_layout.addWidget(info_label, 1) # Allow label to stretch
 
         # Flash Button
-        flash_btn = StyledButton("Flash", max_width=55)
-        flash_btn.clicked.connect(self._on_flash) # Connect to internal slot
+        flash_btn = SecondaryButton("Flash", max_width=55) # Changed to SecondaryButton for consistency? Or keep StyledButton
+        # Connect directly to the internal slot that emits the new signal
+        flash_btn.clicked.connect(self._emit_flash_requested)
         top_layout.addWidget(flash_btn)
 
         # Edit button
         edit_btn = StyledButton("Edit", max_width=55)
-        edit_btn.clicked.connect(self._on_edit) # Connect to internal slot
+        edit_btn.clicked.connect(self._emit_edit_requested)
         top_layout.addWidget(edit_btn)
 
         # Delete button
         delete_btn = DangerButton("Delete", max_width=55)
-        delete_btn.clicked.connect(self._on_delete) # Connect to internal slot
+        delete_btn.clicked.connect(self._emit_delete_requested)
         top_layout.addWidget(delete_btn)
 
         # Add top row to main layout
@@ -79,25 +79,18 @@ class RegionEntryWidget(QWidget): # Renamed from RegionEntry
         # Add screenshot preview label
         self.screenshot_label = QLabel() # No default text needed if pixmap handles it
         self.screenshot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.screenshot_label.setStyleSheet(
-            "border: 1px solid #ddd; background-color: #f0f0f0;"
-            "min-height: 60px; max-height: 80px;" # Adjust size as needed
-            "min-width: 100px;"
-        )
+        self.screenshot_label.setMaximumHeight(60) # Give it a max height for preview scaling
+        self.screenshot_label.setMinimumHeight(40)
         self.set_preview(preview_pixmap) # Set initial preview
         main_layout.addWidget(self.screenshot_label)
-
 
     def set_preview(self, pixmap: 'QPixmap'):
         """Sets or updates the preview image."""
         if pixmap and not pixmap.isNull():
              # Scale pixmap to fit the label while preserving aspect ratio
-             # Use a reasonable fixed width for scaling consistency if needed
-             # Or scale based on label size, which might vary slightly.
              scaled_pixmap = pixmap.scaled(
-                 # self.screenshot_label.width() - 4, # Scale to current width
-                 150, # Or scale to fixed width
-                 self.screenshot_label.maximumHeight() - 4, # Scale to max height
+                 150, # Max width for preview
+                 self.screenshot_label.maximumHeight() - 4, # Use max height for scaling
                  Qt.AspectRatioMode.KeepAspectRatio,
                  Qt.TransformationMode.SmoothTransformation
              )
@@ -107,16 +100,18 @@ class RegionEntryWidget(QWidget): # Renamed from RegionEntry
              self.screenshot_label.setPixmap(QPixmap()) # Clear image
              self.screenshot_label.setText("No Preview")
 
-
-    # Internal slots to call the callbacks passed during initialization
+    # --- Internal slots to emit the new signals ---
     @Slot()
-    def _on_edit(self):
-        if self._on_edit: self._on_edit()
-
-    @Slot()
-    def _on_delete(self):
-        if self._on_delete: self._on_delete()
+    def _emit_edit_requested(self):
+        """Emits the edit_requested signal with the stored region ID."""
+        self.edit_requested.emit(self._region_id)
 
     @Slot()
-    def _on_flash(self):
-        if self._on_flash: self._on_flash()
+    def _emit_delete_requested(self):
+        """Emits the delete_requested signal with the stored region ID."""
+        self.delete_requested.emit(self._region_id)
+
+    @Slot()
+    def _emit_flash_requested(self):
+        """Emits the flash_requested signal with the stored region ID."""
+        self.flash_requested.emit(self._region_id)

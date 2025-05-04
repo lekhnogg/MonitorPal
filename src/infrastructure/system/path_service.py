@@ -144,15 +144,54 @@ class PathService(IPathService):
         """
         Constructs the standard path for saving/finding a specific region's screenshot.
         Ensures the necessary directory structure exists.
-        """
-        if not platform or not region_type or not region_name:
-            self.logger.error(
-                f"Invalid arguments for get_region_screenshot_path: p={platform}, t={region_type}, n={region_name}")
-            return os.path.join(self.get_screenshots_base_path(), "invalid_region_name.png")
 
-        platform_dir = self.get_platform_regions_path(platform)  # Ensures creation
-        safe_region_name = re.sub(r'[^\w\-]+', '_', region_name)
-        filename = f"{platform}_{region_type}_{safe_region_name}_original.png"
+        Args:
+            platform: The name of the trading platform.
+            region_type: The type of region ('monitor' or 'flatten').
+            region_name: The unique name of the region.
+
+        Returns:
+            The full, absolute path for the screenshot file.
+
+        Raises:
+            ValueError: If platform, region_type, or region_name is invalid/empty.
+            RuntimeError: If the required regions directory cannot be created/accessed.
+        """
+        # Ensure name is treated as string for checks and re.sub
+        region_name_str = str(region_name)
+
+        # --- Input Validation ---
+        if not platform or not region_type or not region_name_str:
+            error_msg = f"Invalid arguments for get_region_screenshot_path: platform='{platform}', region_type='{region_type}', region_name='{region_name_str}'"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # --- Directory and Safe Name ---
+        try:
+            # This call also ensures the directory exists (uses the method from YOUR file)
+            platform_dir = self.get_platform_regions_path(platform)
+        except Exception as e:
+            self.logger.error(f"Failed to get/create platform regions directory for '{platform}': {e}", exc_info=True)
+            raise RuntimeError(f"Could not determine region directory for {platform}") from e
+
+        # Create a filename-safe version of the region name
+        safe_region_name = re.sub(r'[^\w\-]+', '_', region_name_str)
+
+        # --- Differentiate Filename Based on Type ---
+        if region_type == "monitor":
+            # Monitor regions get '_original' suffix for the reference screenshot
+            filename = f"{platform}_{region_type}_{safe_region_name}_original.png"
+        elif region_type == "flatten":
+            # Flatten regions use a simpler name
+            filename = f"{platform}_{region_type}_{safe_region_name}.png" # No '_original'
+        else:
+            # Log a warning for unknown types and use a generic suffix
+            self.logger.warning(f"Unknown region type '{region_type}' requested for screenshot path. Using fallback naming.")
+            filename = f"{platform}_{region_type}_{safe_region_name}_unknown.png"
+            # Consider raising ValueError here if unknown types are strictly invalid:
+            # raise ValueError(f"Unknown region type: {region_type}")
+
+        # --- Construct Full Path ---
         full_path = os.path.join(platform_dir, filename)
         self.logger.debug(f"Determined region screenshot path: {full_path}")
         return full_path

@@ -3,7 +3,7 @@
 Qt-native region selection tool using QDialog and QMainWindow overlay.
 Styling is handled via StyleManager and QSS.
 """
-import time
+
 from typing import Tuple, Optional
 
 # --- Qt Imports ---
@@ -31,8 +31,6 @@ class RegionSelectorDialog(QDialog):
         self.setModal(True)
         # Let QSS control sizing if possible, but set a minimum/fixed if needed
         self.setMinimumWidth(400)
-        # Apply component stylesheet
-        self.setStyleSheet(StyleManager.get_component_style("region_selector_dialog"))
 
         # Layout
         layout = QVBoxLayout(self)
@@ -114,8 +112,6 @@ class QtRegionSelector(QMainWindow):
         self.setCentralWidget(self.central_widget)
         # Apply specific styles to the central widget or its children via QSS
         self.central_widget.setObjectName("selectorCentralWidget")
-        self.central_widget.setStyleSheet(StyleManager.get_component_style("qt_region_selector"))
-
 
         # Rubber band for visual feedback during drag
         self.rubber_band = QRubberBand(QRubberBand.Rectangle, self.central_widget) # Parent is central widget

@@ -1,0 +1,550 @@
+/* ========================================================================== */
+/* src/presentation/styles/stylesheets/application.qss                        */
+/* Global styling for MonitorPal - Consolidated Version                       */
+/* ========================================================================== */
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+/* Base Application Styling       */
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+
+QWidget {
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 9pt;
+    color: #2d3436; /* Default text color: Almost black */
+}
+
+QMainWindow {
+    background-color: #f5f6fa; /* Light gray background for the main window */
+    border: none;
+}
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+/* Main Window Structure          */
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+
+/* Tab Widget */
+QTabWidget#mainTabWidget::pane { /* Target specific tab widget */
+    border: 1px solid #dfe6e9; /* Light gray border */
+    border-radius: 4px;
+    background-color: white; /* White background for tab content area */
+    padding-top: 1px;
+}
+
+QTabWidget#mainTabWidget QTabBar::tab {
+    background-color: #ecf0f1; /* Light gray inactive tab */
+    color: #2d3436;
+    border: 1px solid #dfe6e9;
+    border-bottom: none; /* Remove bottom border for inactive */
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    padding: 6px 12px;
+    min-width: 100px;
+    font-weight: normal;
+}
+
+QTabWidget#mainTabWidget QTabBar::tab:hover {
+    background-color: #dfe6e9; /* Slightly darker gray on hover */
+}
+
+QTabWidget#mainTabWidget QTabBar::tab:selected {
+    background-color: white; /* Selected tab matches pane */
+    font-weight: bold;
+    color: #2980b9; /* Blue text for selected tab */
+    border-bottom-color: white; /* Blend bottom border with pane */
+}
+
+QTabWidget#mainTabWidget QTabBar::tab:selected:hover {
+    background-color: #f8f9fa; /* Very slightly different background for selected hover */
+}
+
+/* Group Box */
+QGroupBox { /* Base style for all group boxes */
+    font-weight: bold;
+    border: 1px solid #dfe6e9;
+    border-radius: 4px;
+    margin-top: 12px; /* Space for the title */
+    background-color: white;
+    padding-top: 4px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 5px;
+    background-color: white; /* Must match parent group box */
+    color: #2980b9; /* Blue title text */
+}
+
+/* Checkable Group Box Indicator */
+QGroupBox::indicator {
+     width: 14px;
+     height: 14px;
+     margin-left: 5px; /* Space indicator from title */
+}
+QGroupBox::indicator:unchecked {
+     image: url(:/icons/chevron-right.svg); /* Adjust path if needed */
+}
+QGroupBox::indicator:checked {
+     image: url(:/icons/chevron-down.svg); /* Adjust path if needed */
+}
+QGroupBox#advancedGroup::indicator { /* Specific positioning for advanced group if needed */
+    /* left: 5px; */
+}
+
+
+/* General Labels */
+QLabel {
+    background-color: transparent;
+    padding: 1px;
+}
+
+/* Title-like Labels (using property set in Python) */
+QLabel[class="HeaderTitle"],
+QLabel[class="PanelTitle"] {
+    color: #7f8c8d;
+    font-size: 8pt;
+    font-weight: bold;
+    text-transform: uppercase; /* Example: Make titles uppercase */
+}
+QLabel[class="PanelTitle"] {
+     margin-bottom: 3px; /* Space below panel titles */
+}
+
+/* Frames */
+QFrame {
+    border-radius: 4px;
+    border: none;
+}
+
+QFrame#headerFrame,
+QFrame#logFrame,
+QFrame[class="ContentPanel"] { /* Use property for panels */
+    background-color: white;
+    border: 1px solid #dfe6e9;
+    border-radius: 4px;
+}
+
+QFrame#actionFrame {
+    background-color: #f8f9fa;
+    border: 1px solid #dfe6e9;
+    border-radius: 4px;
+}
+
+QFrame[class="HeaderSeparator"] { /* Use property for separators */
+    max-width: 1px;
+    min-width: 1px;
+    background-color: #dfe6e9;
+    border: none;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    border: none; background: #ecf0f1; width: 10px; margin: 0px;
+}
+QScrollBar::handle:vertical {
+    background: #b2bec3; min-height: 20px; border-radius: 5px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; border: none; background: none; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+
+QScrollBar:horizontal {
+    border: none; background: #ecf0f1; height: 10px; margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #b2bec3; min-width: 20px; border-radius: 5px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; border: none; background: none; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+
+
+/* Splitter Handle */
+QSplitter::handle { background-color: #dfe6e9; }
+QSplitter::handle:horizontal { width: 5px; }
+QSplitter::handle:vertical { height: 5px; }
+
+/* Tooltip */
+QToolTip {
+    border: 1px solid #7f8c8d; background-color: #34495e; color: white;
+    padding: 5px; border-radius: 3px;
+}
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+/* Input Widgets                  */
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    border: 1px solid #b2bec3;
+    border-radius: 4px;
+    padding: 3px 6px;
+    background-color: white;
+    min-height: 18px;
+}
+
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+    border-color: #3498db;
+    box-shadow: 0 0 3px rgba(52, 152, 219, 0.5);
+    background-color: #fdfefe;
+}
+
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+    background-color: #f5f6fa;
+    color: #b2bec3;
+    border-color: #dfe6e9;
+}
+
+QLineEdit:read-only { /* Use pseudo-state */
+    background-color: #ecf0f1;
+    color: #7f8c8d;
+    border-color: #dfe6e9;
+}
+
+/* Combobox arrow */
+QComboBox::drop-down {
+    subcontrol-origin: padding; subcontrol-position: top right;
+    width: 18px; border-left: 1px solid #b2bec3;
+    border-top-right-radius: 3px; border-bottom-right-radius: 3px;
+}
+QComboBox::down-arrow {
+    image: url(:/icons/chevron-down.svg); /* Use resource path */
+    width: 12px; height: 12px;
+}
+QComboBox QAbstractItemView { /* Dropdown list */
+    border: 1px solid #b2bec3; background-color: white;
+    selection-background-color: #3498db; selection-color: white;
+    padding: 2px; outline: 0px;
+}
+
+/* CheckBox */
+QCheckBox { spacing: 5px; padding: 2px 0; }
+QCheckBox::indicator { width: 15px; height: 15px; border-radius: 3px; }
+QCheckBox::indicator:unchecked { border: 1px solid #b2bec3; background-color: white; }
+QCheckBox::indicator:unchecked:hover { border-color: #7f8c8d; }
+QCheckBox::indicator:checked {
+    border: 1px solid #2980b9; background-color: #3498db;
+    image: url(:/icons/check.svg); /* Use resource path */
+}
+QCheckBox::indicator:checked:hover { border-color: #21618c; background-color: #5dade2; }
+QCheckBox::indicator:disabled { background-color: #ecf0f1; border: 1px solid #dfe6e9; }
+
+/* Progress Bar */
+QProgressBar#calibrationProgressBar { /* Target specific progress bar */
+    border: 1px solid #b2bec3;
+    border-radius: 5px;
+    background-color: #ecf0f1;
+    text-align: center;
+    color: #2d3436;
+    min-height: 18px;
+    max-height: 18px;
+}
+QProgressBar#calibrationProgressBar::chunk {
+    background-color: #3498db;
+    border-radius: 5px;
+    margin: 1px;
+}
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+/* Buttons                        */
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+
+/* Base button style */
+QPushButton {
+    border: 1px solid #b2bec3; border-radius: 4px; padding: 4px 12px;
+    min-height: 22px; background-color: #e1e5e8; color: #2d3436;
+    font-weight: normal;
+}
+QPushButton:hover { background-color: #d6d9dc; }
+QPushButton:pressed { background-color: #c1c5c8; }
+QPushButton:disabled {
+     background-color: #f0f0f0; color: #a0a0a0; border-color: #d0d0d0;
+}
+
+/* --- Specific Button Types --- */
+/* Using the custom 'class' property set in ui_components.py */
+
+QPushButton[class="styled"] { /* Default Blue */
+    background-color: #3498db; color: white; font-weight: bold; border-color: #2980b9;
+}
+QPushButton[class="styled"]:hover { background-color: #5dade2; }
+QPushButton[class="styled"]:pressed { background-color: #21618c; }
+QPushButton[class="styled"]:disabled { background-color: #a9cce3; border-color: #a9cce3; color: #ecf0f1; }
+
+QPushButton[class="action"] { /* Green */
+    background-color: #27ae60; color: white; font-weight: bold; border-color: #229954;
+}
+QPushButton[class="action"]:hover { background-color: #58d68d; }
+QPushButton[class="action"]:pressed { background-color: #1e8449; }
+QPushButton[class="action"]:disabled { background-color: #a3e4d7; border-color: #a3e4d7; color: #e8f8f0; }
+
+QPushButton[class="warning"] { /* Orange */
+    background-color: #f39c12; color: white; font-weight: bold; border-color: #d68910;
+}
+QPushButton[class="warning"]:hover { background-color: #f1c40f; }
+QPushButton[class="warning"]:pressed { background-color: #b8860b; }
+QPushButton[class="warning"]:disabled { background-color: #fdebd0; border-color: #fdebd0; color: #f5cba7; }
+
+QPushButton[class="danger"] { /* Red */
+    background-color: #e74c3c; color: white; font-weight: bold; border-color: #c0392b;
+}
+QPushButton[class="danger"]:hover { background-color: #ec7063; }
+QPushButton[class="danger"]:pressed { background-color: #a93226; }
+QPushButton[class="danger"]:disabled { background-color: #fadbd8; border-color: #fadbd8; color: #f5b7b1; }
+
+QPushButton[class="secondary"] { /* Light Gray */
+    background-color: #ecf0f1; color: #2d3436; font-weight: normal; border-color: #bdc3c7;
+}
+QPushButton[class="secondary"]:hover { background-color: #dfe6e9; }
+QPushButton[class="secondary"]:pressed { background-color: #c6ccd0; }
+QPushButton[class="secondary"]:disabled { background-color: #f5f6fa; color: #b2bec3; border-color: #dfe6e9; }
+
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+/* Specific Widget Styling        */
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+
+/* -- Toolbar -- */
+QToolBar#platformToolbar {
+    background-color: #34495e; border: none; spacing: 8px; padding: 3px 8px;
+}
+/* Descriptor Labels in Toolbar (using property) */
+QToolBar#platformToolbar QLabel[class="toolbarDescriptor"] {
+    color: #bdc3c7; padding: 0 2px 0 5px; font-weight: normal; background-color: transparent;
+}
+/* Summary labels in Toolbar (using property) */
+QToolBar#platformToolbar QLabel[class="toolbarSummaryLabel"] {
+    background-color: #46607a; color: #ffffff; font-weight: bold;
+    padding: 2px 6px; border-radius: 3px; margin-right: 4px;
+    min-width: 50px; /* Use AlignmentFlag in code for text alignment */
+}
+/* Combobox in Toolbar */
+/* Style the dropdown list */
+QComboBox QAbstractItemView {
+    border: 1px solid #b2bec3;  /* Border around the dropdown */
+    background-color: white; /* Background of the dropdown */
+    selection-background-color: #3498db; /* Highlight for selected item */
+    selection-color: white;
+    padding: 4px; /* Padding INSIDE the dropdown view */
+    outline: 0px; /* Remove focus outline */
+
+    /* --- Adjustments for Size/Scrolling --- */
+    min-width: 200px;  /* <<< SET MINIMUM WIDTH for the dropdown list itself */
+    /* Increase this value until all items fit without scrolling, or to your desired width */
+
+    /* Optional: Control height and scrolling */
+    /* min-height: 100px; */ /* Example: Set minimum height */
+    /* max-height: 200px; */ /* Example: Set max height to force scrolling after X items */
+
+    /* Optional: Style the scrollbar within the dropdown if needed */
+    /* scrollbar-width: thin; */ /* May not be supported */
+}
+
+/* Optional: Style individual items within the dropdown */
+QComboBox QAbstractItemView::item {
+     padding: 5px 8px; /* Add padding to each item */
+     min-height: 25px; /* Ensure items have enough height */
+}
+QComboBox QAbstractItemView::item:selected {
+    /* Styles here already handled by selection-background-color above */
+    /* background-color: #3498db; */
+    /* color: white; */
+}
+QComboBox QAbstractItemView::item:hover {
+     background-color: #eaf2f8; /* Hover color for items */
+     color: #2d3436;
+}
+
+/* -- Status Bar -- */
+QStatusBar {
+    background-color: #ecf0f1; color: #2d3436; border-top: 1px solid #dfe6e9;
+    font-size: 9pt;
+}
+QStatusBar QLabel#statusBarLabel {
+    padding: 2px 8px; margin-left: 5px; border-radius: 3px;
+    color: #7f8c8d; background-color: transparent;
+}
+/* Status Message Specific Styles - applied directly in Python code via setStyleSheet */
+
+
+/* -- Log Display -- */
+QTextEdit#logDisplay {
+    background-color: #263238; color: #cfd8dc; border: 1px solid #455a64;
+    border-radius: 3px; font-family: "Consolas", "Courier New", monospace;
+    font-size: 9pt; padding: 8px;
+}
+
+/* -- Lists/Tables -- */
+QListWidget, QTableWidget {
+    border: 1px solid #dfe6e9; border-radius: 4px; background-color: white;
+    alternate-background-color: #f8f9fa;
+}
+QListWidget::item, QTableWidget::item {
+    padding: 4px 6px; border-bottom: 1px solid #f0f0f0; color: #34495e;
+    background-color: transparent;
+}
+QListWidget::item:selected, QTableWidget::item:selected {
+    background-color: #3498db; color: white; border-bottom-color: #2980b9;
+}
+QListWidget::item:hover, QTableWidget::item:hover {
+    background-color: #eaf2f8;
+}
+QTableWidget QHeaderView::section {
+    background-color: #e1e8ed; color: #4a6b82; padding: 4px 4px;
+    border: 1px solid #ced9e1; font-weight: bold; font-size: 9pt;
+}
+/* Placeholder item styling for ListWidgets */
+QListWidget::item[dataRole="placeholder"] {
+    color: #7f8c8d; /* Gray */
+    font-style: italic;
+    background-color: transparent; /* Ensure it doesn't override alternate rows */
+}
+
+
+/* -- Preview Areas -- */
+QLabel#graphPlaceholder, QLabel#monitorPreviewLabel, QLabel#sourcePreviewLabel, QLabel#regionEntryPreviewLabel {
+    background-color: #eef1f5;
+    border: 1px dashed #adb5bd;
+    border-radius: 4px;
+    font-style: italic;
+    color: #6c757d;
+    padding: 4px; /* <<< REDUCED PADDING SLIGHTLY >>> */
+    /* Alignment is now handled by parent layout */
+}
+
+/* Specific height overrides for preview labels */
+QLabel#monitorPreviewLabel {
+    min-height: 40px; /* Match smaller size */
+    max-height: 75px; /* Match Python code */
+}
+QLabel#sourcePreviewLabel {
+    min-height: 50px; /* Consistent minimum */
+    max-height: 75px; /* <<< ENSURE THIS MATCHES PYTHON >>> */
+}
+QLabel#graphPlaceholder {
+    min-height: 150px; /* Or adjust as needed */
+}
+QLabel#regionEntryPreviewLabel {
+    min-height: 40px;
+    max-height: 60px; /* Allow slightly more height for entry previews? */
+    min-width: 100px;
+}
+/* -- State Labels -- */
+/* Base styles using object name */
+QLabel#verifyStatusLabel,
+QLabel#calibrationStatusLabel,
+QLabel#monitorStatusLabel {
+    font-weight: bold; padding: 4px 8px; border-radius: 4px;
+    border: 1px solid #dee2e6; background-color: #f8f9fa; color: #6c757d;
+    min-width: 100px;
+    /* Use AlignmentFlag in code for text alignment */
+}
+/* State overrides using attribute selectors */
+QLabel#verifyStatusLabel[state="verified"],
+QLabel#calibrationStatusLabel[state="success"],
+QLabel#monitorStatusLabel[state="defined"] {
+    color: #146c43; background-color: #d1e7dd; border-color: #a3cfbb;
+}
+QLabel#verifyStatusLabel[state="error"],
+QLabel#calibrationStatusLabel[state="error"],
+QLabel#monitorStatusLabel[state="notDefined"] {
+    color: #b02a37; background-color: #f8d7da; border-color: #f1aeb5;
+}
+QLabel#calibrationStatusLabel[state="busy"],
+QLabel#monitorStatusLabel[state="error"] {
+    color: #856404; background-color: #fff3cd; border-color: #ffe69c;
+}
+QLabel#calibrationStatusLabel[state="info"] {
+    color: #055160; background-color: #cff4fc; border-color: #9eeaf9;
+}
+/* Dashboard PNL Display */
+QLabel#pnlDisplayLabel { /* Base style defined in Dashboard section if needed */ }
+QLabel#pnlDisplayLabel[state="positive"] { color: #27ae60; }
+QLabel#pnlDisplayLabel[state="negative"] { color: #e74c3c; }
+QLabel#pnlDisplayLabel[state="neutral"] { color: #7f8c8d; }
+/* Dashboard Monitoring Status */
+QLabel#monitoringStatusLabel { /* Base style defined in Dashboard section if needed */ }
+QLabel#monitoringStatusLabel[state="active"] { color: #27ae60; }
+QLabel#monitoringStatusLabel[state="inactive"] { color: #7f8c8d; }
+QLabel#monitoringStatusLabel[state="error"] { color: #e74c3c; }
+QLabel#monitoringStatusLabel[state="busy"] { color: #f39c12; }
+
+/* -- Other Specific Widgets -- */
+QLabel#platformDisplayLabel {
+    font-weight: bold; color: #2980b9; padding: 3px 8px; border-radius: 3px;
+    background-color: #eaf2f8; border: 1px solid #aed6f1;
+}
+QLabel#dataDirLabel {
+    font-family: "Consolas", "Courier New", monospace; color: #566573; padding: 5px;
+    background-color: #e5e8e8; border-radius: 3px; border: 1px solid #d5dbdb;
+}
+QLineEdit#valueInput { font-weight: bold; font-size: 11pt; padding: 8px; }
+QLineEdit#ctPathInput, QLineEdit#platformExeInput {
+    font-family: "Consolas", "Courier New", monospace; padding: 5px;
+}
+QLineEdit#ctBlockNameInput { font-weight: bold; padding: 5px; }
+/* Read-only state handled by QLineEdit:read-only pseudo-state */
+
+/* -- Region Selector Components -- */
+QMainWindow#QtRegionSelectorOverlay { background-color: transparent; border: none; }
+QWidget#selectorCentralWidget { background-color: transparent; }
+QWidget#selectorCentralWidget QLabel#selectorInstructionsLabel {
+    color: white; background-color: rgba(0, 0, 0, 0.7); padding: 8px 15px;
+    border-radius: 5px; font-weight: bold; font-size: 11pt;
+}
+QWidget#selectorCentralWidget QLabel#selectorDimensionsLabel {
+    color: black; background-color: rgba(255, 255, 255, 0.8); padding: 4px 8px;
+    border-radius: 3px; font-family: "Consolas", "Courier New", monospace;
+    font-weight: bold; border: 1px solid rgba(0,0,0,0.3);
+}
+QRubberBand { background-color: rgba(52, 152, 219, 0.2); border: 1px solid #3498db; }
+
+/* Region Selector Dialog */
+QDialog#RegionSelectorDialog { background-color: #f5f6fa; }
+QDialog#RegionSelectorDialog QLabel#dialogIconLabel { /* Style icon placeholder if needed */ }
+QDialog#RegionSelectorDialog QLabel#dialogMessageLabel { font-weight: bold; color: #2d3436; }
+/* Target buttons inside dialog using class property */
+QDialog#RegionSelectorDialog QPushButton[class="secondary"] { /* Cancel */
+    min-width: 100px; /* Example */
+}
+QDialog#RegionSelectorDialog QPushButton[class="styled"] { /* Continue (assuming StyledButton) */
+    min-width: 100px; /* Example */
+}
+
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+/* View Specific Overrides        */
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+/* Settings View Specific         */
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+
+/* Target the specific ScrollArea if needed, otherwise global QScrollArea style applies */
+/* QScrollArea#settingsScrollArea { ... } /* If you give scroll_area an objectName */
+
+/* Style the direct content widget INSIDE the ScrollArea */
+QWidget#settingsScrollContent {
+    /* Set the background for the area BETWEEN the group boxes */
+    /* Option 1: Match the main window background */
+    background-color: #f5f6fa;
+
+    /* Option 2: Make it white to match the group boxes */
+    /* background-color: white; */
+}
+
+/* Ensure the viewport itself is transparent so the content widget's background shows */
+/* This targets the immediate QWidget child of the scroll area (the viewport) */
+QScrollArea > QWidget {
+    background-color: transparent;
+    border: none;
+}
+
+/* More specific viewport targeting if the above doesn't work */
+/* QScrollArea > QWidget#qt_scrollarea_viewport { ... } */
+
+/* You can also add rules specific to widgets ONLY inside the settings tab like this: */
+/*
+QWidget#settingsScrollContent QGroupBox {
+    // Special margin only for group boxes in settings
+    margin-bottom: 10px;
+}
+*/

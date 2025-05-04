@@ -1,6 +1,7 @@
 # src/presentation/view_models/ocr_calibration_view_model.py
 
 import os
+import re
 import uuid # For unique task IDs
 from typing import Optional, Dict, Any, List
 
@@ -23,12 +24,20 @@ from src.domain.models.region_model import Region
 from src.domain.common.result import Result
 from src.domain.common.errors import ConfigurationError, ResourceError
 
-# --- CalibrationWorker Definition ---
-# (Ensure this worker class definition is present, either here or imported correctly)
-# Note: If CalibrationWorker is defined in another file, import it instead.
-import re
+
+
 import dataclasses
 import PIL.Image
+from typing import Optional, Dict, Any, List
+# --- CalibrationWorker Definition ---
+try:
+    from src.domain.models.platform_profile import DEFAULT_TESSERACT_WHITELIST
+except ImportError:
+    DEFAULT_TESSERACT_WHITELIST = "-c tessedit_char_whitelist=0123456789.,-()$"
+    # Log a warning if falling back
+    # self.logger.warning("Could not import DEFAULT_TESSERACT_WHITELIST, using fallback.")
+
+
 class CalibrationWorker(Worker[Dict[str, Any]]):
     """Worker that attempts to find OCR parameters that match an expected value."""
     def __init__(self,
@@ -48,12 +57,13 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
 
     def execute(self) -> Optional[Dict[str, Any]]:
         """Try different OCR parameters and patterns until expected value is found."""
+        # --- Keep existing implementation ---
         self.report_started()
         self.report_progress(0, "Starting calibration...")
 
+        # --- Keep expected value processing ---
         expected_value_str = self.expected_value.strip()
         try:
-            # Using protected member here - consider adding public helper to IOcrService if preferred
             # noinspection PyProtectedMember
             cleaned_value_float = self.ocr_service._clean_and_convert_value( # type: ignore
                 value_str=expected_value_str,
@@ -69,20 +79,24 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
             self.logger.error("Exception during expected value cleaning", exc_info=True)
             return None
 
+        # --- Keep image loading ---
         try:
             image = PIL.Image.open(self.image_path)
         except Exception as e:
             self.report_error(f"Failed to load image: {e}")
             return None
 
+        # --- Keep baseline detection ---
         self.report_progress(5, "Detecting baseline OCR parameters...")
         ocr_result = self.ocr_analysis_service.detect_optimal_ocr_parameters(self.image_path)
         if ocr_result.is_failure:
             self.report_error(f"Failed to detect baseline OCR parameters: {ocr_result.error}")
             return None
         base_profile = ocr_result.value
+        # --- Base profile now includes whitelist from OcrAnalysisService ---
         self.logger.info(f"Baseline OCR profile detected: {base_profile}")
 
+        # --- Keep variation generation ---
         profiles_to_try = self._generate_ocr_profile_variations(base_profile)
         self.logger.info(f"Generated {len(profiles_to_try)} OCR profile variations to test.")
         patterns_to_try = self._generate_pattern_variations()
@@ -97,138 +111,184 @@ class CalibrationWorker(Worker[Dict[str, Any]]):
         min_difference = float('inf')
         self.current_attempt = 0
 
+        # --- Keep main iteration loop ---
         for i, current_profile in enumerate(profiles_to_try):
-            if self.cancel_requested: self.report_error("Calibration cancelled"); return None # Check early
-            self.logger.debug(f"Testing OCR Profile {i+1}/{len(profiles_to_try)}: {current_profile}")
+            if self.cancel_requested: self.report_error("Calibration cancelled"); return None
+            self.logger.debug(f"Testing OCR Profile {i+1}/{len(profiles_to_try)}: {current_profile}") # Profile now includes whitelist
             image_copy = image.copy()
+            # --- Keep OCR text extraction ---
             extract_result = self.ocr_service.extract_text_with_profile(image_copy, current_profile)
             if extract_result.is_failure:
                 self.logger.warning(f"OCR failed for profile {i+1}: {extract_result.error}")
-                self.current_attempt += len(patterns_to_try); continue # Skip patterns if OCR fails
+                self.current_attempt += len(patterns_to_try); continue
             extracted_text = extract_result.value
             self.logger.debug(f"  Profile {i+1} Extracted text: '{extracted_text}'")
             if not extracted_text or not extracted_text.strip():
                  self.logger.debug("  Skipping pattern matching for empty/whitespace text.")
-                 self.current_attempt += len(patterns_to_try); continue # Skip patterns for empty text
+                 self.current_attempt += len(patterns_to_try); continue
 
+            # --- Keep pattern iteration ---
             for j, pattern_set in enumerate(patterns_to_try):
                 self.current_attempt += 1
-                # Ensure division by zero doesn't happen if total_attempts is somehow 0 here
                 progress_pct = int((self.current_attempt / self.total_attempts) * 90) + 5 if self.total_attempts > 0 else 5
                 self.report_progress(progress_pct, f"Testing profile {i+1}, pattern set {j+1}...")
                 if self.cancel_requested: self.report_error("Calibration cancelled"); return None
 
+                # --- Keep numeric extraction and matching logic ---
                 numeric_result = self.ocr_service.extract_numeric_values_with_patterns(extracted_text, pattern_set)
                 if numeric_result.is_success and numeric_result.value:
                     extracted_values = numeric_result.value
                     self.logger.debug(f"    Pattern set {j+1} extracted: {extracted_values}")
                     for value in extracted_values:
                         difference = abs(value - target_value)
-                        # Use a small tolerance for floating point comparison
                         if difference < 0.001:
                             self.report_progress(100, f"Found exact match: {value}")
                             self.logger.info(f"Exact match found with profile {i+1}, patterns {j+1}")
+                            # Return the successful profile (incl. whitelist) and pattern set
                             return { "ocr_profile": current_profile, "patterns": pattern_set, "extracted_text": extracted_text, "matched_value": value }
                         if difference < min_difference:
                              min_difference = difference
                              best_match_info = { "ocr_profile": current_profile, "patterns": pattern_set, "extracted_text": extracted_text, "matched_value": value, "difference": difference }
                              self.logger.debug(f"  New best match: {value} (Diff: {difference:.4f})")
                 elif numeric_result.is_failure:
-                    # Log pattern extraction failure but continue trying other patterns/profiles
                     self.logger.debug(f"    Pattern set {j+1} extraction failed: {numeric_result.error}")
-                else: # No values extracted by this pattern set
+                else:
                     self.logger.debug(f"    Pattern set {j+1} extracted no values.")
 
-        # After trying all combinations, check the best match found
-        # Adjust tolerance as needed (e.g., < 0.1 or < 1.0 depending on expected precision)
+        # --- Keep best match checking ---
         if best_match_info and min_difference < 1.0:
             self.report_progress(95, f"Found close match: {best_match_info['matched_value']} (diff: {min_difference:.2f})")
             self.logger.info(f"Close match found (Diff: {min_difference:.4f}): {best_match_info}")
             return best_match_info
 
-        # If no satisfactory match found after all attempts
+        # --- Keep final error reporting ---
         self.report_error("Could not find matching OCR profile and pattern combination.")
         self.logger.warning("Calibration finished without finding a satisfactory match.")
         return None
 
     def _generate_pattern_variations(self) -> List[Dict[str, str]]:
         """Generates sets of regex patterns to try."""
+        # --- Keep existing implementation ---
         variations = []
-        # Use the default patterns from OcrAnalysisService as the base
         base = self.ocr_analysis_service.get_default_patterns()
-
-        # Individual patterns (useful if only one format is present)
         variations.append({"dollar": base.get("dollar", "")})
         variations.append({"negative": base.get("negative", "")})
         variations.append({"negative_dash": base.get("negative_dash", "")})
         variations.append({"regular": base.get("regular", "")})
-
-        # Common combinations
-        variations.append({k: v for k, v in base.items() if k in ["dollar", "negative", "negative_dash"]}) # Currency formats
-        variations.append({k: v for k, v in base.items() if k in ["negative", "negative_dash", "regular"]}) # Non-currency signed numbers
-
-        # All patterns (most common case)
+        variations.append({k: v for k, v in base.items() if k in ["dollar", "negative", "negative_dash"]})
+        variations.append({k: v for k, v in base.items() if k in ["negative", "negative_dash", "regular"]})
         variations.append(base.copy())
-
-        # Remove empty dictionaries if a base pattern was missing
         variations = [v for v in variations if v]
         return variations
 
     def _generate_ocr_profile_variations(self, base_profile: OcrProfile) -> List[OcrProfile]:
-        """Generates variations of OCR parameters around a baseline."""
-        # Define ranges or sets of values to try for each parameter
-        # Use sets to automatically handle duplicates
-        scale_factors = {base_profile.scale_factor, max(1.0, base_profile.scale_factor - 0.5), base_profile.scale_factor + 0.5, base_profile.scale_factor + 1.0, 2.0, 3.0}
-        # Ensure reasonable bounds for denoising
-        denoise_hs = {base_profile.denoise_h, max(1, base_profile.denoise_h - 5), base_profile.denoise_h + 5, 7, 10, 13}
+        """
+        Generates variations of OCR parameters around a baseline,
+        ensuring the whitelist is included in Tesseract configs.
+        Uses a list and checks for uniqueness to avoid hashing mutable fields.
+        """
+        self.logger.debug("Generating OCR profile variations...")
+
+        # --- Define Parameter Variations ---
+        scale_factors = {base_profile.scale_factor, max(1.0, base_profile.scale_factor - 0.5),
+                         base_profile.scale_factor + 0.5, base_profile.scale_factor + 1.0, 2.0, 2.5, 3.0}
+        denoise_hs = {base_profile.denoise_h, max(0, base_profile.denoise_h - 5), base_profile.denoise_h + 5, 0, 7,
+                      10, 13}  # Include 0 explicitly
         invert_options = {base_profile.invert_colors, not base_profile.invert_colors}
-        # Try different block sizes and C values, ensuring block size is odd and >= 3
+
         threshold_sets = set()
-        base_block, base_c = base_profile.threshold_block_size, base_profile.threshold_c
+        base_block = max(3, base_profile.threshold_block_size)
+        if base_block % 2 == 0: base_block += 1
+        base_c = base_profile.threshold_c
         for block_delta in [0, -4, 4, -2, 2]:
-             for c_delta in [0, -2, 2, -1, 1]:
-                  new_block = base_block + block_delta
-                  new_c = base_c + c_delta
-                  # Validate parameters
-                  if new_block < 3: new_block = 3
-                  if new_block % 2 == 0: new_block += 1
-                  if new_c < 0: new_c = 0
-                  threshold_sets.add((new_block, new_c))
-        # Include some common defaults
-        threshold_sets.add((11, 2)); threshold_sets.add((15, 3)); threshold_sets.add((9, 2))
+            for c_delta in [0, -2, 2, -1, 1]:
+                new_block = base_block + block_delta
+                new_c = base_c + c_delta
+                if new_block < 3: new_block = 3
+                if new_block % 2 == 0: new_block += 1
+                if new_c < 0: new_c = 0
+                threshold_sets.add((new_block, new_c))
+        threshold_sets.add((11, 2));
+        threshold_sets.add((15, 3));
+        threshold_sets.add((9, 2))
 
-        # Generate Tesseract config variations (PSM modes)
-        psm_options = {base_profile.tesseract_config}
-        base_psm_match = re.search(r'--psm\s+(\d+)', base_profile.tesseract_config)
-        base_psm = int(base_psm_match.group(1)) if base_psm_match else 6
-        # Common PSM modes for numbers/lines/blocks
+        psm_options_configs = set()
+        whitelist_part = f" {DEFAULT_TESSERACT_WHITELIST}"
+        base_tess_config = base_profile.tesseract_config
+        if not base_tess_config:  # Handle empty base config
+            base_tess_config = f"--oem 3 --psm 7{whitelist_part}"  # Sensible default
+        elif DEFAULT_TESSERACT_WHITELIST not in base_tess_config:
+            base_tess_config += whitelist_part
+        psm_options_configs.add(base_tess_config.strip())
+
         for psm_val in [6, 7, 8, 11, 13]:
-             psm_options.add(f"--oem 3 --psm {psm_val}") # Always use OEM 3 (LSTM)
+            config_base = f"--oem 3 --psm {psm_val}"
+            # Add only if the base PSM is different from the current one, to avoid redundant configs
+            current_base_psm_str = f"--oem 3 --psm {re.search(r'--psm\s+(\d+)', base_tess_config).group(1) if re.search(r'--psm\s+(\d+)', base_tess_config) else '7'}"
+            if config_base != current_base_psm_str:
+                psm_options_configs.add(f"{config_base}{whitelist_part}")
+        # --- End Parameter Variations Definition ---
 
-        # Use a set to store unique generated profiles
-        generated_profiles = {base_profile}
+        # --- Use a LIST and check uniqueness manually ---
+        generated_profiles_list: List[OcrProfile] = [base_profile]  # Start with the baseline
 
-        # Systematically create variations (avoid deep nesting for clarity)
-        current_profiles = list(generated_profiles)
-        for profile in current_profiles:
-             for sf in scale_factors: generated_profiles.add(dataclasses.replace(profile, scale_factor=sf))
-        current_profiles = list(generated_profiles)
-        for profile in current_profiles:
-             for dh in denoise_hs: generated_profiles.add(dataclasses.replace(profile, denoise_h=dh))
-        current_profiles = list(generated_profiles)
-        for profile in current_profiles:
-             for inv in invert_options: generated_profiles.add(dataclasses.replace(profile, invert_colors=inv))
-        current_profiles = list(generated_profiles)
-        for profile in current_profiles:
-             for block, c_val in threshold_sets: generated_profiles.add(dataclasses.replace(profile, threshold_block_size=block, threshold_c=c_val))
-        current_profiles = list(generated_profiles)
-        for profile in current_profiles:
-             for psm_config in psm_options: generated_profiles.add(dataclasses.replace(profile, tesseract_config=psm_config))
+        # Helper function to add only if unique
+        def add_unique_profile(profile_to_add):
+            # Dataclasses implement __eq__ based on fields, so 'in' works for uniqueness check
+            if profile_to_add not in generated_profiles_list:
+                generated_profiles_list.append(profile_to_add)
 
-        self.logger.info(f"Generated {len(generated_profiles)} unique OCR profile variations.")
-        # Return as a list
-        return list(generated_profiles)
-# --- End Worker ---
+        # --- Systematically create variations, adding uniquely layer by layer ---
+        last_count = 0
+        self.logger.debug(f" Starting variations with {len(generated_profiles_list)} profile(s)")
+
+        # Apply Scale Factor variations
+        current_snapshot = list(generated_profiles_list)
+        for profile in current_snapshot:
+            for sf in scale_factors:
+                add_unique_profile(dataclasses.replace(profile, scale_factor=sf))
+        self.logger.debug(
+            f" After Scale Factor: {len(generated_profiles_list)} profiles (+{len(generated_profiles_list) - last_count})")
+        last_count = len(generated_profiles_list)
+
+        # Apply Denoise H variations
+        current_snapshot = list(generated_profiles_list)
+        for profile in current_snapshot:
+            for dh in denoise_hs:
+                add_unique_profile(dataclasses.replace(profile, denoise_h=dh))
+        self.logger.debug(
+            f" After Denoise H: {len(generated_profiles_list)} profiles (+{len(generated_profiles_list) - last_count})")
+        last_count = len(generated_profiles_list)
+
+        # Apply Invert Colors variations
+        current_snapshot = list(generated_profiles_list)
+        for profile in current_snapshot:
+            for inv in invert_options:
+                add_unique_profile(dataclasses.replace(profile, invert_colors=inv))
+        self.logger.debug(
+            f" After Invert Colors: {len(generated_profiles_list)} profiles (+{len(generated_profiles_list) - last_count})")
+        last_count = len(generated_profiles_list)
+
+        # Apply Threshold variations
+        current_snapshot = list(generated_profiles_list)
+        for profile in current_snapshot:
+            for block, c_val in threshold_sets:
+                add_unique_profile(dataclasses.replace(profile, threshold_block_size=block, threshold_c=c_val))
+        self.logger.debug(
+            f" After Threshold: {len(generated_profiles_list)} profiles (+{len(generated_profiles_list) - last_count})")
+        last_count = len(generated_profiles_list)
+
+        # Apply Tesseract Config variations
+        current_snapshot = list(generated_profiles_list)
+        for profile in current_snapshot:
+            for tess_config in psm_options_configs:
+                add_unique_profile(dataclasses.replace(profile, tesseract_config=tess_config))
+        self.logger.debug(
+            f" After Tesseract Config: {len(generated_profiles_list)} profiles (+{len(generated_profiles_list) - last_count})")
+        # --- End Variation Generation ---
+
+        self.logger.info(f"Generated {len(generated_profiles_list)} final unique OCR profile variations.")
+        return generated_profiles_list  # Return the list
 
 
 class OcrCalibrationViewModel(QObject):
@@ -248,9 +308,6 @@ class OcrCalibrationViewModel(QObject):
     calibration_progress_changed = Signal(int, str)
     calibration_status_text_changed = Signal(str, str) # message, color
 
-    detected_patterns_changed = Signal(dict)
-    show_detected_patterns_changed = Signal(bool)
-
     scale_factor_changed = Signal(float)
     threshold_block_size_changed = Signal(int)
     threshold_c_changed = Signal(int)
@@ -262,7 +319,7 @@ class OcrCalibrationViewModel(QObject):
     can_save_manual_edits_changed = Signal(bool) # Enable state for manual save button
 
     status_message_changed = Signal(str, str) # For main window status bar
-
+    profile_potentially_changed = Signal(str)  # Emits platform name when saved/reset
 
     def __init__(self,
                  logger: ILoggerService,
@@ -299,9 +356,6 @@ class OcrCalibrationViewModel(QObject):
         # Holds the state for the UI preview and its status
         self._source_preview_pixmap: QPixmap = QPixmap()
         self._source_status_text: str = "N/A"
-        # Holds the state for the pattern checkboxes
-        self._current_patterns_state: Dict[str, bool] = {}
-        self._current_patterns_visible: bool = False
         # Holds the state for the main status label below the input
         self._current_calibration_status_text: str = "Ready."
         self._current_calibration_status_color: str = "gray" # Use 'gray' or 'info' state
@@ -328,8 +382,6 @@ class OcrCalibrationViewModel(QObject):
         self.calibration_in_progress_changed.emit(self._is_calibrating) # Emit initial false state
         # Don't emit progress, it's transient
         self.calibration_status_text_changed.emit(self._current_calibration_status_text, self._current_calibration_status_color)
-        self.detected_patterns_changed.emit(self._current_patterns_state)
-        self.show_detected_patterns_changed.emit(self._current_patterns_visible)
         # Emit all OCR parameter signals
         self.scale_factor_changed.emit(self._current_ocr_profile.scale_factor)
         self.threshold_block_size_changed.emit(self._current_ocr_profile.threshold_block_size)
@@ -340,7 +392,6 @@ class OcrCalibrationViewModel(QObject):
         # Emit button states
         self.can_save_calibrated_profile_changed.emit(self._last_calibration_result is not None and not self._is_calibrating)
         self.can_save_manual_edits_changed.emit(self._selected_platform is not None and not self._is_calibrating)
-
 
     # --- Command Slots (Called by the View) ---
 
@@ -366,13 +417,11 @@ class OcrCalibrationViewModel(QObject):
         self._last_calibration_result = None
         self._current_calibration_status_text = f"Starting calibration for '{self._expected_value}'..."
         self._current_calibration_status_color = "black" # Or another neutral/busy color
-        self._current_patterns_visible = False # Hide patterns during calibration
 
         # Emit signals to update UI for starting state
         self.calibration_in_progress_changed.emit(True)
         self.can_save_calibrated_profile_changed.emit(False)
         self.can_save_manual_edits_changed.emit(False)
-        self.show_detected_patterns_changed.emit(self._current_patterns_visible)
         self.calibration_status_text_changed.emit(self._current_calibration_status_text, self._current_calibration_status_color)
         self.calibration_progress_changed.emit(0, "Starting...") # Reset progress
 
@@ -398,37 +447,51 @@ class OcrCalibrationViewModel(QObject):
 
     @Slot()
     def save_calibrated_profile(self):
-        """Saves the profile using the result of the last successful calibration."""
+        """
+        Saves the calibrated OCR profile parameters BUT uses the
+        DEFAULT set of numeric patterns for broader applicability.
+        """
         if not self._selected_platform: self.status_message_changed.emit("No platform selected.", "ERROR"); return
         if self._is_calibrating: self.status_message_changed.emit("Cannot save while calibrating.", "WARNING"); return
-        if not self._last_calibration_result or "patterns" not in self._last_calibration_result or "ocr_profile" not in self._last_calibration_result:
-             self.status_message_changed.emit("No valid calibration result available to save.", "ERROR"); return
+        # Check only for the calibrated OCR profile in the result
+        if not self._last_calibration_result or "ocr_profile" not in self._last_calibration_result:
+            self.status_message_changed.emit("No valid calibration result available (missing OCR profile).", "ERROR");
+            return
 
-        self._logger.info(f"Saving calibrated profile for {self._selected_platform}...")
-        self.status_message_changed.emit("Saving calibrated profile...", "INFO")
+        self._logger.info(f"Saving calibrated OCR profile for {self._selected_platform} (using default patterns)...")
+        self.status_message_changed.emit("Saving calibrated OCR profile (with default patterns)...", "INFO")
         try:
             calibrated_ocr_profile = self._last_calibration_result["ocr_profile"]
-            detected_patterns = self._last_calibration_result["patterns"]
             if not isinstance(calibrated_ocr_profile, OcrProfile):
-                 self._logger.error(f"Invalid OCR profile type: {type(calibrated_ocr_profile)}")
-                 self.status_message_changed.emit("Internal error: Invalid result format.", "ERROR"); return
+                self._logger.error(f"Invalid OCR profile type: {type(calibrated_ocr_profile)}")
+                self.status_message_changed.emit("Internal error: Invalid result format.", "ERROR");
+                return
+
+            # --- Get the DEFAULT patterns ---
+            # Use the injected OcrAnalysisService to get the standard default patterns
+            default_patterns = self._ocr_analysis_service.get_default_patterns(self._selected_platform)
+            self._logger.info(f"Using default patterns for saving: {default_patterns}")
+            # --- END ---
 
             profile_to_save = PlatformProfile(
                 platform_name=self._selected_platform,
                 ocr_profile=calibrated_ocr_profile,
-                numeric_patterns=detected_patterns
+                # --- SAVE DEFAULT PATTERNS ---
+                numeric_patterns=default_patterns
+                # --- END ---
             )
             result = self._profile_service.save_profile(profile_to_save)
 
             if result.is_success:
-                self.status_message_changed.emit(f"Calibrated profile saved for {self._selected_platform}", "SUCCESS")
-                self._logger.info(f"Calibrated profile saved successfully for {self._selected_platform}")
+                self.status_message_changed.emit(
+                    f"Calibrated OCR profile saved for {self._selected_platform} (with default patterns).", "SUCCESS")
+                self._logger.info(f"Calibrated OCR profile saved successfully for {self._selected_platform}")
                 # Update internal state to match saved profile
-                self._current_ocr_profile = calibrated_ocr_profile # Update internal current profile
-                self._current_patterns_state = {key: (key in detected_patterns) for key in ["dollar", "negative", "negative_dash", "regular"]}
-                # Update UI state after successful save
-                self.can_save_calibrated_profile_changed.emit(False) # Disable calibrated save until next run
-                self.can_save_manual_edits_changed.emit(True) # Manual edits now reflect calibrated profile
+                self._current_ocr_profile = calibrated_ocr_profile  # Update internal current profile
+                # Update pattern state display to reflect defaults
+                # Update UI button state
+                self.can_save_calibrated_profile_changed.emit(False)
+                self.can_save_manual_edits_changed.emit(True)
             else:
                 self.status_message_changed.emit(f"Failed to save profile: {result.error}", "ERROR")
         except Exception as e:
@@ -488,8 +551,6 @@ class OcrCalibrationViewModel(QObject):
         self._update_ocr_profile_state(default_ocr) # Emits signals for OCR params UI
         self._current_patterns_state = {key: (key in default_patterns) for key in ["dollar", "negative", "negative_dash", "regular"]}
         self._current_patterns_visible = True # Defaults should be visible
-        self.detected_patterns_changed.emit(self._current_patterns_state)
-        self.show_detected_patterns_changed.emit(self._current_patterns_visible)
 
         # Update status label
         self._current_calibration_status_text = "Parameters reset to default. Save edits to persist."
@@ -526,7 +587,6 @@ class OcrCalibrationViewModel(QObject):
 
         if result_data:
             calibrated_ocr_profile = result_data.get("ocr_profile")
-            detected_patterns = result_data.get("patterns", {})
             matched_value = result_data.get("matched_value", "N/A")
             difference = result_data.get("difference", 0)
             if not calibrated_ocr_profile or not isinstance(calibrated_ocr_profile, OcrProfile):
@@ -536,8 +596,6 @@ class OcrCalibrationViewModel(QObject):
 
             # Update internal state variables first
             self._current_ocr_profile = calibrated_ocr_profile
-            self._current_patterns_state = {key: (key in detected_patterns) for key in ["dollar", "negative", "negative_dash", "regular"]}
-            self._current_patterns_visible = True
             status_msg = f"Calibration successful! Detected value: {matched_value}"
             if difference > 0.001: status_msg += f" (Note: Matched within ${difference:.2f} tolerance)"
             self._current_calibration_status_text = status_msg
@@ -545,8 +603,6 @@ class OcrCalibrationViewModel(QObject):
 
             # Emit signals to update the UI based on the new state
             self._update_ocr_profile_state(self._current_ocr_profile) # Emits OCR param signals
-            self.detected_patterns_changed.emit(self._current_patterns_state)
-            self.show_detected_patterns_changed.emit(self._current_patterns_visible)
             self.calibration_status_text_changed.emit(self._current_calibration_status_text, self._current_calibration_status_color)
             self.status_message_changed.emit("Calibration successful. Review parameters and save.", "SUCCESS")
             self.can_save_calibrated_profile_changed.emit(True)
@@ -577,8 +633,6 @@ class OcrCalibrationViewModel(QObject):
         self.calibration_in_progress_changed.emit(False)
         self.calibration_status_text_changed.emit(self._current_calibration_status_text, self._current_calibration_status_color)
         self.status_message_changed.emit(f"Calibration failed: {error_msg}", "ERROR")
-        self.show_detected_patterns_changed.emit(self._current_patterns_visible)
-        self.detected_patterns_changed.emit(self._current_patterns_state)
         self.can_save_calibrated_profile_changed.emit(False)
         self.can_save_manual_edits_changed.emit(self._selected_platform is not None)
 
@@ -633,7 +687,6 @@ class OcrCalibrationViewModel(QObject):
               self.can_save_manual_edits_changed.emit(True)
 
     # --- Private Helper Methods ---
-
     def _update_for_platform(self, platform: str):
         """Loads calibration source and profile, updates internal state, emits signals."""
         self._selected_platform = platform
@@ -646,48 +699,38 @@ class OcrCalibrationViewModel(QObject):
         self._last_calibration_result = None
         self.can_save_calibrated_profile_changed.emit(False)
         # --- Default values for local calculation ---
-        loaded_patterns = {}
         status_message = "N/A"
         status_color = "gray"
-        show_patterns = False
         allow_manual_save = False
         loaded_ocr_profile = OcrProfile() # Use default OcrProfile as base
 
         if not platform:
             self._clear_calibration_source() # This handles source UI and resets internal status vars
             loaded_ocr_profile = self._profile_service._get_platform_default_ocr_profile("")
-            loaded_patterns = self._profile_service._get_default_patterns_for_platform(None)
             allow_manual_save = False
             # Status/patterns state already set by _clear_calibration_source
             status_message = self._current_calibration_status_text
             status_color = self._current_calibration_status_color
-            show_patterns = self._current_patterns_visible
         else:
             # Load profile for the selected platform
             profile_res = self._profile_service.get_profile(platform)
             if profile_res.is_success:
                 loaded_platform_profile = profile_res.value
                 loaded_ocr_profile = loaded_platform_profile.ocr_profile # Get the loaded OCR profile
-                loaded_patterns = loaded_platform_profile.numeric_patterns or {}
                 allow_manual_save = True
                 status_message = f"Loaded saved profile for {platform}."
                 status_color = "gray"
-                show_patterns = True
             else: # Error loading profile
                 self._logger.error(f"Failed to load profile for {platform}: {profile_res.error}")
                 # Use default profile if load fails
                 loaded_ocr_profile = self._profile_service._get_platform_default_ocr_profile(platform)
-                loaded_patterns = self._profile_service._get_default_patterns_for_platform(platform)
                 allow_manual_save = True # Still allow saving defaults
                 status_message = f"Error loading profile. Using defaults."
                 status_color = "orange"
-                show_patterns = True # Show patterns even if default
+
 
         # Update internal OCR profile state and emit signals for advanced params UI
         self._update_ocr_profile_state(loaded_ocr_profile)
-
-        # Calculate pattern state based on loaded patterns
-        pattern_display_state = {key: (key in loaded_patterns) for key in ["dollar", "negative", "negative_dash", "regular"]}
 
         # Update manual save button state
         self.can_save_manual_edits_changed.emit(allow_manual_save)
@@ -706,14 +749,11 @@ class OcrCalibrationViewModel(QObject):
         # Store the final calculated state for status and patterns
         self._current_calibration_status_text = final_status_msg
         self._current_calibration_status_color = final_status_color
-        self._current_patterns_state = pattern_display_state
-        self._current_patterns_visible = show_patterns
+
         # --- END Update ---
 
         # --- EMIT SIGNALS based on final calculated state ---
         # Emit signals needed for UI update that aren't handled by helpers
-        self.detected_patterns_changed.emit(self._current_patterns_state)
-        self.show_detected_patterns_changed.emit(self._current_patterns_visible)
         self.calibration_status_text_changed.emit(self._current_calibration_status_text, self._current_calibration_status_color)
         # Note: OCR param signals are emitted by _update_ocr_profile_state
         # Note: Source preview signals are emitted by _load_calibration_source
@@ -726,16 +766,14 @@ class OcrCalibrationViewModel(QObject):
         self._source_status_text = "Select platform and define Monitor Region."
         self._current_calibration_status_text = self._source_status_text # Reset main status
         self._current_calibration_status_color = "gray"
-        self._current_patterns_visible = False # Hide patterns
-        self._current_patterns_state = {}
+
 
         # Emit signals
         self.calibration_source_preview_changed.emit(self._source_preview_pixmap)
         self.calibration_source_status_text_changed.emit(self._source_status_text)
         self.can_calibrate_changed.emit(False)
         self.calibration_status_text_changed.emit(self._current_calibration_status_text, self._current_calibration_status_color)
-        self.show_detected_patterns_changed.emit(self._current_patterns_visible)
-        self.detected_patterns_changed.emit(self._current_patterns_state)
+
 
     def _load_calibration_source(self, platform: str):
         """Loads the monitor region screenshot, updates source state, emits source signals."""

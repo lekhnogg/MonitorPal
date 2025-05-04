@@ -132,28 +132,34 @@ class DashboardViewModel(QObject):
     def start_monitoring(self):
         """Starts monitoring for the currently selected platform."""
         if not self._selected_platform:
-            self.status_message_changed.emit("No platform selected.", "ERROR")
-            self._logger.warning("Start monitoring requested but no platform selected.")
+            self.status_message_changed.emit("No platform selected.", "ERROR");
             return
         if self._is_monitoring_globally_active:
-            self.status_message_changed.emit(f"Monitoring is already active for {self._monitoring_platform}.", "WARNING")
-            self._logger.warning(f"Start monitoring requested for {self._selected_platform}, but already active for {self._monitoring_platform}.")
+            self.status_message_changed.emit(f"Monitoring already active for {self._monitoring_platform}.", "WARNING");
             return
 
-        self._logger.info(f"Attempting to start monitoring for platform: {self._selected_platform}")
         self.status_message_changed.emit(f"Starting monitoring for {self._selected_platform}...", "INFO")
         self.activity_log_appended.emit(f"Starting monitoring for {self._selected_platform}...", "INFO")
 
+        # --- Use NEW platform-specific getter ---
+        threshold_res = self._config_repo.get_platform_stop_loss_threshold(self._selected_platform)
+        if threshold_res.is_failure:
+            # Cannot start monitoring without a threshold
+            self.status_message_changed.emit(
+                f"Error getting threshold for {self._selected_platform}: {threshold_res.error}", "ERROR")
+            self.activity_log_appended.emit(
+                f"Error getting threshold for {self._selected_platform}: {threshold_res.error}", "ERROR")
+            return
+        platform_threshold = threshold_res.value
+        # --- END NEW ---
 
-        # --- Call the monitoring service ---
-        # Fetch necessary details (could also be cached in VM state)
-        threshold = self._config_repo.get_stop_loss_threshold()
-        interval = self._config_repo.get_global_setting("monitor_interval_seconds", 2.0) # Example: Get interval from config
+        # Get global interval
+        interval = self._config_repo.get_global_setting("monitor_interval_seconds", 2.0)
 
         start_result = self._monitoring_service.start_monitoring(
             platform=self._selected_platform,
-            threshold=threshold,
-            interval_seconds=interval, # Pass interval
+            threshold=platform_threshold,  # <<< Pass platform-specific threshold
+            interval_seconds=interval,
             on_status_update=self._handle_monitoring_status_update,
             on_threshold_exceeded=self._handle_threshold_exceeded,
             on_error=self._handle_monitoring_error
@@ -213,63 +219,100 @@ class DashboardViewModel(QObject):
         self._update_button_states()
         self._update_status_display()
 
-
     @Slot()
     def test_flash_regions(self):
-        """Flashes all defined regions for the current platform."""
+        """
+        Collects coordinates for all defined regions (monitor and flatten)
+        for the currently selected platform and initiates a simultaneous
+        flash effect for all of them using the FlashService.
+        """
+        # 1. Check if a platform is selected
         if not self._selected_platform:
             self.status_message_changed.emit("No platform selected to test flash.", "ERROR")
+            self.activity_log_appended.emit("Flash test failed: No platform selected.", "ERROR")
             return
 
+        # 2. Check if any regions are defined (using internal flags updated by _update_state_for_platform)
         if not self._monitor_region_defined and not self._flatten_regions_defined:
-             self.status_message_changed.emit(f"No regions defined for {self._selected_platform} to flash.", "ERROR")
-             return
+            msg = f"No regions defined for {self._selected_platform} to flash."
+            self.status_message_changed.emit(msg, "ERROR")
+            self.activity_log_appended.emit(f"Flash test failed: {msg}", "ERROR")
+            return
 
-        self._logger.info(f"Testing flash for all regions on {self._selected_platform}")
-        self.status_message_changed.emit(f"Flashing regions for {self._selected_platform}...", "INFO")
+        # 3. Log initiation
+        self._logger.info(f"Testing flash for all regions on {self._selected_platform}")  # Use _logger
+        self.status_message_changed.emit(f"Gathering regions for {self._selected_platform}...", "INFO")
         self.activity_log_appended.emit(f"Initiating flash test for {self._selected_platform}...", "INFO")
 
-        regions_to_flash = []
-        # Get Monitor Region
-        if self._monitor_region_defined:
-            monitor_result = self._region_service.get_monitor_region(self._selected_platform)
-            if monitor_result.is_success and monitor_result.value:
-                 regions_to_flash.append({"type": "monitor", "name": monitor_result.value.name})
+        # 4. Collect *Coordinate Tuples* for all valid defined regions
+        coords_to_flash: List[Tuple[int, int, int, int]] = []
 
-        # Get Flatten Regions
-        if self._flatten_regions_defined:
-             flatten_result = self._region_service.get_regions_by_platform(self._selected_platform, "flatten")
-             if flatten_result.is_success and flatten_result.value:
-                  for region in flatten_result.value:
-                       regions_to_flash.append({"type": "flatten", "name": region.name})
+        # Get Monitor Region Coords
+        try:
+            if self._monitor_region_defined:
+                monitor_result = self._region_service.get_monitor_region(self._selected_platform)
+                # Check result is success, has a value, and coordinates are valid
+                if monitor_result.is_success and monitor_result.value and isinstance(monitor_result.value.coordinates,
+                                                                                     tuple) and len(
+                        monitor_result.value.coordinates) == 4:
+                    coords_to_flash.append(monitor_result.value.coordinates)
+                    self._logger.debug(
+                        f"Added monitor region coords for flash: {monitor_result.value.coordinates}")  # Use _logger
+                elif monitor_result.is_failure:
+                    self._logger.warning(
+                        f"Failed to get monitor region details during flash test: {monitor_result.error}")  # Use _logger
+                else:
+                    self._logger.warning(
+                        f"Monitor region object or coordinates invalid: {monitor_result.value}")  # Use _logger
+        except Exception as e:
+            self._logger.error(f"Unexpected error getting monitor region for flash: {e}", exc_info=True)  # Use _logger
 
-        if not regions_to_flash:
-             self.status_message_changed.emit("Could not retrieve defined regions to flash.", "ERROR")
-             self.activity_log_appended.emit("Error retrieving regions for flash test.", "ERROR")
-             return
+        # Get Flatten Regions Coords
+        try:
+            if self._flatten_regions_defined:
+                flatten_result = self._region_service.get_regions_by_platform(self._selected_platform, "flatten")
+                if flatten_result.is_success and flatten_result.value:
+                    for region in flatten_result.value:
+                        # Check region and coordinates are valid before appending
+                        if region and isinstance(region.coordinates, tuple) and len(region.coordinates) == 4:
+                            coords_to_flash.append(region.coordinates)
+                            self._logger.debug(
+                                f"Added flatten region '{region.name}' coords for flash: {region.coordinates}")  # Use _logger
+                        else:
+                            self._logger.warning(
+                                f"Skipping invalid flatten region data during flash test: {region}")  # Use _logger
+                elif flatten_result.is_failure:
+                    self._logger.warning(
+                        f"Failed to get flatten region details during flash test: {flatten_result.error}")  # Use _logger
+        except Exception as e:
+            self._logger.error(f"Unexpected error getting flatten regions for flash: {e}", exc_info=True)  # Use _logger
 
-        # Call flash service for each region
-        success_count = 0
-        fail_count = 0
-        for region_info in regions_to_flash:
-             flash_result = self._flash_service.flash_region(
-                  self._selected_platform,
-                  region_info["type"],
-                  region_info["name"]
-             )
-             if flash_result.is_success:
-                  success_count += 1
-             else:
-                  fail_count += 1
-                  self.activity_log_appended.emit(f"Failed to flash {region_info['type']} region '{region_info['name']}': {flash_result.error}", "ERROR")
-            # Add a small delay between flashes if flashing multiple regions
-             if len(regions_to_flash) > 1:
-                time.sleep(0.8) # Adjust as needed
+        # 5. Check if any coordinates were actually gathered
+        if not coords_to_flash:
+            msg = f"No valid regions with coordinates found for {self._selected_platform} to flash."
+            self.status_message_changed.emit(msg, "ERROR")
+            self.activity_log_appended.emit(f"Flash test failed: {msg}", "ERROR")
+            self._logger.error(msg)  # Use _logger
+            return
 
-        msg = f"Flash test initiated. Success: {success_count}, Failed: {fail_count}."
-        level = "INFO" if fail_count == 0 else "WARNING"
-        self.status_message_changed.emit(msg, level)
-        self.activity_log_appended.emit(msg, level)
+        # 6. Call the SINGLE flash service method with the LIST of coordinates
+        self.status_message_changed.emit(f"Flashing {len(coords_to_flash)} region(s)...", "INFO")
+        # --- Ensure this is the correct method name in your IFlashService/QtFlashService ---
+        flash_result = self._flash_service.flash_regions(coords_to_flash)
+        # --- End method call ---
+
+        # 7. Handle the result of *starting* the flash task
+        if flash_result.is_success:
+            msg = f"Flash test initiated successfully for {len(coords_to_flash)} region(s)."
+            # Optional: Status bar message might be too brief, rely on logs/visual flash
+            # self.status_message_changed.emit(msg, "INFO")
+            self.activity_log_appended.emit(msg, "INFO")
+            self._logger.info(msg)  # Use _logger
+        else:
+            msg = f"Failed to start flash test task: {flash_result.error}"
+            self.status_message_changed.emit(msg, "ERROR")
+            self.activity_log_appended.emit(msg, "ERROR")
+            self._logger.error(msg)  # Use _logger
 
     # --- Private Helper / Update Methods ---
 
@@ -345,21 +388,20 @@ class DashboardViewModel(QObject):
 
     def _update_status_display(self):
         """Updates the monitoring status and details text signals."""
-        if self._is_monitoring_globally_active:
-            self._monitoring_status_text = f"Active"
-            # Add duration if available (needs tracking in MonitoringService or here)
-            # status_text += f" ({duration_str})" # Placeholder
-        elif self._monitoring_platform and self._monitoring_platform != self._selected_platform:
-            self._monitoring_status_text = f"Busy ({self._monitoring_platform})"
-        else:
-            self._monitoring_status_text = "Inactive"
-
+        # ... (determine monitoring_status_text) ...
         self.monitoring_status_text_changed.emit(self._monitoring_status_text)
 
         # Update details based on the SELECTED platform's config
         if self._selected_platform:
-            threshold = self._config_repo.get_stop_loss_threshold()
-            duration = self._config_repo.get_lockout_duration()
+            # --- Use NEW platform-specific getters ---
+            threshold_res = self._config_repo.get_platform_stop_loss_threshold(self._selected_platform)
+            duration_res = self._config_repo.get_platform_lockout_duration(self._selected_platform)
+
+            # Use defaults if loading fails
+            threshold = threshold_res.value if threshold_res.is_success else self._config_repo.DEFAULT_PLATFORM_THRESHOLD
+            duration = duration_res.value if duration_res.is_success else self._config_repo.DEFAULT_PLATFORM_DURATION
+            if threshold_res.is_failure: self._logger.warning(f"Dashboard: Failed load threshold for {self._selected_platform}: {threshold_res.error}")
+            if duration_res.is_failure: self._logger.warning(f"Dashboard: Failed load duration for {self._selected_platform}: {duration_res.error}")
             region_info = "N/A"
             region_coords = ""
             monitor_region_res = self._region_service.get_monitor_region(self._selected_platform)
@@ -378,6 +420,23 @@ class DashboardViewModel(QObject):
             self._monitoring_details_text = "Select a platform"
 
         self.monitoring_details_text_changed.emit(self._monitoring_details_text)
+
+    @Slot()
+    def refresh_ui_signals(self):
+        """Emits all signals reflecting the current state for initial UI sync."""
+        self._logger.debug(f"DashboardViewModel Refreshing UI signals for {self._selected_platform or 'None'}")
+        # Emit all relevant signals based on current internal state
+        self.current_pnl_text_changed.emit(self._current_pnl_text)
+        self.monitoring_status_text_changed.emit(self._monitoring_status_text)
+        self.monitoring_details_text_changed.emit(self._monitoring_details_text)
+        self.can_start_monitoring_changed.emit(self._can_start)
+        self.can_stop_monitoring_changed.emit(self._can_stop)
+        self.can_test_flash_changed.emit(self._can_test_flash)
+        self.recent_alerts_updated.emit(self._recent_alerts.copy())  # Emit copy
+        # self.activity_log_appended.emit(...) # Log probably doesn't need initial refresh
+        self.selected_platform_name_changed.emit(self._selected_platform or "None Selected")
+        self.pnl_format_display_changed.emit(self._pnl_format_display)
+        # No need to re-emit status_message_changed unless there's an initial one
 
     # --- Callback Handlers for Monitoring Service ---
 
@@ -485,6 +544,7 @@ class DashboardViewModel(QObject):
     def _handle_monitoring_error(self, error_msg: str):
         """Callback for errors reported by MonitoringService."""
         self._logger.error(f"Monitoring Service Error: {error_msg}")
+        self._logger.critical(f"!!!! _handle_monitoring_error TRIGGERED: {error_msg} !!!!")  # ADD THIS
         # Update state to reflect monitoring likely stopped due to error
         self._is_monitoring_globally_active = False
         stopped_platform = self._monitoring_platform
