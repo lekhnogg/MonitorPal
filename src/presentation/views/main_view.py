@@ -64,6 +64,12 @@ class MainView(QMainWindow):
     tab_widget: Optional[QTabWidget] = None
     status_bar: Optional[QStatusBar] = None
     _status_label: Optional[QLabel] = None
+    _status_clear_timer: Optional[QTimer] = None
+    # --- Change Default Text and Style ---
+    DEFAULT_STATUS_TEXT = "✓ Ready"  # Use checkmark, but style controls color
+    DEFAULT_STATUS_STYLE = "color: #7f8c8d; padding: 2px 5px;"  # Default gray text
+    # --- Define a new color for Info/Busy ---
+    INFO_BUSY_STYLE = "color: #3498db; padding: 2px 5px;"  # Use a neutral blue
     platform_toolbar: Optional[QToolBar] = None
 
     # --- Attributes for ViewModels ---
@@ -121,6 +127,7 @@ class MainView(QMainWindow):
                 config_repo=self._container.resolve(IConfigRepository),
                 region_service=self._container.resolve(IRegionService),
                 profile_service=self._container.resolve(IProfileService), # Use resolved instance
+                cold_turkey_service=self._container.resolve(IColdTurkeyService),
                 parent=self
             )
             self.region_setup_vm = RegionSetupViewModel( # Pass all dependencies
@@ -250,27 +257,33 @@ class MainView(QMainWindow):
         # --- Instantiate Views and Add Tabs (Requires VMs to be ready) ---
         self._enhance_toolbar_styling()
         self._logger.debug("Instantiating Views and adding tabs...")
+        self._tab_references = {}  # <<< NEW: Dictionary to store references
         try:
             # Check that VMs exist before creating Views that depend on them
             if not self.dashboard_vm: raise ValueError("DashboardViewModel not initialized")
             dashboard_view = DashboardView(self.dashboard_vm, self)
             self.tab_widget.addTab(dashboard_view, "Dashboard")
+            self._tab_references["Dashboard"] = dashboard_view  # <<< STORE REFERENCE
 
             if not self.region_setup_vm: raise ValueError("RegionSetupViewModel not initialized")
             region_setup_view = RegionSetupView(self.region_setup_vm, self)
             self.tab_widget.addTab(region_setup_view, "Region Setup")
+            self._tab_references["Region Setup"] = region_setup_view  # <<< STORE REFERENCE
 
             if not self.settings_vm: raise ValueError("SettingsViewModel not initialized")
             settings_view = SettingsView(self.settings_vm, self)
             self.tab_widget.addTab(settings_view, "Settings")
+            self._tab_references["Settings"] = settings_view  # <<< STORE REFERENCE
 
             if not self.ocr_calibration_vm: raise ValueError("OcrCalibrationViewModel not initialized")
             ocr_calibration_view = OcrCalibrationView(self.ocr_calibration_vm, self)
             self.tab_widget.addTab(ocr_calibration_view, "OCR Calibration")
+            self._tab_references["OCR Calibration"] = ocr_calibration_view  # <<< STORE REFERENCE
 
             if not self.history_vm: raise ValueError("HistoryViewModel not initialized")
             history_view = HistoryView(self.history_vm, self)
             self.tab_widget.addTab(history_view, "History")
+            self._tab_references["History"] = history_view  # <<< STORE REFERENCE
 
             self._logger.debug("Views created and added as tabs.")
         except Exception as e:
@@ -321,6 +334,24 @@ class MainView(QMainWindow):
         self.settings_vm.status_message_changed.connect(self._show_status_message)
         self.ocr_calibration_vm.status_message_changed.connect(self._show_status_message)
         self.history_vm.status_message_changed.connect(self._show_status_message)
+
+        # --- Connect Dashboard Navigation Requests ---
+        # Check if _tab_references exists and has the key
+        if hasattr(self, '_tab_references') and "Dashboard" in self._tab_references:
+            dashboard_view_instance = self._tab_references.get("Dashboard")
+            # Check if the instance is actually a DashboardView (optional but safe)
+            # Need to import DashboardView at the top of the file for `isinstance`
+            from src.presentation.views.dashboard_view import DashboardView  # <<< Make sure this import exists
+            if isinstance(dashboard_view_instance, DashboardView):
+                # Connect the signal from the view instance to the slot in this MainView
+                dashboard_view_instance.request_tab_navigation.connect(self.handle_tab_navigation_request)
+                self._logger.debug(
+                    "Connected DashboardView.request_tab_navigation signal to MainView.handle_tab_navigation_request slot.")
+            else:
+                self._logger.error(
+                    "Found item for 'Dashboard' in _tab_references, but it's not a DashboardView instance.")
+        else:
+            self._logger.error("Could not find DashboardView instance in _tab_references to connect navigation signal.")
 
         # --- NEW: Connect other VMs to MainViewModel's refresh summary signal if needed ---
         # If saving settings should trigger a summary refresh:
@@ -375,27 +406,75 @@ class MainView(QMainWindow):
             self.platform_combo.setCurrentText(platform or "") # Handle None/empty case
             self.platform_combo.blockSignals(False)
 
-    # --- Slot for Status Bar Messages (Keep As Is) ---
+    def _reset_status_label(self):
+        """Resets the status label to its default state."""
+        if self._status_label:
+            self._status_label.setText(self.DEFAULT_STATUS_TEXT)
+            self._status_label.setStyleSheet(self.DEFAULT_STATUS_STYLE)
+
     @Slot(str, str)
     def _show_status_message(self, message: str, level: str):
-        """Displays a message in the status bar with appropriate styling."""
-        # ... (Keep existing implementation) ...
-        if not self._status_label: return
-        # Map levels to specific styles
-        if level.upper() == "ERROR":
-            prefix, style, timeout = "⚠️ ", "color: white; font-weight: bold; padding: 2px 5px; background-color: #e74c3c; border-radius: 3px;", 8000
-        elif level.upper() == "WARNING":
-            prefix, style, timeout = "⚠ ", "color: black; font-weight: bold; padding: 2px 5px; background-color: #f39c12; border-radius: 3px;", 7000
-        elif level.upper() == "SUCCESS":
-            prefix, style, timeout = "✓ ", "color: white; font-weight: bold; padding: 2px 5px; background-color: #27ae60; border-radius: 3px;", 5000
-        else:  # INFO or default
-            prefix, style, timeout = "ℹ ", "color: #bdc3c7; padding: 2px 5px;", 5000 # Lighter color for info
+        """Displays a message in the status bar and schedules clearing for non-persistent messages."""
+        if not self._status_label or not self.status_bar: return
+
+        if self._status_clear_timer and self._status_clear_timer.isActive():
+            self._status_clear_timer.stop()
+
+        persistent_message = False
+        timeout_ms = 5000 # Default timeout for non-persistent
+
+        # --- Refine Level Mapping ---
+        level_upper = level.upper()
+        if level_upper == "ERROR":
+            prefix, style = "⚠️ ", "color: white; font-weight: bold; padding: 2px 5px; background-color: #e74c3c; border-radius: 3px;"
+            persistent_message = True
+        elif level_upper == "WARNING":
+            prefix, style = "⚠ ", "color: black; font-weight: bold; padding: 2px 5px; background-color: #f39c12; border-radius: 3px;"
+            timeout_ms = 7000
+        elif level_upper == "SUCCESS":
+            prefix, style = "✓ ", "color: white; font-weight: bold; padding: 2px 5px; background-color: #27ae60; border-radius: 3px;"
+            timeout_ms = 5000
+        # --- NEW: Treat "BUSY" or "INFO" specifically ---
+        elif level_upper == "BUSY" or level_upper == "INFO":
+            prefix = "⏳ " # Hourglass or alternative like "⚙️ "
+            style = self.INFO_BUSY_STYLE # Use the distinct blue color
+            timeout_ms = 8000 # Maybe slightly longer for busy messages? Or keep 5000
+            # Append ellipsis automatically to busy/info messages? Optional.
+            if not message.endswith("..."):
+                 message = message + "..."
+        else: # Default / Unknown level - treat as Ready style but with message
+             prefix = "" # No icon for unknown levels? Or use info?
+             style = self.DEFAULT_STATUS_STYLE
+             timeout_ms = 5000
 
         display_message = f"{prefix}{message}"
         self._status_label.setText(display_message)
-        self._status_label.setStyleSheet(style) # Apply style directly
-        if self.status_bar: self.status_bar.showMessage("", timeout)
+        self._status_label.setStyleSheet(style)
 
+        if not persistent_message:
+            if self._status_clear_timer is None:
+                self._status_clear_timer = QTimer(self)
+                self._status_clear_timer.setSingleShot(True)
+                self._status_clear_timer.timeout.connect(self._reset_status_label)
+            self._status_clear_timer.start(timeout_ms)
+        else:
+             # Ensure timer doesn't accidentally run for persistent messages
+             if self._status_clear_timer and self._status_clear_timer.isActive():
+                  self._status_clear_timer.stop()
+
+    @Slot(str)
+    def handle_tab_navigation_request(self, target_tab_key: str):
+        """Switches the main tab widget to the specified tab."""
+        if not hasattr(self, '_tab_references') or not self.tab_widget:
+            self._logger.error("Cannot navigate tabs: References not set up.")
+            return
+
+        target_widget = self._tab_references.get(target_tab_key)
+        if target_widget:
+            self._logger.info(f"Navigating to tab: {target_tab_key}")
+            self.tab_widget.setCurrentWidget(target_widget)
+        else:
+            self._logger.warning(f"Navigation requested to unknown tab key: '{target_tab_key}'")
     # --- closeEvent (Keep As Is, Ensure _background_task_service is resolved if needed) ---
     def closeEvent(self, event):
         """Handle the window close event."""

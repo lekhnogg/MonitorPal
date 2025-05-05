@@ -258,46 +258,56 @@ QPushButton:pressed { background-color: #c1c5c8; }
 QPushButton:disabled {
      background-color: #f0f0f0; color: #a0a0a0; border-color: #d0d0d0;
 }
-
 /* --- Specific Button Types --- */
-/* Using the custom 'class' property set in ui_components.py */
+/* Make backgrounds neutral, maybe color border or use subtle hover */
 
-QPushButton[class="styled"] { /* Default Blue */
-    background-color: #3498db; color: white; font-weight: bold; border-color: #2980b9;
+QPushButton[class="styled"],
+QPushButton[class="action"],
+QPushButton[class="warning"],
+QPushButton[class="danger"] {
+    /* Use SecondaryButton's background/border as a base */
+    background-color: #ecf0f1;
+    color: #2d3436; /* Use default text color */
+    font-weight: bold; /* Keep bold text maybe? */
+    border: 1px solid #bdc3c7;
+    /* Reset specific icon color here if needed, but Python handles it */
 }
-QPushButton[class="styled"]:hover { background-color: #5dade2; }
-QPushButton[class="styled"]:pressed { background-color: #21618c; }
-QPushButton[class="styled"]:disabled { background-color: #a9cce3; border-color: #a9cce3; color: #ecf0f1; }
 
-QPushButton[class="action"] { /* Green */
-    background-color: #27ae60; color: white; font-weight: bold; border-color: #229954;
+/* Optional: Color border based on class */
+QPushButton[class="styled"] { border-color: #3498db; }
+QPushButton[class="action"] { border-color: #27ae60; }
+QPushButton[class="warning"] { border-color: #f39c12; }
+QPushButton[class="danger"] { border-color: #e74c3c; }
+
+/* Optional: Subtle background change on hover */
+QPushButton[class="styled"]:hover,
+QPushButton[class="action"]:hover,
+QPushButton[class="warning"]:hover,
+QPushButton[class="danger"]:hover {
+    background-color: #dfe6e9; /* Slightly darker gray */
+    /* Or maybe add the color back subtly? */
+    /* background-color: rgba(52, 152, 219, 0.1); */ /* Example for styled */
 }
-QPushButton[class="action"]:hover { background-color: #58d68d; }
-QPushButton[class="action"]:pressed { background-color: #1e8449; }
-QPushButton[class="action"]:disabled { background-color: #a3e4d7; border-color: #a3e4d7; color: #e8f8f0; }
 
-QPushButton[class="warning"] { /* Orange */
-    background-color: #f39c12; color: white; font-weight: bold; border-color: #d68910;
+QPushButton[class="styled"]:pressed,
+QPushButton[class="action"]:pressed,
+QPushButton[class="warning"]:pressed,
+QPushButton[class="danger"]:pressed {
+    background-color: #c6ccd0; /* Darker gray */
 }
-QPushButton[class="warning"]:hover { background-color: #f1c40f; }
-QPushButton[class="warning"]:pressed { background-color: #b8860b; }
-QPushButton[class="warning"]:disabled { background-color: #fdebd0; border-color: #fdebd0; color: #f5cba7; }
 
-QPushButton[class="danger"] { /* Red */
-    background-color: #e74c3c; color: white; font-weight: bold; border-color: #c0392b;
-}
-QPushButton[class="danger"]:hover { background-color: #ec7063; }
-QPushButton[class="danger"]:pressed { background-color: #a93226; }
-QPushButton[class="danger"]:disabled { background-color: #fadbd8; border-color: #fadbd8; color: #f5b7b1; }
-
+/* Keep SecondaryButton styles as they are */
 QPushButton[class="secondary"] { /* Light Gray */
     background-color: #ecf0f1; color: #2d3436; font-weight: normal; border-color: #bdc3c7;
 }
 QPushButton[class="secondary"]:hover { background-color: #dfe6e9; }
 QPushButton[class="secondary"]:pressed { background-color: #c6ccd0; }
-QPushButton[class="secondary"]:disabled { background-color: #f5f6fa; color: #b2bec3; border-color: #dfe6e9; }
 
-
+/* Keep disabled styles */
+QPushButton:disabled {
+     background-color: #f0f0f0; color: #a0a0a0; border-color: #d0d0d0;
+}
+/* Adjust disabled styles for specific classes if needed */
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
 /* Specific Widget Styling        */
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
@@ -548,3 +558,30 @@ QWidget#settingsScrollContent QGroupBox {
     margin-bottom: 10px;
 }
 */
+/* Style the prerequisite icon QSvgWidgets based on their statusState property */
+/* ========================================================================== */
+/* Add this new rule set                                                      */
+/* ========================================================================== */
+
+/* Style adjustments for Prerequisite Action Buttons in Dashboard */
+QPushButton[objectName^="prereqAction_"] {
+    /* Reduce vertical padding significantly */
+    padding-top: 1px;    /* Try 1px or 2px */
+    padding-bottom: 1px; /* Try 1px or 2px */
+
+    /* Keep or adjust horizontal padding if needed */
+    padding-left: 8px;  /* Example: Slightly less horizontal padding */
+    padding-right: 8px;
+
+    /* Optionally set a smaller min-height if padding isn't enough */
+    /* The default QPushButton min-height is 22px in your current QSS */
+    /* Try a value slightly larger than your font height + desired padding */
+     min-height: 18px; /* Example: Try 18px or 20px */
+
+    /* Ensure font size isn't overriding */
+    /* font-size: 9pt; */ /* Usually inherits, but can set explicitly if needed */
+}
+
+/* ========================================================================== */
+/* End of new rule set                                                        */
+/* ========================================================================== */

@@ -1,11 +1,12 @@
 # src/presentation/view_models/dashboard_view_model.py
 
 import time
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 # --- Qt Imports ---
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
 
+from src.domain.services.i_cold_turkey_service import IColdTurkeyService
 # --- Application Imports ---
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_monitoring_service import IMonitoringService
@@ -36,7 +37,12 @@ class DashboardViewModel(QObject):
 
     # Monitoring Status Block
     monitoring_status_text_changed = Signal(str) # e.g., "Active", "Inactive", "Error"
-    monitoring_details_text_changed = Signal(str) # e.g., "Threshold: X | Duration: Y | ..."
+
+    # --- NEW: Prerequisite Status Signals ---
+    # Payload: (prerequisite_key: str, status_text: str, status_state: str, show_action: bool)
+    # status_state can be: "ok", "warning", "error", "missing", "pending", "info"
+    prerequisite_status_updated = Signal(str, str, str, bool)
+    # --- END NEW ---
 
     # Quick Actions Button Enablement
     can_start_monitoring_changed = Signal(bool)
@@ -64,6 +70,7 @@ class DashboardViewModel(QObject):
                  config_repo: IConfigRepository, # Needed for threshold/duration display
                  region_service: IRegionService, # Needed for region check/flash
                  profile_service: IProfileService, # Needed for P&L format display
+                 cold_turkey_service: IColdTurkeyService,
                  parent: Optional[QObject] = None):
         """
         Initialize the DashboardViewModel.
@@ -90,6 +97,7 @@ class DashboardViewModel(QObject):
         self._config_repo = config_repo
         self._region_service = region_service
         self._profile_service = profile_service
+        self._cold_turkey_service = cold_turkey_service
 
         # --- Internal State Attributes ---
         self._selected_platform: Optional[str] = None
@@ -173,7 +181,6 @@ class DashboardViewModel(QObject):
             self._monitoring_platform = self._selected_platform # Track which platform is monitored
             self.status_message_changed.emit(f"Monitoring active for {self._selected_platform}.", "INFO")
             self._update_button_states() # Update button enable states
-            self._update_status_display() # Update status text display
         else:
             self._logger.error(f"Failed to start monitoring for {self._selected_platform}: {start_result.error}")
             self.status_message_changed.emit(f"Failed to start monitoring: {start_result.error}", "ERROR")
@@ -182,7 +189,6 @@ class DashboardViewModel(QObject):
             self._is_monitoring_globally_active = False
             self._monitoring_platform = None
             self._update_button_states()
-            self._update_status_display()
 
 
     @Slot()
@@ -217,7 +223,6 @@ class DashboardViewModel(QObject):
 
         # Update UI state
         self._update_button_states()
-        self._update_status_display()
 
     @Slot()
     def test_flash_regions(self):
@@ -324,50 +329,87 @@ class DashboardViewModel(QObject):
 
     def _update_state_for_platform(self, platform: str):
         """Updates the ViewModel's state based on the selected platform."""
-        self._logger.debug(f"Updating DashboardViewModel state for platform: {platform}")
+        self._logger.info(f"DashboardViewModel._update_state_for_platform: Updating for '{platform or 'None'}'")
         self._selected_platform = platform
         self.selected_platform_name_changed.emit(platform or "None Selected")
 
         if not platform:
-            # Reset state if no platform selected
+            self._logger.debug("Platform is None. Resetting state and calling _update_prerequisite_statuses(None)")
+            # Reset prerequisite status display
+            keys = ["monitor_region", "ct_path", "ct_block_name", "ct_verified", "flatten_regions", "ocr_profile"]
+            for key in keys:
+                self.prerequisite_status_updated.emit(key, "Select Platform", "info", False)
+
+            # Reset internal flags and other relevant state
             self._monitor_region_defined = False
             self._flatten_regions_defined = False
             self._pnl_format_display = "N/A"
             self.pnl_format_display_changed.emit(self._pnl_format_display)
-            # Do not change monitoring status here, it's independent of selection
+            # Update button states for 'no platform' state
             self._update_button_states()
-            self._update_status_display() # Update display text
-            return
+            return  # Exit early
 
-        # --- Check if regions are defined for this platform ---
-        monitor_region_res = self._region_service.get_monitor_region(platform)
-        self._monitor_region_defined = monitor_region_res.is_success and monitor_region_res.value is not None
+        # --- Platform is valid, proceed with loading ---
 
-        flatten_regions_res = self._region_service.get_regions_by_platform(platform, "flatten")
-        self._flatten_regions_defined = flatten_regions_res.is_success and bool(flatten_regions_res.value)
+        # 1. Check region status FIRST to update internal flags
+        try:
+            monitor_region_res = self._region_service.get_monitor_region(platform)
+            self._monitor_region_defined = monitor_region_res.is_success and monitor_region_res.value is not None
+            self._logger.debug(f"  Monitor region defined for {platform}: {self._monitor_region_defined}")
 
-        # --- Get P&L Format Display ---
-        profile_res = self._profile_service.get_profile(platform)
-        if profile_res.is_success:
-            patterns = profile_res.value.numeric_patterns
-            # Use logic similar to monitorPal_test._update_summary_display
-            default_patterns = PlatformProfile("dummy").numeric_patterns
-            is_default = (patterns == default_patterns)
+            flatten_regions_res = self._region_service.get_regions_by_platform(platform, "flatten")
+            self._flatten_regions_defined = flatten_regions_res.is_success and bool(flatten_regions_res.value)
+            self._logger.debug(f"  Flatten regions defined for {platform}: {self._flatten_regions_defined}")
+        except Exception as e:
+            self._logger.error(f"Error checking regions for {platform}: {e}", exc_info=True)
+            self._monitor_region_defined = False
+            self._flatten_regions_defined = False
 
-            if is_default: self._pnl_format_display = "Default"
-            elif "negative" in patterns: self._pnl_format_display = "ParensNeg ()"
-            elif "negative_dash" in patterns: self._pnl_format_display = "DashNeg -"
-            elif "dollar" in patterns: self._pnl_format_display = "Currency $"
-            elif "regular" in patterns: self._pnl_format_display = "Number +/-"
-            else: self._pnl_format_display = "Custom"
-        else:
-             self._pnl_format_display = "Error"
-             self._logger.warning(f"Could not load profile for {platform} to determine P&L format: {profile_res.error}")
-        self.pnl_format_display_changed.emit(self._pnl_format_display)
+        # 2. Get P&L Format Display
+        try:
+            profile_res = self._profile_service.get_profile(platform)
+            if profile_res.is_success:
+                patterns = profile_res.value.numeric_patterns
+                # Check against default patterns (ensure _get_default_patterns_for_platform is accessible or reimplement check)
+                try:
+                    # Assuming ProfileService instance has this helper or accessing directly
+                    # If ProfileService doesn't expose it, you might need a simple check here
+                    default_patterns = self._profile_service._get_default_patterns_for_platform(
+                        platform)  # Or None if method is protected
+                    is_default = (patterns == default_patterns) if default_patterns else False  # Basic check
+                except AttributeError:
+                    self._logger.warning("Cannot access default patterns method directly, doing basic check.")
+                    # Simplified check if direct access isn't possible
+                    is_default = patterns is None or len(patterns) == 4  # A guess
 
-        # --- Update UI State ---
+                if is_default:
+                    self._pnl_format_display = "Default"
+                elif patterns and "negative" in patterns:
+                    self._pnl_format_display = "ParensNeg ()"
+                elif patterns and "negative_dash" in patterns:
+                    self._pnl_format_display = "DashNeg -"
+                elif patterns and "dollar" in patterns:
+                    self._pnl_format_display = "Currency $"
+                elif patterns and "regular" in patterns:
+                    self._pnl_format_display = "Number +/-"
+                else:
+                    self._pnl_format_display = "Custom/None" if patterns else "Not Set"
+            else:
+                self._pnl_format_display = "Error"
+                self._logger.warning(
+                    f"Could not load profile for {platform} to determine P&L format: {profile_res.error}")
+            self.pnl_format_display_changed.emit(self._pnl_format_display)
+        except Exception as e:
+            self._logger.error(f"Error getting PnL format display: {e}", exc_info=True)
+            self._pnl_format_display = "Error"
+            self.pnl_format_display_changed.emit(self._pnl_format_display)
+
+        # 3. Update Button States (uses flags set in step 1)
         self._update_button_states()
-        self._update_status_display() # Update status based on potentially new threshold/duration etc.
+
+        # 4. Update Prerequisite Status Display
+        self._logger.debug(f"Calling _update_prerequisite_statuses('{platform}')...")
+        self._update_prerequisite_statuses(platform)
 
     def _update_button_states(self):
         """Updates the internal state and emits signals for button enablement."""  # Modified docstring
@@ -386,56 +428,27 @@ class DashboardViewModel(QObject):
         self.can_stop_monitoring_changed.emit(self._can_stop)
         self.can_test_flash_changed.emit(self._can_test_flash)
 
-    def _update_status_display(self):
-        """Updates the monitoring status and details text signals."""
-        # ... (determine monitoring_status_text) ...
-        self.monitoring_status_text_changed.emit(self._monitoring_status_text)
-
-        # Update details based on the SELECTED platform's config
-        if self._selected_platform:
-            # --- Use NEW platform-specific getters ---
-            threshold_res = self._config_repo.get_platform_stop_loss_threshold(self._selected_platform)
-            duration_res = self._config_repo.get_platform_lockout_duration(self._selected_platform)
-
-            # Use defaults if loading fails
-            threshold = threshold_res.value if threshold_res.is_success else self._config_repo.DEFAULT_PLATFORM_THRESHOLD
-            duration = duration_res.value if duration_res.is_success else self._config_repo.DEFAULT_PLATFORM_DURATION
-            if threshold_res.is_failure: self._logger.warning(f"Dashboard: Failed load threshold for {self._selected_platform}: {threshold_res.error}")
-            if duration_res.is_failure: self._logger.warning(f"Dashboard: Failed load duration for {self._selected_platform}: {duration_res.error}")
-            region_info = "N/A"
-            region_coords = ""
-            monitor_region_res = self._region_service.get_monitor_region(self._selected_platform)
-            if monitor_region_res.is_success and monitor_region_res.value:
-                 region_info = monitor_region_res.value.name
-                 coords = monitor_region_res.value.coordinates
-                 region_coords = f"({coords[0]},{coords[1]},{coords[2]},{coords[3]})"
-            elif not self._monitor_region_defined:
-                 region_info = "Not Defined"
-
-            self._monitoring_details_text = (
-                f"Threshold: ${threshold:,.2f} | Duration: {duration} min | "
-                f"Region: {region_info} {region_coords}"
-            )
-        else:
-            self._monitoring_details_text = "Select a platform"
-
-        self.monitoring_details_text_changed.emit(self._monitoring_details_text)
-
     @Slot()
     def refresh_ui_signals(self):
         """Emits all signals reflecting the current state for initial UI sync."""
         self._logger.debug(f"DashboardViewModel Refreshing UI signals for {self._selected_platform or 'None'}")
-        # Emit all relevant signals based on current internal state
+
+        # --- Emit standard state signals ---
         self.current_pnl_text_changed.emit(self._current_pnl_text)
         self.monitoring_status_text_changed.emit(self._monitoring_status_text)
-        self.monitoring_details_text_changed.emit(self._monitoring_details_text)
         self.can_start_monitoring_changed.emit(self._can_start)
         self.can_stop_monitoring_changed.emit(self._can_stop)
         self.can_test_flash_changed.emit(self._can_test_flash)
         self.recent_alerts_updated.emit(self._recent_alerts.copy())  # Emit copy
-        # self.activity_log_appended.emit(...) # Log probably doesn't need initial refresh
         self.selected_platform_name_changed.emit(self._selected_platform or "None Selected")
         self.pnl_format_display_changed.emit(self._pnl_format_display)
+
+        # --- Explicitly trigger prerequisite status calculation and emission ---
+        # Call the helper method that contains the logic and emit calls
+        self._logger.debug("Refresh UI: Triggering prerequisite status update...")
+        self._update_prerequisite_statuses(self._selected_platform)
+        # --- END explicit trigger ---
+
         # No need to re-emit status_message_changed unless there's an initial one
 
     # --- Callback Handlers for Monitoring Service ---
@@ -490,7 +503,7 @@ class DashboardViewModel(QObject):
         self.activity_log_appended.emit(f"THRESHOLD EXCEEDED! Detected: ${result.minimum_value:.2f}. Initiating lockout for {active_monitoring_platform}.", "ERROR")
         self.status_message_changed.emit("Lockout triggered!", "ERROR")
         self._update_button_states() # Reflect inactive monitoring state
-        self._update_status_display()
+
 
         # --- Trigger automatic lockout ---
         if active_monitoring_platform: # Ensure we know which platform triggered it
@@ -563,8 +576,84 @@ class DashboardViewModel(QObject):
         self.activity_log_appended.emit(f"Monitoring stopped due to error: {error_msg}", "ERROR")
         self.status_message_changed.emit(f"Monitoring error: {error_msg}", "ERROR")
         self._update_button_states()
-        self._update_status_display()
 
+    def _update_prerequisite_statuses(self, platform: Optional[str]):
+        """Checks prerequisites for the given platform and emits status signals."""
+        if not platform:
+            # Emit "Select Platform" status for all prerequisites if none is selected
+            keys = ["monitor_region", "ct_path", "ct_block_name", "ct_verified", "flatten_regions", "ocr_profile"]
+            for key in keys:
+                self.prerequisite_status_updated.emit(key, "Select Platform", "info", False)
+            return
+
+        self._logger.debug(f"Dashboard VM: Updating prerequisite checks for {platform}")
+
+        # 1. P&L Monitor Region
+        region_res = self._region_service.get_monitor_region(platform)
+        region_defined = region_res.is_success and region_res.value is not None
+        if region_defined:
+            self.prerequisite_status_updated.emit("monitor_region", "P&L Region Defined", "ok", False)
+        else:
+            self.prerequisite_status_updated.emit("monitor_region", "P&L Region Not Defined", "error",
+                                                  True)  # Show button
+
+        # 2. Cold Turkey Path (Global Check)
+        # Use the service method that already checks existence
+        ct_path_ok = self._cold_turkey_service.is_blocker_path_configured()
+        if ct_path_ok:
+            self.prerequisite_status_updated.emit("ct_path", "Cold Turkey Path Set", "ok", False)
+        else:
+            ct_path = self._config_repo.get_cold_turkey_path()  # Get path to see *why* it failed
+            status_text = "Cold Turkey Path Not Set" if not ct_path else "Cold Turkey Path Invalid/Missing"
+            self.prerequisite_status_updated.emit("ct_path", status_text, "error", True)  # Show button
+
+        # 3. CT Block Name (Platform Specific)
+        settings = self._config_repo.get_platform_settings(platform)  # Reuse settings if needed or fetch again
+        block_name_set = bool(settings.get("cold_turkey_block_name"))
+        if block_name_set:
+            self.prerequisite_status_updated.emit("ct_block_name", "CT Block Name Set", "ok", False)
+        else:
+            self.prerequisite_status_updated.emit("ct_block_name", "CT Block Name Not Set", "error",
+                                                  True)  # Show button
+
+        # 4. CT Block Verification (Platform Specific)
+        verified_block_res = self._config_repo.get_verified_block(platform)
+        is_verified = verified_block_res.is_success and verified_block_res.value is not None
+        if is_verified:
+            verified_name = verified_block_res.value  # Get the actual verified name
+            self.prerequisite_status_updated.emit("ct_verified", f"CT Block Verified ({verified_name})", "ok", False)
+        else:
+            # Only show action button if path and block name are set (prereqs for verification)
+            can_verify_now = ct_path_ok and block_name_set
+            self.prerequisite_status_updated.emit("ct_verified", "CT Block Not Verified", "error",
+                                                  can_verify_now)  # Show button only if possible
+
+        # 5. Flatten Regions (Bonus - Warning if missing)
+        flatten_res = self._region_service.get_regions_by_platform(platform, "flatten")
+        flatten_defined = flatten_res.is_success and bool(flatten_res.value)
+        if flatten_defined:
+            self.prerequisite_status_updated.emit("flatten_regions", "Flatten Regions Defined", "ok", False)
+        else:
+            self.prerequisite_status_updated.emit("flatten_regions", "Flatten Regions Missing", "warning",
+                                                  True)  # Show button
+
+        # 6. OCR Profile (Bonus - Warning if default)
+        profile_res = self._profile_service.get_profile(platform)
+        ocr_status = "N/A"
+        ocr_state = "error"
+        ocr_show_action = True
+        if profile_res.is_success:
+            # Add logic to check if it's default vs calibrated/saved if desired
+            # For now, just check existence
+            ocr_status = "OCR Profile Loaded"
+            ocr_state = "ok"
+            ocr_show_action = False  # Don't show action if loaded (can refine later)
+        else:
+            ocr_status = "OCR Profile Error/Missing"
+            ocr_state = "error"
+            ocr_show_action = False  # Cannot calibrate if profile missing
+
+        self.prerequisite_status_updated.emit("ocr_profile", ocr_status, ocr_state, ocr_show_action)
     # --- Optional: Periodic Status Check (If needed) ---
     # def _check_monitoring_status(self):
     #     """Periodically check the status from the monitoring service."""
@@ -579,4 +668,3 @@ class DashboardViewModel(QObject):
     #             self.current_pnl_text_changed.emit(self._current_pnl_text)
     #         # Update UI state
     #         self._update_button_states()
-    #         self._update_status_display()

@@ -59,6 +59,7 @@ class OcrCalibrationView(QWidget):
         # Left Side: Calibration Source Image
         source_group = QGroupBox("CALIBRATION SOURCE IMAGE")
         source_group.setObjectName("sourceGroup")
+        source_group.setProperty("class", "card")  # ADD THIS LINE
         source_layout = QVBoxLayout(source_group)
 
         self.source_preview_label = QLabel("Define Monitor Region with screenshot first.")
@@ -82,6 +83,7 @@ class OcrCalibrationView(QWidget):
         # Right Side: Value Calibration Input & Status
         value_group = QGroupBox("VALUE CALIBRATION")
         value_group.setObjectName("valueGroup")
+        value_group.setProperty("class", "card")
         value_layout = QVBoxLayout(value_group)
         value_layout.setSpacing(8)
 
@@ -124,6 +126,7 @@ class OcrCalibrationView(QWidget):
         # --- Advanced OCR Parameters Section ---
         self.advanced_group = GroupHeader("ADVANCED OCR PARAMETERS")
         self.advanced_group.setObjectName("advancedGroup")
+        self.advanced_group.setProperty("class", "card")
         self.advanced_group.setCheckable(True)
         self.advanced_group.setChecked(False) # Start collapsed
         advanced_content_widget = QWidget()
