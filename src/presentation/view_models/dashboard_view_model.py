@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer
 
 from src.domain.services.i_cold_turkey_service import IColdTurkeyService
 # --- Application Imports ---
+from PySide6.QtWidgets import QApplication
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_monitoring_service import IMonitoringService
 from src.domain.services.i_lockout_service import ILockoutService # If manual flatten needed
@@ -38,11 +39,12 @@ class DashboardViewModel(QObject):
     # Monitoring Status Block
     monitoring_status_text_changed = Signal(str) # e.g., "Active", "Inactive", "Error"
 
-    # --- NEW: Prerequisite Status Signals ---
     # Payload: (prerequisite_key: str, status_text: str, status_state: str, show_action: bool)
     # status_state can be: "ok", "warning", "error", "missing", "pending", "info"
     prerequisite_status_updated = Signal(str, str, str, bool)
-    # --- END NEW ---
+
+
+    prerequisites_completion_changed = Signal(str) # <<< NEW SIGNAL: e.g., "4/6 Complete"
 
     # Quick Actions Button Enablement
     can_start_monitoring_changed = Signal(bool)
@@ -64,27 +66,17 @@ class DashboardViewModel(QObject):
     def __init__(self,
                  logger: ILoggerService,
                  monitoring_service: IMonitoringService,
-                 lockout_service: ILockoutService, # Assuming manual flatten uses this
+                 lockout_service: ILockoutService,
                  flash_service: IFlashService,
                  platform_selection_service: IPlatformSelectionService,
-                 config_repo: IConfigRepository, # Needed for threshold/duration display
-                 region_service: IRegionService, # Needed for region check/flash
-                 profile_service: IProfileService, # Needed for P&L format display
-                 cold_turkey_service: IColdTurkeyService,
+                 config_repo: IConfigRepository,
+                 region_service: IRegionService,
+                 profile_service: IProfileService,
+                 cold_turkey_service: IColdTurkeyService, # Ensure this is included
                  parent: Optional[QObject] = None):
         """
         Initialize the DashboardViewModel.
-
-        Args:
-            logger: Logger service instance.
-            monitoring_service: Monitoring service instance.
-            lockout_service: Lockout service instance.
-            flash_service: Flash service instance.
-            platform_selection_service: Platform selection service instance.
-            config_repo: Configuration repository instance.
-            region_service: Region service instance.
-            profile_service: Profile service instance.
-            parent: Optional parent QObject.
+        # ... (full docstring) ...
         """
         super().__init__(parent)
 
@@ -97,15 +89,14 @@ class DashboardViewModel(QObject):
         self._config_repo = config_repo
         self._region_service = region_service
         self._profile_service = profile_service
-        self._cold_turkey_service = cold_turkey_service
+        self._cold_turkey_service = cold_turkey_service # Store it
 
         # --- Internal State Attributes ---
         self._selected_platform: Optional[str] = None
-        self._is_monitoring_globally_active: bool = False # Is *any* monitoring active?
-        self._monitoring_platform: Optional[str] = None # Which platform *is* being monitored?
+        self._is_monitoring_globally_active: bool = False
+        self._monitoring_platform: Optional[str] = None
         self._current_pnl_text: str = "N/A"
         self._monitoring_status_text: str = "Inactive"
-        self._monitoring_details_text: str = "Load platform..."
         self._can_start: bool = False
         self._can_stop: bool = False
         self._can_test_flash: bool = False
@@ -114,6 +105,14 @@ class DashboardViewModel(QObject):
         self._monitor_region_defined: bool = False
         self._flatten_regions_defined: bool = False
         self._last_monitor_result: Optional[MonitoringResult] = None
+        # --- Pre-req checklsit counter thing
+        self._prerequisite_states: Dict[str, str] = {}  # Stores state like "ok", "error" for each key
+        self._total_prerequisites_count = 6  # Based on your prerequisite_keys list
+        # Or calculate dynamically if the list can change
+        self._prerequisite_keys_list = [  # Store this for easy iteration
+            "monitor_region", "ocr_profile", "ct_path",
+            "ct_block_name", "ct_verified", "flatten_regions"
+        ]
 
 
         # --- Initialization ---
@@ -124,14 +123,32 @@ class DashboardViewModel(QObject):
         )
         # Load initial data for the currently selected platform
         initial_platform = self._platform_selection_service.get_current_platform()
-        self._update_state_for_platform(initial_platform)
+        self._update_state_for_platform(initial_platform) # This now triggers prerequisite updates too
 
-        # Timer to periodically update monitoring status if MonitoringService doesn't push updates
-        # self._status_update_timer = QTimer(self)
-        # self._status_update_timer.timeout.connect(self._check_monitoring_status)
-        # self._status_update_timer.start(2000) # Check every 2 seconds
+        for key in self._prerequisite_keys_list:
+            self._prerequisite_states[key] = "pending"  # Initial state before first check
 
+        # --- Emit initial log message using QTimer.singleShot (cleaned up) ---
+        def emit_initial_log():
+            try:
+                # Ensure QApplication instance exists before getting version
+                app_instance = QApplication.instance()
+                app_version = app_instance.applicationVersion() if app_instance else "N/A"
+                initial_msg = f"MonitorPal v{app_version} initialized. Ready."
+                # Use logger to announce the emission if desired at DEBUG level
+                self._logger.debug(f"Emitting initial log via timer: '{initial_msg}'")
+                self.activity_log_appended.emit(initial_msg, "INFO")
+            except Exception as e:
+                 # Log any error during emission
+                 self._logger.error(f"Error emitting initial log message: {e}", exc_info=True)
+
+        # Schedule the emission function to run shortly after initialization completes
+        QTimer.singleShot(0, emit_initial_log)
+
+        # Final log message indicating the ViewModel init is done
         self._logger.debug("DashboardViewModel initialized.")
+
+
 
 
     # --- Command Slots (Called by the View) ---
@@ -449,7 +466,7 @@ class DashboardViewModel(QObject):
         self._update_prerequisite_statuses(self._selected_platform)
         # --- END explicit trigger ---
 
-        # No need to re-emit status_message_changed unless there's an initial one
+        self._update_prerequisite_completion_badge()
 
     # --- Callback Handlers for Monitoring Service ---
 
@@ -578,82 +595,117 @@ class DashboardViewModel(QObject):
         self._update_button_states()
 
     def _update_prerequisite_statuses(self, platform: Optional[str]):
-        """Checks prerequisites for the given platform and emits status signals."""
+        """Checks prerequisites for the given platform, emits status signals, and updates completion badge."""
         if not platform:
-            # Emit "Select Platform" status for all prerequisites if none is selected
-            keys = ["monitor_region", "ct_path", "ct_block_name", "ct_verified", "flatten_regions", "ocr_profile"]
-            for key in keys:
+            for key in self._prerequisite_keys_list:
+                # Update internal state first
+                self._prerequisite_states[key] = "info"
                 self.prerequisite_status_updated.emit(key, "Select Platform", "info", False)
+            self._update_prerequisite_completion_badge() # Update badge based on new states
             return
 
         self._logger.debug(f"Dashboard VM: Updating prerequisite checks for {platform}")
 
+        # --- Define checks and update self._prerequisite_states before emitting ---
+
         # 1. P&L Monitor Region
         region_res = self._region_service.get_monitor_region(platform)
         region_defined = region_res.is_success and region_res.value is not None
-        if region_defined:
-            self.prerequisite_status_updated.emit("monitor_region", "P&L Region Defined", "ok", False)
-        else:
-            self.prerequisite_status_updated.emit("monitor_region", "P&L Region Not Defined", "error",
-                                                  True)  # Show button
+        self._prerequisite_states["monitor_region"] = "ok" if region_defined else "error"
+        self.prerequisite_status_updated.emit(
+            "monitor_region",
+            "P&L Region Defined" if region_defined else "P&L Region Not Defined",
+            self._prerequisite_states["monitor_region"],
+            not region_defined  # show_action
+        )
 
-        # 2. Cold Turkey Path (Global Check)
-        # Use the service method that already checks existence
+        # 2. Cold Turkey Path
         ct_path_ok = self._cold_turkey_service.is_blocker_path_configured()
-        if ct_path_ok:
-            self.prerequisite_status_updated.emit("ct_path", "Cold Turkey Path Set", "ok", False)
-        else:
-            ct_path = self._config_repo.get_cold_turkey_path()  # Get path to see *why* it failed
-            status_text = "Cold Turkey Path Not Set" if not ct_path else "Cold Turkey Path Invalid/Missing"
-            self.prerequisite_status_updated.emit("ct_path", status_text, "error", True)  # Show button
+        self._prerequisite_states["ct_path"] = "ok" if ct_path_ok else "error"
+        ct_path_text = "Cold Turkey Path Set"
+        if not ct_path_ok:
+            ct_path_val = self._config_repo.get_cold_turkey_path()
+            ct_path_text = "Cold Turkey Path Not Set" if not ct_path_val else "Cold Turkey Path Invalid/Missing"
+        self.prerequisite_status_updated.emit(
+            "ct_path", ct_path_text, self._prerequisite_states["ct_path"], not ct_path_ok
+        )
 
-        # 3. CT Block Name (Platform Specific)
-        settings = self._config_repo.get_platform_settings(platform)  # Reuse settings if needed or fetch again
+        # 3. CT Block Name
+        settings = self._config_repo.get_platform_settings(platform)
         block_name_set = bool(settings.get("cold_turkey_block_name"))
-        if block_name_set:
-            self.prerequisite_status_updated.emit("ct_block_name", "CT Block Name Set", "ok", False)
-        else:
-            self.prerequisite_status_updated.emit("ct_block_name", "CT Block Name Not Set", "error",
-                                                  True)  # Show button
+        self._prerequisite_states["ct_block_name"] = "ok" if block_name_set else "error"
+        self.prerequisite_status_updated.emit(
+            "ct_block_name",
+            "CT Block Name Set" if block_name_set else "CT Block Name Not Set",
+            self._prerequisite_states["ct_block_name"],
+            not block_name_set
+        )
 
-        # 4. CT Block Verification (Platform Specific)
+        # 4. CT Block Verification
         verified_block_res = self._config_repo.get_verified_block(platform)
         is_verified = verified_block_res.is_success and verified_block_res.value is not None
-        if is_verified:
-            verified_name = verified_block_res.value  # Get the actual verified name
-            self.prerequisite_status_updated.emit("ct_verified", f"CT Block Verified ({verified_name})", "ok", False)
-        else:
-            # Only show action button if path and block name are set (prereqs for verification)
-            can_verify_now = ct_path_ok and block_name_set
-            self.prerequisite_status_updated.emit("ct_verified", "CT Block Not Verified", "error",
-                                                  can_verify_now)  # Show button only if possible
+        self._prerequisite_states["ct_verified"] = "ok" if is_verified else "error"
+        verified_text = f"CT Block Verified ({verified_block_res.value})" if is_verified else "CT Block Not Verified"
+        can_verify_now = ct_path_ok and block_name_set  # Verification depends on path and name
+        self.prerequisite_status_updated.emit(
+            "ct_verified", verified_text, self._prerequisite_states["ct_verified"], (not is_verified and can_verify_now)
+        )
 
-        # 5. Flatten Regions (Bonus - Warning if missing)
+        # 5. Flatten Regions
         flatten_res = self._region_service.get_regions_by_platform(platform, "flatten")
         flatten_defined = flatten_res.is_success and bool(flatten_res.value)
-        if flatten_defined:
-            self.prerequisite_status_updated.emit("flatten_regions", "Flatten Regions Defined", "ok", False)
-        else:
-            self.prerequisite_status_updated.emit("flatten_regions", "Flatten Regions Missing", "warning",
-                                                  True)  # Show button
+        self._prerequisite_states["flatten_regions"] = "ok" if flatten_defined else "warning"  # Warning, not error
+        self.prerequisite_status_updated.emit(
+            "flatten_regions",
+            "Flatten Regions Defined" if flatten_defined else "Flatten Regions Missing",
+            self._prerequisite_states["flatten_regions"],
+            not flatten_defined  # show_action (to go add them)
+        )
 
-        # 6. OCR Profile (Bonus - Warning if default)
+        # 6. OCR Profile
         profile_res = self._profile_service.get_profile(platform)
-        ocr_status = "N/A"
-        ocr_state = "error"
-        ocr_show_action = True
-        if profile_res.is_success:
-            # Add logic to check if it's default vs calibrated/saved if desired
-            # For now, just check existence
-            ocr_status = "OCR Profile Loaded"
+        ocr_status_text = "N/A"
+        ocr_state = "error"  # Default to error
+        ocr_show_action = False  # Default
+        if profile_res.is_success and profile_res.value:  # Check profile_res.value
+            # TODO: Add more sophisticated check for "default" vs "calibrated" if needed
+            ocr_status_text = "OCR Profile Loaded"
             ocr_state = "ok"
-            ocr_show_action = False  # Don't show action if loaded (can refine later)
+            # ocr_show_action = False # Typically don't need action if loaded and OK
         else:
-            ocr_status = "OCR Profile Error/Missing"
+            ocr_status_text = "OCR Profile Error/Missing"
             ocr_state = "error"
-            ocr_show_action = False  # Cannot calibrate if profile missing
+            ocr_show_action = True  # Show action to calibrate/create
 
-        self.prerequisite_status_updated.emit("ocr_profile", ocr_status, ocr_state, ocr_show_action)
+        self._prerequisite_states["ocr_profile"] = ocr_state
+        self.prerequisite_status_updated.emit(
+            "ocr_profile", ocr_status_text, ocr_state, ocr_show_action
+        )
+
+        # --- After all individual statuses are updated, update the completion badge ---
+        self._update_prerequisite_completion_badge()
+
+        # --- NEW Method to calculate and emit completion status ---
+
+    def _update_prerequisite_completion_badge(self):
+        """Calculates prerequisite completion and emits the signal."""
+        if not self._prerequisite_states:  # Not initialized yet
+            self.prerequisites_completion_changed.emit("Loading...")
+            return
+
+        # Count "ok" states. You might define "warning" as partially complete if desired.
+        # For now, only "ok" counts as complete.
+        completed_count = sum(1 for state in self._prerequisite_states.values() if state == "ok")
+        total_count = len(self._prerequisite_keys_list)  # Use the stored list length
+
+        completion_text = f"{completed_count}/{total_count} Complete"
+        if completed_count == total_count:
+            completion_text = "All Checks OK"  # Or just "6/6 Complete"
+
+        self.prerequisites_completion_changed.emit(completion_text)
+        self._logger.debug(f"Prerequisites completion updated: {completion_text}")
+
+
     # --- Optional: Periodic Status Check (If needed) ---
     # def _check_monitoring_status(self):
     #     """Periodically check the status from the monitoring service."""
@@ -668,3 +720,11 @@ class DashboardViewModel(QObject):
     #             self.current_pnl_text_changed.emit(self._current_pnl_text)
     #         # Update UI state
     #         self._update_button_states()
+
+    # --- NEW Slot to handle theme refresh requests ---
+    @Slot()
+    def on_theme_refresh_requested(self):
+        self._logger.info("DashboardViewModel: Theme refresh requested. Re-evaluating UI states.")
+        # Re-emitting all signals will re-trigger view updates,
+        # including prerequisite rows which might have theme-dependent colors.
+        self.refresh_ui_signals()

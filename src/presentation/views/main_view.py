@@ -3,10 +3,11 @@
 import sys
 from typing import Optional, Dict, Any, List
 
+from PySide6.QtGui import QColor
 # --- Qt Imports ---
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QLabel,
-    QComboBox, QToolBar, QSizePolicy, QApplication
+    QComboBox, QToolBar, QSizePolicy, QApplication, QPushButton
 )
 # <<< Add QTimer Import (if not already there) >>>
 from PySide6.QtCore import Slot, QSize, Qt, QTimer
@@ -31,6 +32,7 @@ from src.domain.services.i_ocr_service import IOcrService
 from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
 from src.domain.services.i_screenshot_service import IScreenshotService
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService # Keep for VM
+from src.presentation.components.ui_components import create_colored_svg_icon
 
 # --- Import the new MainViewModel ---
 from src.presentation.view_models.main_view_model import MainViewModel
@@ -67,10 +69,11 @@ class MainView(QMainWindow):
     _status_clear_timer: Optional[QTimer] = None
     # --- Change Default Text and Style ---
     DEFAULT_STATUS_TEXT = "✓ Ready"  # Use checkmark, but style controls color
-    DEFAULT_STATUS_STYLE = "color: #7f8c8d; padding: 2px 5px;"  # Default gray text
+    DEFAULT_STATUS_STYLE = "color: #27ae60; padding: 2px 5px;" # Green text, no background
     # --- Define a new color for Info/Busy ---
     INFO_BUSY_STYLE = "color: #3498db; padding: 2px 5px;"  # Use a neutral blue
     platform_toolbar: Optional[QToolBar] = None
+    theme_toggle_button: Optional[QPushButton] = None
 
     # --- Attributes for ViewModels ---
     # <<< Add main_view_model >>>
@@ -93,12 +96,24 @@ class MainView(QMainWindow):
         self._logger.info("Initializing MainView...")
 
         self._instantiate_view_models() # Instantiate VMs first
+
+        # >>> SET INITIAL THEME PROPERTY ON MainView ITSELF EARLY <<<
+        # This helps if any part of _setup_ui indirectly relies on it,
+        # or if QSS is evaluated very early for MainView.
+        if self.main_view_model:
+            initial_theme_is_dark = (self.main_view_model.get_current_theme() == "dark")
+            self.setProperty("darkTheme", initial_theme_is_dark)
+            # We will rely on the `current_theme_changed` signal connected to
+            # `_update_theme_toggle_button` to set it on child views when they are ready.
+
         self._setup_ui()                # Creates widgets
         self._connect_signals()         # Connects signals AFTER VMs/Views exist
         # Schedule the MainViewModel to re-emit its state now that the View is connected
-        if self.main_view_model:  # Ensure VM exists
+        if self.main_view_model:
             self._logger.debug("MainView: Scheduling initial UI refresh via MainViewModel.refresh_ui_signals.")
             QTimer.singleShot(0, self.main_view_model.refresh_ui_signals)
+            # The refresh_ui_signals -> current_theme_changed -> _update_theme_toggle_button
+            # will now handle setting the properties on MainView and its children correctly.
         else:
             self._logger.error("MainView: Cannot schedule UI refresh, MainViewModel is None.")
         self._logger.info("MainView initialized successfully.")
@@ -190,9 +205,10 @@ class MainView(QMainWindow):
         self.resize(QSize(1100, 800))
 
         central_widget = QWidget(self)
+        central_widget.setObjectName("mainCentralWidget")  # <<< ADD OBJECT NAME
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(10)
 
         # --- Platform Selector Toolbar (TOP) ---
@@ -235,6 +251,17 @@ class MainView(QMainWindow):
 
         spacer = QWidget(); spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.platform_toolbar.addWidget(spacer)
+
+        # --- Theme Toggle Button ---
+        self.theme_toggle_button = QPushButton()
+        self.theme_toggle_button.setObjectName("themeToggleButton")
+        self.theme_toggle_button.setCheckable(False)  # It's not a checkable state button
+        self.theme_toggle_button.setFlat(True)  # Makes it look more like a toolbar icon button
+        self.theme_toggle_button.setIconSize(QSize(18, 18))  # Adjust as needed
+        self.platform_toolbar.addWidget(self.theme_toggle_button)
+        # --- End Theme Toggle Button ---
+
+
         self.platform_toolbar.addWidget(QLabel(" Platform: "))
         self.platform_combo = QComboBox(); self.platform_combo.setObjectName("platformComboBox")
         self.platform_combo.setMinimumWidth(170)
@@ -251,7 +278,10 @@ class MainView(QMainWindow):
         # --- Status Bar ---
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self._status_label = QLabel("Ready"); self._status_label.setObjectName("statusBarLabel")
+        self._status_label = QLabel(self.DEFAULT_STATUS_TEXT)  # Use the constant with the icon
+        self._status_label.setObjectName("statusBarLabel")
+        # <<< Apply default style immediately >>>
+        self._status_label.setStyleSheet(self.DEFAULT_STATUS_STYLE)
         self.status_bar.addWidget(self._status_label, 1)
 
         # --- Instantiate Views and Add Tabs (Requires VMs to be ready) ---
@@ -304,6 +334,9 @@ class MainView(QMainWindow):
 
     def _connect_signals(self):
         """Connect signals for the MainView UI elements and ViewModels."""
+
+
+
         # --- Guards ---
         if not self.platform_combo: self._logger.error("Platform combo box not initialized"); return
         if not self.main_view_model: self._logger.error("MainViewModel not initialized"); return
@@ -368,7 +401,25 @@ class MainView(QMainWindow):
         )
         # Add similar connections if other VM actions should update the summary bar
 
-        self._logger.debug("MainView signals connected.")
+        if self.main_view_model and self.theme_toggle_button:
+            self.theme_toggle_button.clicked.connect(self.main_view_model.toggle_theme)
+            self.main_view_model.current_theme_changed.connect(self._update_theme_toggle_button)
+            # Initialize button appearance
+            self._update_theme_toggle_button(self.main_view_model.get_current_theme())
+
+            # --- Connect MainViewModel's theme refresh to child ViewModel refresh slots ---
+            if self.main_view_model and self.dashboard_vm:
+                self.main_view_model.theme_refresh_requested.connect(self.dashboard_vm.on_theme_refresh_requested)
+                self._logger.debug("Connected MainVM.theme_refresh_requested to DashboardVM.on_theme_refresh_requested")
+
+            # Add similar connections for other ViewModels if they need explicit refresh triggers:
+            # if self.main_view_model and self.settings_vm:
+            #     self.main_view_model.theme_refresh_requested.connect(self.settings_vm.on_theme_refresh_requested_slot)
+            # etc.
+
+            # ... (existing connections for settings_saved, profile_changed, etc.) ...
+
+            self._logger.debug("MainView signals connected.")
 
     # --- Platform Change Handlers ---
     @Slot(str)
@@ -432,7 +483,7 @@ class MainView(QMainWindow):
             prefix, style = "⚠ ", "color: black; font-weight: bold; padding: 2px 5px; background-color: #f39c12; border-radius: 3px;"
             timeout_ms = 7000
         elif level_upper == "SUCCESS":
-            prefix, style = "✓ ", "color: white; font-weight: bold; padding: 2px 5px; background-color: #27ae60; border-radius: 3px;"
+            prefix, style = "✓ ", "color: green; font-weight: bold; padding: 2px 5px; background-color: #27ae60; border-radius: 3px;"
             timeout_ms = 5000
         # --- NEW: Treat "BUSY" or "INFO" specifically ---
         elif level_upper == "BUSY" or level_upper == "INFO":
@@ -492,3 +543,69 @@ class MainView(QMainWindow):
         finally:
              self._logger.info("Cleanup attempt finished. Accepting close event.")
              event.accept()
+
+    @Slot(str)
+    def _update_theme_toggle_button(self, theme: str):
+        """
+        Updates the theme toggle button's icon/tooltip and sets the 'darkTheme'
+        property on this MainView and its direct child tab views to reflect the new theme.
+        """
+        if not self.main_view_model:  # Guard against early calls if VM not ready
+            self._logger.warning("MainViewModel not ready in _update_theme_toggle_button.")
+            return
+
+        self._logger.debug(f"MainView: Updating UI for theme change to '{theme}'.")
+        is_dark_theme_active = (theme == "dark")
+
+        # 1. Update Theme Toggle Button Icon & Tooltip
+        if self.theme_toggle_button:
+            icon_path: str
+            icon_color: QColor  # Make sure QColor is imported from PySide6.QtGui
+            tooltip_text: str
+            theme_icon_size = QSize(18, 18)  # Or your preferred size
+
+            if is_dark_theme_active:
+                icon_path = ":/icons/sun.svg"  # Path to your sun icon (should be light-colored for dark bg)
+                icon_color = QColor("#f0f0f0")  # Example: Off-white
+                tooltip_text = "Switch to Light Theme"
+            else:
+                icon_path = ":/icons/moon.svg"  # Path to your moon icon (should be dark-colored for light bg)
+                icon_color = QColor("#2d3436")  # Example: Dark gray/black
+                tooltip_text = "Switch to Dark Theme"
+
+            try:
+                # Use your existing helper to create the themed icon
+                colored_theme_icon = create_colored_svg_icon(icon_path, icon_color, theme_icon_size)
+                self.theme_toggle_button.setIcon(colored_theme_icon)
+                self.theme_toggle_button.setToolTip(tooltip_text)
+                # self.theme_toggle_button.setIconSize(theme_icon_size) # create_colored_svg_icon might handle size via pixmap
+            except Exception as e:
+                self._logger.error(f"Error creating/setting theme toggle icon: {e}", exc_info=True)
+        else:
+            self._logger.warning("Theme toggle button not initialized, cannot update its appearance.")
+
+        # 2. Update 'darkTheme' property on MainView itself for QSS
+        current_main_view_prop = self.property("darkTheme")
+        if current_main_view_prop is None or current_main_view_prop != is_dark_theme_active:
+            self.setProperty("darkTheme", is_dark_theme_active)
+            self.style().unpolish(self)
+            self.style().polish(self)
+            self.update()  # Force repaint if needed
+            self._logger.debug(f"MainView: Set 'darkTheme' property on MainView to {is_dark_theme_active}")
+
+        # 3. Update 'darkTheme' property on direct child tab views (e.g., DashboardView)
+        # This ensures they also reflect the theme change for their own QSS rules.
+        if hasattr(self, '_tab_references'):  # Check if _tab_references is initialized
+            for view_name, view_widget in self._tab_references.items():
+                if isinstance(view_widget, QWidget):  # Ensure it's a QWidget derivative
+                    current_child_prop = view_widget.property("darkTheme")
+                    if current_child_prop is None or current_child_prop != is_dark_theme_active:
+                        view_widget.setProperty("darkTheme", is_dark_theme_active)
+                        view_widget.style().unpolish(view_widget)
+                        view_widget.style().polish(view_widget)
+                        view_widget.update()  # Force repaint
+                        self._logger.debug(
+                            f"MainView: Set 'darkTheme' on child view '{view_name}' to {is_dark_theme_active}")
+        else:
+            self._logger.warning(
+                "_tab_references not found in MainView, cannot update child view theme properties here.")

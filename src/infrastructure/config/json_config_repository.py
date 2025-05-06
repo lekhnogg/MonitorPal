@@ -65,22 +65,11 @@ class JsonConfigRepository(IConfigRepository):
             # Global monitor interval (could be moved to platform if needed)
             "monitor_interval_seconds": 2.0,
             "current_platform": "",
+            "theme": "dark",
             # Platform-specific settings structure (key is platform name)
             "platforms": {
-                # Example structure will be added dynamically by get_platform_settings
-                # Now includes platform-specific risk params
-                # "ExamplePlatform": {
-                #     "cold_turkey_block_name": "",
-                #     "verified_cold_turkey_block": None,
-                #     "platform_executable_path": None,
-                #     "stop_loss_threshold": -100.0,  # Platform-specific
-                #     "lockout_duration": 15,         # Platform-specific
-                #     "monitor_region": None,
-                #     "flatten_regions": {},
-                #     "platform_profile": None
-                # }
             }
-            # Deprecated fields removed
+
         }
 
         self.logger.debug(f"JsonConfigRepository initialized. Config path: {self.config_file}")
@@ -201,6 +190,11 @@ class JsonConfigRepository(IConfigRepository):
         final_config["cold_turkey_blocker"] = str(final_config.get("cold_turkey_blocker", ""))
         final_config["current_platform"] = str(final_config.get("current_platform", ""))
         final_config["first_run"] = bool(final_config.get("first_run", True))
+        final_config["theme"] = str(final_config.get("theme", "dark")).lower()  # Ensure lowercase
+        if final_config["theme"] not in ["light", "dark"]:
+            self.logger.warning(f"Invalid theme value '{final_config['theme']}' found in config. Defaulting to 'dark'.")
+            final_config["theme"] = "dark"  # Default to dark if invalid
+
 
         # Legacy migration code removed
 

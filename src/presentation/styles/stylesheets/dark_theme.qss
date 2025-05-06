@@ -1,0 +1,678 @@
+/* ========================================================================== */
+/* Dark Theme Styling - dark_theme.qss                                        */
+/* ========================================================================== */
+
+/* --- Base Dark Theme Global Rules --- */
+QWidget[darkTheme="true"] { /* Applies to views like MainView, DashboardView if property set */
+    background-color: #111827; /* Very dark base background (e.g., Tailwind gray-900) */
+    color: #d1d5db;            /* Default light text color (e.g., Tailwind gray-300) */
+    font-family: "Segoe UI", Arial, sans-serif; /* Ensure consistent font */
+    font-size: 9pt;
+}
+
+QMainWindow[darkTheme="true"] { /* If MainView itself has darkTheme=true */
+    background-color: #111827;
+    border: none;
+}
+
+QWidget#mainCentralWidget { /* Main content area of the QMainWindow */
+    background-color: #111827; /* Match QWidget[darkTheme="true"] */
+    border: none;
+    padding: 0px;
+    margin: 0px;
+}
+
+/* --- Platform Toolbar (#platformToolbar) --- */
+QToolBar#platformToolbar {
+    background-color: #1f2937; /* Dark panel color (e.g., gray-800) */
+    border: none;
+    border-bottom: 1px solid #374151; /* Separator (e.g., gray-700) */
+    spacing: 8px;
+    padding: 3px 8px;
+}
+
+QToolBar#platformToolbar QLabel {
+     color: #9ca3af; /* Muted text (e.g., gray-400) */
+     background-color: transparent;
+}
+QToolBar#platformToolbar QLabel[class="toolbarDescriptor"] {
+    padding: 0 2px 0 5px;
+}
+QToolBar#platformToolbar QLabel[class="toolbarSummaryLabel"] {
+    background-color: #374151; /* Slightly lighter panel (e.g., gray-700) */
+    color: #f3f4f6; /* Bright text (e.g., gray-100) */
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-right: 4px;
+    min-width: 50px;
+}
+
+QToolBar#platformToolbar QComboBox#platformComboBox {
+     background-color: #374151;
+     color: #f3f4f6;
+     border: 1px solid #4b5563; /* (e.g., gray-600) */
+     border-radius: 4px;
+     padding: 3px 6px;
+     min-height: 18px;
+}
+QToolBar#platformToolbar QComboBox#platformComboBox::drop-down {
+    border-left: 1px solid #4b5563;
+    subcontrol-origin: padding; subcontrol-position: top right;
+    width: 18px; border-top-right-radius: 3px; border-bottom-right-radius: 3px;
+}
+QToolBar#platformToolbar QComboBox#platformComboBox::down-arrow {
+    image: url(:/icons/chevron-down-light.svg); /* Light chevron for dark bg */
+    width: 12px; height: 12px;
+}
+
+/* General Input Widgets (Dark Theme) */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    background-color: #374151; /* (e.g., gray-700) */
+    color: #f3f4f6;
+    border: 1px solid #4b5563; /* (e.g., gray-600) */
+    border-radius: 4px;
+    padding: 3px 6px;
+    min-height: 18px;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+    border-color: #60a5fa; /* (e.g., blue-400) for focus */
+    background-color: #4b5563; /* Slightly lighter focus bg */
+}
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+    background-color: #2d3748; /* Darker disabled (e.g., gray-750) */
+    color: #718096;    /* More muted text (e.g., gray-500) */
+    border-color: #4a5568; /* (e.g., gray-650) */
+}
+
+/* Combobox Dropdown List */
+QComboBox QAbstractItemView {
+    background-color: #1f2937; /* Dark panel background */
+    border: 1px solid #4b5563; /* Dark border */
+    color: #f3f4f6; /* Light text */
+    selection-background-color: #3b82f6; /* Accent blue for selection */
+    selection-color: white;
+    padding: 4px;
+    outline: 0px;
+}
+
+/* --- Tab Bar (#mainTabWidget) --- */
+QTabWidget#mainTabWidget::pane {
+    background-color: #111827; /* Base dark background */
+    border: 1px solid #374151; /* Dark border around content area */
+    border-top-style: none;
+    border-radius: 4px;
+    padding: 0px;
+}
+
+QTabWidget#mainTabWidget QTabBar::tab {
+    background-color: #374151; /* Dark inactive tab */
+    color: #9ca3af; /* Gray inactive text */
+    border: 1px solid #4b5563; /* Dark border */
+    border-bottom-style: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    padding: 6px 12px;
+    min-width: 100px;
+    font-weight: normal;
+}
+QTabWidget#mainTabWidget QTabBar::tab:hover {
+    background-color: #4b5563; /* Lighter gray on hover */
+    color: #d1d5db;
+}
+QTabWidget#mainTabWidget QTabBar::tab:selected {
+    background-color: #111827; /* Selected tab matches pane background */
+    color: #60a5fa; /* Light blue selected text */
+    border: 1px solid #4b5563; /* Maintain other borders */
+    border-bottom-style: none; /* "Opens" into the pane */
+    /* border-top-color: #60a5fa; */ /* Optional: Accent top border of selected tab */
+    font-weight: bold;
+}
+QTabWidget#mainTabWidget QTabBar::tab:selected:hover {
+    background-color: #1f2937; /* Slightly different background on hover */
+}
+
+
+/* --- Status Bar --- */
+QStatusBar {
+    background-color: #1f2937; /* Match toolbar background */
+    color: #9ca3af; /* Default text color */
+    border-top: 1px solid #374151; /* Dark top border */
+    font-size: 9pt;
+}
+QStatusBar QLabel#statusBarLabel {
+    padding: 2px 8px;
+    margin-left: 5px;
+    border-radius: 3px;
+    color: #9ca3af; /* Default text color */
+    background-color: transparent;
+}
+
+
+/* ========================================================================== */
+/* --- NEW: Neutral Panel Class Styling (Dark Theme) ---                      */
+/* ========================================================================== */
+
+/* For top status cards in DashboardView */
+QFrame[class="statusInfoCard"] {
+    background-color: #1f2937; /* (e.g., gray-800) */
+    border: 1px solid #374151; /* (e.g., gray-700) */
+    border-radius: 12px;        /* Tailwind rounded-xl is often 0.75rem = 12px */
+    /* Consider adding padding here if not set by internal layouts,
+       or ensure internal layouts have appropriate margins. */
+    /* padding: 15px; */ /* Example if needed */
+}
+
+/* For main section panels in DashboardView and other views */
+QFrame[class="contentSectionPanel"] {
+    background-color: #1f2937; /* (e.g., gray-800) */
+    border: 1px solid #374151; /* (e.g., gray-700) */
+    border-radius: 12px;
+    /* padding: 15px; */ /* Example if needed */
+}
+
+/* --- REMOVE OLD class="darkPanel" rule --- */
+/* QFrame[class="darkPanel"] { ... } */
+
+
+/* Panel Headers (These are fine, describe roles) */
+QLabel[class="panelTitle"] {
+    font-size: 14px; /* Or adjust to match React example (e.g., text-xs font-medium uppercase tracking-wider) */
+    font-weight: 500; /* Medium weight */
+    color: #9ca3af;  /* Lighter gray for titles (e.g. gray-400) */
+    text-transform: uppercase;
+    letter-spacing: 0.05em; /* Simulates tracking-wider */
+    padding-bottom: 6px;
+}
+
+QLabel[class="cardTitle"] { /* For smaller titles like "Current P&L" */
+    font-size: 11px; /* text-xs */
+    font-weight: 500; /* font-medium */
+    text-transform: uppercase;
+    letter-spacing: 0.05em; /* tracking-wider */
+    color: #9ca3af; /* text-gray-400 */
+}
+
+
+/* ========================================================================== */
+/* --- Dashboard Specific Widget Styling (Dark Theme) ---                   */
+/* ========================================================================== */
+
+/* Icon Frames for Dashboard Cards (matching React example's small icon containers) */
+/* These are very specific, targeted by objectName */
+QFrame#pnlIconFrame { /* Example: trending-up icon */
+    background-color: rgba(16, 185, 129, 0.15); /* bg-green-900/30 (approx) */
+    border: 1px solid rgba(16, 185, 129, 0.3);  /* border-green-700/30 (approx) */
+    border-radius: 8px; /* rounded-lg */
+    /* Ensure fixed size in Python code for these to make them circular/square */
+}
+QFrame#statusIconFrame { /* Example: activity icon */
+    background-color: rgba(59, 130, 246, 0.15); /* bg-blue-900/30 */
+    border: 1px solid rgba(59, 130, 246, 0.3);  /* border-blue-700/30 */
+    border-radius: 8px;
+}
+QFrame#regionIconFrame { /* Example: monitor icon for Region Card */
+    background-color: rgba(168, 85, 247, 0.15); /* bg-purple-900/30 */
+    border: 1px solid rgba(168, 85, 247, 0.3);  /* border-purple-700/30 */
+    border-radius: 8px;
+}
+/* Add QFrame#ocrIconFrame if you have one, using similar logic */
+/* QFrame#ocrIconFrame {
+    background-color: rgba(139, 92, 246, 0.1);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: 8px;
+} */
+
+
+/* Card Values (Dashboard) */
+QLabel#pnlDisplayLabel { /* e.g., +$74.85 */
+    font-size: 28px;  /* text-3xl */
+    font-weight: 700; /* font-bold */
+    /* color: #4ade80; /* text-green-400 - state will override */
+    letter-spacing: -0.025em; /* tracking-tight */
+    margin-top: 5px;
+}
+QLabel#pnlDisplayLabel[state="positive"] { color: #4ade80; } /* (e.g. green-400) */
+QLabel#pnlDisplayLabel[state="negative"] { color: #f87171; } /* (e.g. red-400) */
+QLabel#pnlDisplayLabel[state="neutral"]  { color: #9ca3af; } /* (e.g. gray-400) */
+
+QLabel#monitoringStatusLabel { /* e.g., Active */
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-top: 5px;
+}
+QLabel#monitoringStatusLabel[state="active"]   { color: #60a5fa; } /* (e.g. blue-400) */
+QLabel#monitoringStatusLabel[state="inactive"] { color: #9ca3af; }
+QLabel#monitoringStatusLabel[state="error"]    { color: #f87171; }
+QLabel#monitoringStatusLabel[state="busy"]     { color: #facc15; } /* (e.g. amber-400) */
+
+QLabel#regionNameLabel { /* e.g., Region 3 */
+    font-size: 28px;
+    font-weight: 700;
+    color: #c084fc; /* (e.g. purple-400) */
+    letter-spacing: -0.025em;
+    margin-top: 5px;
+}
+QLabel#regionPositionLabel { /* e.g., P&L Bottom Right */
+    font-size: 12px; /* text-sm */
+    color: #9ca3af; /* text-gray-400 */
+    margin-top: 2px; /* Reduced margin */
+}
+
+/* Chart placeholder (Dashboard P&L Card) */
+QFrame#pnlChartPlaceholder { /* This is the small area chart in P&L card */
+    background-color: transparent; /* Area chart itself has gradient */
+    border: none;
+    border-radius: 2px;
+    /* min-height: 40px; */ /* h-10 in React */
+}
+
+/* Progress Bar (Dashboard Monitoring Status Card) */
+QProgressBar#monitoringProgress { /* This ID seems not used in provided DashboardView */
+    background-color: #374151; /* bg-gray-700 */
+    border: none;
+    border-radius: 9999px; /* rounded-full */
+    height: 6px; /* h-1.5 in React */
+    text-align: center;
+    color: transparent; /* Hide text if it's just a visual bar */
+}
+QProgressBar#monitoringProgress::chunk {
+    background-color: #3b82f6; /* bg-blue-500 */
+    border-radius: 9999px; /* rounded-full */
+}
+
+/* Accuracy dots (If still used) */
+QFrame[objectName^="accuracyDot_"] {
+    background-color: #6b7280; /* (e.g. gray-500) */
+    border-radius: 3px;
+    min-width: 6px; max-width: 6px;
+    min-height: 6px; max-height: 6px;
+}
+QFrame[objectName^="accuracyDot_"][active="true"] {
+    background-color: #8b5cf6; /* (e.g. violet-500) */
+}
+
+/* Badges (Dashboard Prerequisites, Alerts) */
+QLabel#prereqBadge { /* e.g. "4/6 Complete" */
+    background-color: #374151; /* bg-gray-700 */
+    color: #d1d5db;   /* text-gray-300 */
+    border-radius: 6px; /* rounded-md */
+    padding: 4px 10px; /* px-2.5 py-1 */
+    font-size: 10px;   /* text-xs */
+    font-weight: 500;
+}
+QLabel#alertsBadge { /* e.g. "1 Critical" */
+    background-color: rgba(220, 38, 38, 0.15); /* bg-red-900/30 (approx) */
+    color: #f87171;                          /* text-red-400 */
+    border: 1px solid rgba(220, 38, 38, 0.3); /* border-red-500/30 (approx) */
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+/* Panel Dividers (Dashboard) */
+QFrame#panelDivider {
+    background-color: #374151; /* (e.g. gray-700 or gray-700/50) */
+    max-height: 1px;
+    min-height: 1px;
+    border: none;
+}
+
+/* Prerequisite Rows (Dashboard) */
+QFrame[objectName^="prereqRow_"] {
+    border-radius: 6px;
+    /* No background, relies on parent panel background */
+    /* padding: 8px 0; */ /* py-2 equivalent */
+}
+QFrame[objectName^="prereqRow_"]:hover {
+    background-color: rgba(55, 65, 81, 0.3); /* Subtle hover, like gray-800/30 */
+}
+
+QLabel[objectName^="prereqText_"] { /* e.g. "Monitor Region" */
+    font-size: 12px; /* text-sm */
+    color: #d1d5db;  /* text-gray-300 */
+}
+/* QLabel[objectName^="prereqStatus_"] { ... } /* If you have a separate status part */
+
+/* Quick Action Button Styling */
+/* These styles aim to mimic the larger, icon-focused buttons from the React example.
+   The icon and text layout (icon above text) is NOT achieved by default with QPushButton.
+   These styles focus on color, border, and size.
+   If the icon-above-text layout is crucial, you need custom button widgets.
+*/
+
+/* Base for Action, Danger, Styled buttons on Dashboard if they follow the React example's large format */
+QPushButton[class="action"],
+QPushButton[class="danger"],
+QPushButton[class="styled"] {
+    border-radius: 12px; /* rounded-xl */
+    font-weight: 500;    /* font-medium */
+    font-size: 12px;     /* text-sm for the label part */
+    padding: 16px;       /* p-4, makes button quite large for icon + text */
+    min-width: 100px;    /* Ensure they have some width */
+    /* For icon and text layout: default is icon left of text.
+       To get icon above text in a standard QPushButton, you'd need:
+       qproperty-toolButtonStyle: ToolButtonTextUnderIcon;
+       And set a larger icon size. This often looks best with QToolButton.
+       For QPushButton, you'd usually make a custom widget.
+    */
+}
+
+/* "Start" button */
+QPushButton[class="action"]#startButton { /* More specific if only startButton looks like this */
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(34,197,94,0.2), stop:1 rgba(5,150,105,0.2)); /* from-green-500/20 to-emerald-600/20 */
+    color: #4ade80;                           /* text-green-400 */
+    border: 1px solid rgba(34, 197, 94, 0.3); /* border-green-500/30 */
+    padding-top: 5px;     /* Reduce top padding */
+    padding-bottom: 5px;  /* Reduce bottom padding */
+    padding-left: 12px;   /* Keep or adjust horizontal padding */
+    padding-right: 12px;
+
+    min-height: 14px;     /* Example: A common "thinner" button height. Adjust as needed. */
+}
+QPushButton[class="action"]#startButton:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(34,197,94,0.3), stop:1 rgba(5,150,105,0.3));
+}
+QPushButton[class="action"]#startButton:disabled {
+    background-color: rgba(55, 65, 81, 0.3); /* bg-gray-700/30 */
+    color: #6b7280;                          /* text-gray-500 */
+    border-color: #374151;                   /* border-gray-700 */
+}
+
+/* "Stop" button */
+QPushButton[class="danger"]#stopButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(239,68,68,0.2), stop:1 rgba(225,29,72,0.2)); /* from-red-500/20 to-rose-600/20 */
+    color: #f87171;                          /* text-red-400 */
+    border: 1px solid rgba(239, 68, 68, 0.3);/* border-red-500/30 */
+    padding-top: 5px;     /* Reduce top padding */
+    padding-bottom: 5px;  /* Reduce bottom padding */
+    padding-left: 12px;   /* Keep or adjust horizontal padding */
+    padding-right: 12px;
+
+    min-height: 14px;     /* Example: A common "thinner" button height. Adjust as needed. */
+}
+QPushButton[class="danger"]#stopButton:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(239,68,68,0.3), stop:1 rgba(225,29,72,0.3));
+}
+QPushButton[class="danger"]#stopButton:disabled {
+    background-color: rgba(55, 65, 81, 0.3);
+    color: #6b7280;
+    border-color: #374151;
+}
+
+/* "Test Flash" button */
+QPushButton[class="styled"]#flashButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(59,130,246,0.2), stop:1 rgba(79,70,229,0.2)); /* from-blue-500/20 to-indigo-600/20 */
+    color: #60a5fa;                           /* text-blue-400 */
+    border: 1px solid rgba(59, 130, 246, 0.3);/* border-blue-500/30 */
+    padding-top: 5px;     /* Reduce top padding */
+    padding-bottom: 5px;  /* Reduce bottom padding */
+    padding-left: 12px;   /* Keep or adjust horizontal padding */
+    padding-right: 12px;
+
+    min-height: 14px;     /* Example: A common "thinner" button height. Adjust as needed. */
+}
+QPushButton[class="styled"]#flashButton:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(59,130,246,0.3), stop:1 rgba(79,70,229,0.3));
+}
+/* Disabled style would be similar to action/danger if needed */
+
+
+/* If you want ALL ActionButton, DangerButton, StyledButton to look like this, remove #objectName */
+/* Example for all ActionButtons: */
+/*
+QPushButton[class="action"] {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(34,197,94,0.2), stop:1 rgba(5,150,105,0.2));
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 12px;
+    font-weight: 500;
+    font-size: 12px;
+    padding: 16px;
+}
+QPushButton[class="action"]:hover { ... }
+QPushButton[class="action"]:disabled { ... }
+*/
+
+
+/* Button Containers and Circle Backgrounds are specific to a different button design - remove if not used */
+/* QFrame#startButtonContainer, ... */
+/* QFrame#startCircle, ... */
+
+/* Icon Buttons (Small, circular, icon-only buttons) */
+QPushButton[class="iconButton"] {
+    background-color: transparent;
+    border: none;
+    border-radius: 20px; /* Make it circular if width/height are equal */
+    padding: 4px;
+}
+QPushButton[class="iconButton"]:hover { background-color: rgba(255, 255, 255, 0.05); }
+QPushButton[class="iconButton"]:pressed { background-color: rgba(255, 255, 255, 0.1); }
+
+
+/* Labels under the "Circle" buttons (if that design was used) - remove if not */
+/* QLabel#startLabel, QLabel#stopLabel, QLabel#flashLabel { ... } */
+
+
+/* Chart Stats (Dashboard P&L Trend) */
+QLabel[class="chartStatLabel"] { /* e.g., "Current", "High", "Low" text */
+    font-size: 10px; /* text-xs */
+    color: #9ca3af;   /* text-gray-400 */
+}
+QLabel#currentValue, QLabel#highValue, QLabel#lowValue { /* The actual values */
+    font-size: 20px;  /* text-xl */
+    font-weight: bold;
+    color: #e5e7eb;   /* text-gray-200, state overrides for currentValue */
+}
+QLabel#currentValue[trend="positive"] { color: #4ade80; } /* text-green-400 */
+QLabel#currentValue[trend="negative"] { color: #f87171; } /* text-red-400 */
+
+
+/* Time Period Buttons (Dashboard P&L Trend) */
+QPushButton[class="timeButton"] {
+    background-color: rgba(55, 65, 81, 0.3); /* bg-gray-700/30 */
+    border: 1px solid #374151;            /* border-gray-700 */
+    border-radius: 6px;                   /* rounded-md */
+    color: #9ca3af;                       /* text-gray-400 */
+    font-size: 10px;                      /* text-xs */
+    padding: 4px 8px;                     /* px-2 py-1 */
+    min-height: 0;
+}
+QPushButton[class="timeButton"][active="true"] {
+    background-color: rgba(59, 130, 246, 0.2); /* bg-blue-500/20 */
+    border: 1px solid rgba(59, 130, 246, 0.3); /* border-blue-500/30 */
+    color: #60a5fa;                            /* text-blue-300 or text-blue-400 */
+}
+QPushButton[class="timeButton"]:hover {
+    /* color: #d1d5db; */ /* Optional: hover:text-gray-300 */
+    background-color: rgba(55, 65, 81, 0.5);
+}
+
+
+/* Alerts List (Dashboard) */
+QListWidget#alertsList {
+    background-color: transparent; /* Let parent panel background show */
+    border: none; /* No border for the list widget itself */
+    border-radius: 0px;
+    /* alternate-background-color: #1f2937; /* Not needed if items have full bg */
+}
+QListWidget#alertsList::item { /* Styling for each alert item */
+    border-radius: 8px; /* rounded-lg */
+    padding: 12px;      /* p-3 */
+    margin: 6px 0px;   /* space-y-3 (approx, applied to item margin) */
+    color: #d1d5db;    /* Default text color inside item */
+    /* Border and background are set based on alert type below */
+}
+/* Specific alert types - this requires Python to set a property on QListWidgetItem */
+/* Example: item.setProperty("alertType", "error") */
+QListWidget#alertsList::item[alertType="error"] {
+    background-color: rgba(220, 38, 38, 0.1);  /* bg-red-900/10 */
+    border: 1px solid rgba(220, 38, 38, 0.3); /* border-red-500/30 */
+    /* You'd also need a left accent border if desired, harder with QListWidgetItem */
+}
+QListWidget#alertsList::item[alertType="warning"] {
+    background-color: rgba(245, 158, 11, 0.1); /* bg-amber-900/10 */
+    border: 1px solid rgba(245, 158, 11, 0.3);/* border-amber-500/30 */
+}
+QListWidget#alertsList::item[alertType="success"] {
+    background-color: rgba(16, 185, 129, 0.1);/* bg-green-900/10 */
+    border: 1px solid rgba(16, 185, 129, 0.3);/* border-green-500/30 */
+}
+QListWidget#alertsList::item[alertType="info"] {
+    background-color: rgba(59, 130, 246, 0.1); /* bg-blue-900/10 */
+    border: 1px solid rgba(59, 130, 246, 0.3); /* border-blue-500/30 */
+}
+/* Selection and hover can be generic or also type-aware */
+QListWidget#alertsList::item:selected {
+    background-color: #2563eb; /* A distinct selection color */
+    color: #ffffff;
+    border-color: #1d4ed8;
+}
+QListWidget#alertsList::item:hover {
+    /* Subtle brightness increase on hover */
+    background-color: rgba(255, 255, 255, 0.03); /* Needs to be applied carefully over existing item bg */
+}
+
+
+/* Small Button and Link Button (General use) */
+QPushButton[class="smallButton"] { /* e.g., Prereq "Go to Setup", "Configure All" type buttons */
+    background-color: rgba(168, 85, 247, 0.2); /* bg-purple-500/20 */
+    border: 1px solid rgba(168, 85, 247, 0.3); /* border-purple-500/30 */
+    border-radius: 8px; /* rounded-lg */
+    color: #c084fc;     /* text-purple-300 */
+    font-size: 12px;    /* text-sm */
+    font-weight: 500;   /* font-medium */
+    padding: 8px 12px;  /* py-2 px-3 */
+    min-height: 0;
+}
+QPushButton[class="smallButton"]:hover {
+    background-color: rgba(168, 85, 247, 0.3); /* hover:bg-purple-500/30 */
+}
+
+QPushButton[class="linkButton"] { /* If used */
+    background-color: transparent;
+    border: none;
+    color: #60a5fa; /* text-blue-400 */
+    font-size: 12px;
+    text-align: center;
+    padding: 4px;
+}
+QPushButton[class="linkButton"]:hover {
+    color: #93c5fd; /* Lighter blue */
+    text-decoration: underline;
+}
+
+/* Log Display (Dashboard) */
+QTextEdit#logDisplay {
+    background-color: #030712; /* e.g., gray-950 or almost black like bg-gray-900 in React example */
+    color: #9ca3af;           /* text-gray-400 or text-gray-300 */
+    border: 1px solid #1f2937; /* Border like gray-800 */
+    border-radius: 6px;        /* rounded */
+    font-family: "Consolas", "Menlo", "Courier New", monospace; /* font-mono */
+    font-size: 11px;           /* text-xs */
+    padding: 8px;
+}
+
+
+/* Statistics Labels (Dashboard - if used) */
+QLabel[class="statsLabel"] {
+    font-size: 10px;
+    color: #9ca3af;
+}
+QLabel#sessionValue, QLabel#scansValue {
+    font-size: 14px;
+    font-weight: bold;
+    color: #d1d5db;
+}
+
+/* Graph Placeholder (Dashboard P&L Trend) */
+QLabel#graphPlaceholder { /* The main P&L chart area */
+    background-color: transparent; /* Chart itself will have background/gradients */
+    border: none; /* No border if chart fills it */
+    /* border: 1px dashed #4b5563; /* Optional placeholder border */
+    border-radius: 6px;
+    font-style: italic;
+    color: #9ca3af;
+    padding: 0px; /* Chart should manage its own margins */
+    text-align: center; /* qproperty-alignment: AlignCenter; */
+}
+
+/* --- Scrollbars (Dark Theme) --- */
+QScrollBar:vertical {
+    border: none; background: #1f2937; width: 8px; margin: 0px;
+}
+QScrollBar::handle:vertical {
+    background: #4b5563; min-height: 25px; border-radius: 4px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+
+QScrollBar:horizontal {
+    border: none; background: #1f2937; height: 8px; margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #4b5563; min-width: 25px; border-radius: 4px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+
+
+/* --- Splitter --- */
+QSplitter::handle {
+    background-color: #374151;
+}
+QSplitter::handle:horizontal { width: 5px; }
+QSplitter::handle:vertical   { height: 5px; }
+
+/* --- Tooltip --- */
+QToolTip {
+    border: 1px solid #4b5563;          /* (e.g., gray-600) */
+    background-color: #111827;        /* Base dark (e.g., gray-900) */
+    color: #f3f4f6;                   /* Light text (e.g., gray-100) */
+    padding: 6px 8px;
+    border-radius: 6px;               /* rounded-md */
+    /* opacity: 240; */ /* Qt usually handles this well, but can be set */
+}
+
+/* --- GroupBox (Dark Theme) --- */
+/* This is for general QGroupBoxes if you use them outside specific panels */
+QGroupBox {
+    font-weight: 500; /* Medium */
+    border: 1px solid #374151; /* (e.g., gray-700) */
+    border-radius: 12px;       /* rounded-xl */
+    margin-top: 20px;          /* Space for title */
+    background-color: #1f2937; /* (e.g., gray-800) */
+    padding: 12px;             /* p-3 or p-4 */
+    padding-top: 25px;         /* More to clear title */
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 15px;
+    padding: 2px 8px;
+    background-color: #1f2937; /* Match groupbox background */
+    color: #9ca3af;            /* (e.g., gray-400) */
+    font-size: 12px;           /* text-sm */
+    font-weight: 600;          /* font-semibold */
+    border-radius: 4px;        /* Optional rounding for title bg */
+}
+QGroupBox::indicator {
+     width: 16px; height: 16px; margin-left: 8px;
+}
+QGroupBox::indicator:unchecked { image: url(:/icons/chevron-right-light.svg); } /* Light chevron */
+QGroupBox::indicator:checked   { image: url(:/icons/chevron-down-light.svg); }  /* Light chevron */
+
+/* --- Theme Toggle Button (specific object name) --- */
+QPushButton#themeToggleButton {
+    background-color: transparent;
+    border: none;
+    padding: 2px;
+}
+QPushButton#themeToggleButton:hover {
+    background-color: rgba(255, 255, 255, 0.08); /* Subtle light hover */
+}
+QPushButton#themeToggleButton:pressed {
+    background-color: rgba(255, 255, 255, 0.12); /* Lighter press */
+}

@@ -58,18 +58,18 @@ class RegionEntryWidget(QWidget):
         top_layout.addWidget(info_label, 1) # Allow label to stretch
 
         # Flash Button
-        flash_btn = SecondaryButton("Flash", max_width=55) # Changed to SecondaryButton for consistency? Or keep StyledButton
+        flash_btn = SecondaryButton("Flash") # Changed to SecondaryButton for consistency? Or keep StyledButton
         # Connect directly to the internal slot that emits the new signal
         flash_btn.clicked.connect(self._emit_flash_requested)
         top_layout.addWidget(flash_btn)
 
         # Edit button
-        edit_btn = StyledButton("Edit", max_width=55)
+        edit_btn = StyledButton("Edit")
         edit_btn.clicked.connect(self._emit_edit_requested)
         top_layout.addWidget(edit_btn)
 
         # Delete button
-        delete_btn = DangerButton("Delete", max_width=55)
+        delete_btn = DangerButton("Delete")
         delete_btn.clicked.connect(self._emit_delete_requested)
         top_layout.addWidget(delete_btn)
 

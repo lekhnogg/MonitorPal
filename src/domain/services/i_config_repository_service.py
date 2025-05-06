@@ -79,7 +79,6 @@ class IConfigRepository(ABC):
     def set_platform_lockout_duration(self, platform: str, minutes: int) -> Result[bool]:
         """Sets the lockout duration in minutes for a specific platform."""
         pass
-    # --- END NEW ---
 
     # --- Region Management ---
     @abstractmethod
@@ -122,3 +121,4 @@ class IConfigRepository(ABC):
     def register_observer(self, callback: Callable[[], None]) -> None: pass
     @abstractmethod
     def unregister_observer(self, callback: Callable[[], None]) -> None: pass
+
