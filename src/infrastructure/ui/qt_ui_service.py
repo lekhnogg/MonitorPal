@@ -1,5 +1,5 @@
 # src/infrastructure/ui/qt_ui_service.py
-
+import os
 import sys
 from typing import Tuple, Optional, Any
 
@@ -76,7 +76,7 @@ class _QtUIBridge(QObject):
     region_selection_signal = Signal(object)# For select_screen_region
     activation_signal = Signal(object)      # For activate_application_window
     create_overlay_signal = Signal(object)  # For create_flash_overlay
-
+    save_file_selection_signal = Signal(object)  # <<< --- ADD NEW SIGNAL FOR SAVE FILE DIALOG ---
     # Arguments for signals are packed into dictionaries
 
     def __init__(self, logger: ILoggerService):
@@ -92,8 +92,39 @@ class _QtUIBridge(QObject):
         self.region_selection_signal.connect(self._select_region_impl, Qt.QueuedConnection)
         self.activation_signal.connect(self._activate_window_impl, Qt.QueuedConnection)
         self.create_overlay_signal.connect(self._create_flash_overlay_impl, Qt.QueuedConnection)
-
+        self.save_file_selection_signal.connect(self._select_save_file_impl, Qt.QueuedConnection)
     # --- Slot Implementations (These run on the main thread) ---
+
+    @Slot(object)
+    def _select_save_file_impl(self, args_dict):
+        """Main thread implementation for save file selection dialog."""
+        title = args_dict["title"]
+        filter_pattern = args_dict["filter_pattern"]
+        default_filename = args_dict["default_filename"]
+        callback = args_dict["callback"]
+        try:
+            # Use QFileDialog.getSaveFileName for a "Save As" dialog
+            # The default_filename will be pre-filled in the dialog's filename input
+            # For a proper directory, you can extract it from default_filename or pass a separate directory arg
+            directory = os.path.dirname(default_filename) if default_filename and os.path.dirname(
+                default_filename) else ""
+            filename_only = os.path.basename(default_filename) if default_filename else ""
+
+            options = QFileDialog.Options()
+            # options |= QFileDialog.DontUseNativeDialog # Optional
+            file_path, _ = QFileDialog.getSaveFileName(
+                None,  # Parent
+                title,
+                os.path.join(directory, filename_only),  # Suggested filename/path
+                filter_pattern,
+                options=options
+            )
+            callback(file_path if file_path else None, None)  # Return path or None if cancelled
+        except Exception as e:
+            self.logger.error(f"Error showing save file selection dialog: {e}", exc_info=True)
+            callback(None, e)
+
+    # <<< --- END NEW SLOT --- >>>
 
     @Slot(object)
     def _show_message_impl(self, args_dict):
@@ -243,6 +274,7 @@ class QtUIService(IUIService):
         self._main_thread = QApplication.instance().thread()
 
 
+
     def show_message(self, title: str, message: str, message_type: str = "info") -> Result[bool]:
         """Show a message dialog to the user (thread-safe)."""
         self.logger.debug(f"Showing message: '{title}' ({message_type})")
@@ -309,6 +341,31 @@ class QtUIService(IUIService):
             return self._execute_on_main_thread(
                 self._bridge.file_selection_signal,
                 {"title": title, "filter_pattern": filter_pattern}
+            )
+
+    def select_save_file(self, title: str, filter_pattern: str, default_filename: str = "") -> Result[Optional[str]]:
+        """Show a 'Save As' file selection dialog (thread-safe). Returns None if cancelled."""
+        self.logger.debug(f"Showing save file selection: '{title}', default: '{default_filename}'")
+        if QThread.currentThread() == self._main_thread:
+            self.logger.debug("Executing select_save_file directly (main thread)")
+            try:
+                directory = os.path.dirname(default_filename) if default_filename and os.path.dirname(
+                    default_filename) else ""
+                filename_only = os.path.basename(default_filename) if default_filename else ""
+                options = QFileDialog.Options()
+                file_path, _ = QFileDialog.getSaveFileName(
+                    None, title, os.path.join(directory, filename_only), filter_pattern, options=options
+                )
+                return Result.ok(file_path if file_path else None)
+            except Exception as e:
+                error = UIError(message=f"Error showing save file selection dialog: {e}", inner_error=e)
+                self.logger.error(str(error), exc_info=True)
+                return Result.fail(error)
+        else:
+            self.logger.debug("Executing select_save_file via bridge (background thread)")
+            return self._execute_on_main_thread(
+                self._bridge.save_file_selection_signal,  # Use the new signal
+                {"title": title, "filter_pattern": filter_pattern, "default_filename": default_filename}
             )
 
     def select_screen_region(self, message: str) -> Result[Optional[Tuple[int, int, int, int]]]:

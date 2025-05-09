@@ -9,6 +9,7 @@ from typing import Tuple, Optional, List, Callable
 
 from src.domain.common.result import Result
 from src.domain.models.monitoring_result import MonitoringResult
+from src.domain.services.i_history_service import IHistoryService
 
 
 class IMonitoringService(ABC):
@@ -24,6 +25,7 @@ class IMonitoringService(ABC):
                          region: Tuple[int, int, int, int],
                          region_name: str,
                          threshold: float,
+                         session_id: str,  # <-- ADD session_id
                          interval_seconds: float = 5.0,
                          on_status_update: Optional[Callable[[str, str], None]] = None,
                          on_threshold_exceeded: Optional[Callable[[MonitoringResult], None]] = None,

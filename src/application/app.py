@@ -24,6 +24,7 @@ from src.domain.services.i_platform_selection_service import IPlatformSelectionS
 from src.domain.services.i_region_service import IRegionService
 from src.domain.services.i_ocr_analysis_service import IOcrAnalysisService
 from src.domain.services.i_flash_service import IFlashService
+from src.domain.services.i_history_service import IHistoryService
 
 # --- Infrastructure Imports ---
 from src.infrastructure.logging.logger_service import ConsoleLoggerService
@@ -44,6 +45,7 @@ from src.infrastructure.platform.platform_selection_service import PlatformSelec
 from src.infrastructure.platform.region_service import RegionService
 from src.infrastructure.ocr.ocr_analysis_service import OcrAnalysisService
 from src.infrastructure.ui.qt_flash_service import QtFlashService
+from src.infrastructure.history.history_service import MemoryHistoryService
 
 def initialize_app() -> DIContainer:
     container = DIContainer()
@@ -81,6 +83,11 @@ def initialize_app() -> DIContainer:
 
     ocr_analysis_service = OcrAnalysisService(logger)
     container.register_instance(IOcrAnalysisService, ocr_analysis_service)
+
+    # --- Register History Service ---
+    history_service = MemoryHistoryService(logger=logger)  # Create it
+    container.register_instance(IHistoryService, history_service)  # Register it
+    # --- END History Service Registration ---
 
     platform_detection_service = WindowsPlatformDetectionService(
         logger=logger,
@@ -145,7 +152,8 @@ def initialize_app() -> DIContainer:
         path_service=path_service,
         logger=logger,
         profile_service=profile_service, # Pass the singleton instance
-        region_service=region_service # Pass the singleton instance
+        region_service=region_service,
+        history_service=history_service
     )
     container.register_instance(IMonitoringService, monitoring_service)
 

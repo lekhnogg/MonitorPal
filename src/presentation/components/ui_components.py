@@ -6,8 +6,8 @@ Icons are automatically colored based on button type.
 """
 
 import re
-from PySide6.QtWidgets import QPushButton, QLabel, QGroupBox, QTextEdit
-from PySide6.QtCore import Qt, QSize, QByteArray, QFile, QIODevice, QTimer, QEvent
+from PySide6.QtWidgets import QPushButton, QLabel, QGroupBox, QTextEdit, QSizePolicy, QComboBox, QFrame
+from PySide6.QtCore import Qt, QSize, QByteArray, QFile, QIODevice, QTimer, QEvent, QPoint
 from PySide6.QtGui import QTextCursor, QIcon, QColor, QPixmap, QPainter
 from PySide6.QtSvg import QSvgRenderer # Import QSvgRenderer
 import time
@@ -17,76 +17,74 @@ import html
 # Moved here for encapsulation within the components module
 
 def create_colored_svg_icon(svg_resource_path: str, color: QColor, size: QSize = QSize(14, 14)) -> QIcon:
-    """
-    Loads an SVG from Qt resources, replaces 'currentColor' with the
-    specified color, renders it to a QPixmap, and returns a QIcon.
+    """Creates a colored SVG icon with comprehensive color replacement."""
+    icon = QIcon()
+    color_hex = color.name()
 
-    Args:
-        svg_resource_path: Path to the SVG in Qt resources (e.g., ":/icons/icon.svg").
-        color: The QColor to apply to the icon.
-        size: The desired QSize for the icon pixmap.
+    # First check if file exists
+    if not QFile.exists(svg_resource_path):
+        print(f"Error: SVG file not found: {svg_resource_path}")
+        return icon
 
-    Returns:
-        A QIcon containing the colored pixmap.
-    """
-    icon = QIcon() # Start with an empty icon
-
-    # Read the SVG data from resources
+    # Read SVG data
     file = QFile(svg_resource_path)
     if not file.open(QIODevice.OpenModeFlag.ReadOnly | QIODevice.OpenModeFlag.Text):
         print(f"Error: Could not open resource file: {svg_resource_path}")
-        return icon # Return empty icon
+        return icon
 
     svg_data_bytes = file.readAll()
     file.close()
 
-    if not svg_data_bytes:
-        print(f"Error: Resource file is empty: {svg_resource_path}")
-        return icon
-
     try:
-        # Decode to string (assuming UTF-8)
         svg_content = svg_data_bytes.data().decode('utf-8')
 
-        # --- Replace "currentColor" with the target color hex string ---
-        color_hex = color.name() # e.g., "#ffffff"
-        pattern = re.compile(r'(stroke|fill)=["\']currentColor["\']', re.IGNORECASE)
-        modified_svg_content = pattern.sub(fr'\1="{color_hex}"', svg_content)
+        # Store original for comparison
+        original_content = svg_content
 
-        if modified_svg_content == svg_content:
-             # Fallback: If currentColor isn't found, try replacing common default colors
-             # like black (#000, #000000) if the target color isn't black itself.
-             if color != Qt.GlobalColor.black:
-                  pattern_black = re.compile(r'(stroke|fill)=["\'](#000000|#000|black)["\']', re.IGNORECASE)
-                  modified_svg_content = pattern_black.sub(fr'\1="{color_hex}"', modified_svg_content)
+        # Handle multiple color formats
+        replacements = [
+            # Handle currentColor
+            (r'(stroke|fill)=["\']currentColor["\']', fr'\1="{color_hex}"'),
+            # Handle fill="#000" format
+            (r'(fill|stroke)=["\'](#000000|#000|black)["\']', fr'\1="{color_hex}"'),
+            # Handle style="fill:#000" format
+            (r'style=["\']([^"\']*)(fill|stroke):(#000000|#000|black)([^"\']*)["\']', fr'style="\1\2:{color_hex}\4"'),
+            # Handle rgb format
+            (r'(fill|stroke)=["\'](rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))["\']', fr'\1="{color_hex}"'),
+            # Handle rgba format
+            (r'(fill|stroke)=["\'](rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*[0-9.]+\s*\))["\']', fr'\1="{color_hex}"')
+        ]
 
-             if modified_svg_content == svg_content: # Still no change? Log warning.
-                 print(f"Warning: Could not find 'currentColor' or common defaults to replace in {svg_resource_path}. Icon might not be colored.")
+        # Apply all replacements
+        for pattern, replacement in replacements:
+            svg_content = re.sub(pattern, replacement, svg_content)
 
-        # --- Render the modified SVG ---
-        renderer = QSvgRenderer(QByteArray(modified_svg_content.encode('utf-8')))
+        # Debug: Check if any substitutions were made
+        if svg_content == original_content:
+            print(f"Warning: No color substitutions made in SVG: {svg_resource_path}")
+            # If critical (like logo), you could add more detailed logging here
+            # Add sample of SVG content: print(f"SVG content sample: {svg_content[:100]}...")
+
+        # Render SVG
+        renderer = QSvgRenderer(QByteArray(svg_content.encode('utf-8')))
         if not renderer.isValid():
-             print(f"Error: Modified SVG data is invalid for {svg_resource_path}")
-             return icon # Return empty icon
+            print(f"Error: Modified SVG data is invalid for {svg_resource_path}")
+            return icon
 
-        # Create pixmap to render onto
-        pixmap = QPixmap(size) # Render at the target size
-        pixmap.fill(Qt.GlobalColor.transparent) # Start transparent
+        # Create pixmap with transparent background
+        pixmap = QPixmap(size)
+        pixmap.fill(Qt.GlobalColor.transparent)
 
-        # Paint the rendered SVG onto the pixmap
+        # Paint SVG onto pixmap
         painter = QPainter(pixmap)
-        # Ensure aspect ratio is maintained and rendering is smooth
-        renderer.render(painter, pixmap.rect())
+        renderer.render(painter)
         painter.end()
 
-        # Create QIcon from the colored pixmap
-        icon = QIcon(pixmap)
+        return QIcon(pixmap)
 
     except Exception as e:
-        print(f"Error processing SVG {svg_resource_path}: {e}") # Add logging
-
-    return icon
-
+        print(f"Error processing SVG {svg_resource_path}: {e}")
+        return icon
 # --- Base Class for Consistent Icon Handling (Optional but good practice) ---
 
 class BaseStyledButton(QPushButton):
@@ -217,6 +215,39 @@ class SecondaryButton(BaseStyledButton):
                          dark_theme_icon_color=SecondaryButton.DEFAULT_DARK_ICON_COLOR,
                          icon_path=icon, parent=parent)
 
+# --- Icon Button ---
+class IconButton(BaseStyledButton):
+    """A button primarily intended to display just an icon, text is empty."""
+    ICON_SIZE = QSize(16, 16)  # Default icon size for these specific buttons, can be overridden
+
+    # Define default icon colors - these will often be neutral as the button background is transparent/subtle
+    DEFAULT_LIGHT_ICON_COLOR = QColor("#495057")  # A fairly dark gray for light theme
+    DEFAULT_DARK_ICON_COLOR = QColor("#adb5bd")  # A light gray for dark theme
+
+    def __init__(self, icon_path: str, tooltip: str = "",
+                 icon_size: QSize = QSize(16, 16),
+                 parent=None):
+        # Remove icon_size from super() call since parent doesn't accept it
+        super().__init__(
+            text="",
+            css_class="iconButtonBare",
+            light_theme_icon_color=IconButton.DEFAULT_LIGHT_ICON_COLOR,
+            dark_theme_icon_color=IconButton.DEFAULT_DARK_ICON_COLOR,
+            icon_path=icon_path,
+            parent=parent
+        )
+        # Set ICON_SIZE class variable instead
+        self.ICON_SIZE = icon_size
+        if tooltip:
+            self.setToolTip(tooltip)
+
+        # IconButtons often have a fixed square-ish size based on their icon + padding
+        # This can be set here, or controlled by QSS min-width/min-height/padding on class "iconButtonBare"
+        effective_size = icon_size.width() + 8  # Example: 4px padding around 16px icon = 24px button
+        self.setFixedSize(QSize(effective_size, effective_size))
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+
 # --- GroupHeader ---
 class GroupHeader(QGroupBox):
     def __init__(self, title, parent=None):
@@ -276,3 +307,4 @@ class LogDisplay(QTextEdit):
         if scroll_at_bottom or is_first_message:
             QTimer.singleShot(0, lambda: scrollbar.setValue(scrollbar.maximum()))
         # --- End Force Scroll ---
+

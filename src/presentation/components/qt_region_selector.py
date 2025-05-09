@@ -157,7 +157,6 @@ class QtRegionSelector(QMainWindow):
              # Note: The visual "clearing" is handled by the rubber band now.
              # The manual clearing in paintEvent is removed as QRubberBand handles it better.
 
-
     def mousePressEvent(self, event):
         """Start selection."""
         if event.button() == Qt.LeftButton:

@@ -9,6 +9,8 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from src.domain.services.i_cold_turkey_service import IColdTurkeyService
 # --- Application Imports ---
 from PySide6.QtWidgets import QApplication
+
+from src.domain.services.i_history_service import IHistoryService
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_monitoring_service import IMonitoringService
 from src.domain.services.i_lockout_service import ILockoutService # If manual flatten needed
@@ -73,6 +75,7 @@ class DashboardViewModel(QObject):
                  region_service: IRegionService,
                  profile_service: IProfileService,
                  cold_turkey_service: IColdTurkeyService, # Ensure this is included
+                 history_service: IHistoryService,  # <-- ADD PARAMETER
                  parent: Optional[QObject] = None):
         """
         Initialize the DashboardViewModel.
@@ -90,9 +93,11 @@ class DashboardViewModel(QObject):
         self._region_service = region_service
         self._profile_service = profile_service
         self._cold_turkey_service = cold_turkey_service # Store it
+        self._history_service = history_service  # <-- STORE INSTANCE
 
         # --- Internal State Attributes ---
         self._selected_platform: Optional[str] = None
+        self._current_session_id: Optional[str] = None  # <-- ADDED: Track active session ID
         self._is_monitoring_globally_active: bool = False
         self._monitoring_platform: Optional[str] = None
         self._current_pnl_text: str = "N/A"
@@ -106,21 +111,26 @@ class DashboardViewModel(QObject):
         self._flatten_regions_defined: bool = False
         self._last_monitor_result: Optional[MonitoringResult] = None
         # --- Pre-req checklsit counter thing
-        self._prerequisite_states: Dict[str, str] = {}  # Stores state like "ok", "error" for each key
-        self._total_prerequisites_count = 6  # Based on your prerequisite_keys list
-        # Or calculate dynamically if the list can change
-        self._prerequisite_keys_list = [  # Store this for easy iteration
-            "monitor_region", "ocr_profile", "ct_path",
-            "ct_block_name", "ct_verified", "flatten_regions"
-        ]
 
+        # Or calculate dynamically if the list can change
+        self._prerequisite_keys_list = [
+            "ct_path",
+            "ct_block_setup",
+            "monitor_region",
+            "flatten_regions",
+            "pnl_detector"  # <<< CHANGED from pnl_value_reader (was ocr_profile)
+        ]
+        self._prerequisite_states: Dict[str, str] = {key: "pending" for key in
+                                                     self._prerequisite_keys_list}  # Stores state like "ok", "error" for each key
+        self._total_prerequisites_count = len(self._prerequisite_keys_list)  # Based on your prerequisite_keys list
 
         # --- Initialization ---
         self._logger.debug("Initializing DashboardViewModel...")
-        # Register listener for platform changes
         self._platform_selection_service.register_platform_change_listener(
             self._handle_platform_selection_change
         )
+        initial_platform = self._platform_selection_service.get_current_platform()
+        self._update_state_for_platform(initial_platform)
         # Load initial data for the currently selected platform
         initial_platform = self._platform_selection_service.get_current_platform()
         self._update_state_for_platform(initial_platform) # This now triggers prerequisite updates too
@@ -157,33 +167,49 @@ class DashboardViewModel(QObject):
     def start_monitoring(self):
         """Starts monitoring for the currently selected platform."""
         if not self._selected_platform:
-            self.status_message_changed.emit("No platform selected.", "ERROR");
+            self.status_message_changed.emit("No platform selected.", "ERROR")
             return
         if self._is_monitoring_globally_active:
-            self.status_message_changed.emit(f"Monitoring already active for {self._monitoring_platform}.", "WARNING");
+            self.status_message_changed.emit(f"Monitoring already active for {self._monitoring_platform}.", "WARNING")
             return
+
+        # --- Get platform-specific threshold and global interval FIRST ---
+        threshold_res = self._config_repo.get_platform_stop_loss_threshold(self._selected_platform)
+        if threshold_res.is_failure:
+            err_msg = f"Error getting threshold for {self._selected_platform}: {threshold_res.error}"
+            self.status_message_changed.emit(err_msg, "ERROR")
+            self.activity_log_appended.emit(err_msg, "ERROR")
+            self._logger.error(err_msg)
+            return
+        platform_threshold = threshold_res.value  # Now defined
+
+        interval = self._config_repo.get_global_setting("monitor_interval_seconds", 2.0)
+        # --- End fetching config ---
 
         self.status_message_changed.emit(f"Starting monitoring for {self._selected_platform}...", "INFO")
         self.activity_log_appended.emit(f"Starting monitoring for {self._selected_platform}...", "INFO")
+        self._logger.info(
+            f"Attempting to start monitoring for {self._selected_platform} with threshold {platform_threshold}, interval {interval}s")
 
-        # --- Use NEW platform-specific getter ---
-        threshold_res = self._config_repo.get_platform_stop_loss_threshold(self._selected_platform)
-        if threshold_res.is_failure:
-            # Cannot start monitoring without a threshold
-            self.status_message_changed.emit(
-                f"Error getting threshold for {self._selected_platform}: {threshold_res.error}", "ERROR")
-            self.activity_log_appended.emit(
-                f"Error getting threshold for {self._selected_platform}: {threshold_res.error}", "ERROR")
-            return
-        platform_threshold = threshold_res.value
-        # --- END NEW ---
+        # --- Start History Session ---
+        try:
+            self._current_session_id = self._history_service.start_session(
+                platform=self._selected_platform,
+                threshold=platform_threshold  # Use platform-specific threshold
+            )
+            self._logger.info(f"HistoryService started session: {self._current_session_id}")
+        except Exception as e_hist_start:
+            self._logger.error(f"CRITICAL: Failed to start history session: {e_hist_start}", exc_info=True)
+            self.status_message_changed.emit("Failed to start history session. Monitoring aborted.", "ERROR")
+            return  # Abort if history can't start
+        # --- End Start History Session ---
 
-        # Get global interval
-        interval = self._config_repo.get_global_setting("monitor_interval_seconds", 2.0)
-
+        # --- Call Monitoring Service ---
         start_result = self._monitoring_service.start_monitoring(
             platform=self._selected_platform,
-            threshold=platform_threshold,  # <<< Pass platform-specific threshold
+            threshold=platform_threshold,
+            session_id=self._current_session_id,  # Pass session_id
+            # history_service=self._history_service, # REMOVED - Worker gets it via DI or constructor
             interval_seconds=interval,
             on_status_update=self._handle_monitoring_status_update,
             on_threshold_exceeded=self._handle_threshold_exceeded,
@@ -192,53 +218,84 @@ class DashboardViewModel(QObject):
 
         # --- Update State Based on Result ---
         if start_result.is_success:
-            self._logger.info(f"Monitoring started successfully for {self._selected_platform}.")
-            # Update internal state ONLY after success
+            self._logger.info(f"Monitoring start request successful for {self._selected_platform}.")
             self._is_monitoring_globally_active = True
-            self._monitoring_platform = self._selected_platform # Track which platform is monitored
-            self.status_message_changed.emit(f"Monitoring active for {self._selected_platform}.", "INFO")
-            self._update_button_states() # Update button enable states
+            self._monitoring_platform = self._selected_platform
+            self._update_button_states()
         else:
             self._logger.error(f"Failed to start monitoring for {self._selected_platform}: {start_result.error}")
             self.status_message_changed.emit(f"Failed to start monitoring: {start_result.error}", "ERROR")
             self.activity_log_appended.emit(f"Failed to start monitoring: {start_result.error}", "ERROR")
-            # Ensure state reflects failure
+            # End failed history session
+            if self._current_session_id:
+                try:
+                    self._history_service.end_session(self._current_session_id, 0.0, False)
+                except Exception as e_hist_end:
+                    self._logger.error(
+                        f"Failed to end history session {self._current_session_id} after monitoring start failure: {e_hist_end}")
+                self._current_session_id = None
             self._is_monitoring_globally_active = False
             self._monitoring_platform = None
             self._update_button_states()
 
-
     @Slot()
     def stop_monitoring(self):
-        """Stops any active monitoring."""
         if not self._is_monitoring_globally_active:
             self.status_message_changed.emit("Monitoring is not active.", "WARNING")
             self._logger.warning("Stop monitoring requested but not active.")
             return
 
-        self._logger.info(f"Attempting to stop monitoring (was active for {self._monitoring_platform}).")
+        self._logger.info(f"User requested stop monitoring (was active for {self._monitoring_platform}).")
         self.status_message_changed.emit("Stopping monitoring...", "INFO")
         self.activity_log_appended.emit("Stopping monitoring...", "INFO")
 
-        stop_result = self._monitoring_service.stop_monitoring()
+        # --- Capture state needed for history BEFORE requesting stop ---
+        session_id_to_end = self._current_session_id
+        current_monitoring_platform_when_stopped = self._monitoring_platform
+        last_pnl_before_stop = 0.0
+        if self._last_monitor_result:  # self._last_monitor_result is updated by _handle_monitoring_result
+            last_pnl_before_stop = self._last_monitor_result.minimum_value
+        # --- End Capture State ---
 
-        # Update state regardless of result (to reflect intent)
+        stop_request_result = self._monitoring_service.stop_monitoring()  # Request worker to cancel
+
+        # --- End History Session for Normal Stop ---
+        if session_id_to_end:
+            try:
+                self._history_service.end_session(
+                    session_id=session_id_to_end,
+                    final_pnl=last_pnl_before_stop,
+                    lockout_triggered=False,
+                    final_screenshot_path=None  # No specific "lockout" screenshot on normal stop
+                )
+                self._logger.info(f"History session {session_id_to_end} ended due to manual stop.")
+            except Exception as e_hist_end:
+                self._logger.error(
+                    f"Failed to properly end history session {session_id_to_end} on normal stop: {e_hist_end}",
+                    exc_info=True)
+            self._current_session_id = None  # Clear stored session ID
+        else:
+            self._logger.warning("Stop monitoring called but no active session ID was tracked in ViewModel.")
+        # --- END End History Session ---
+
+        # Update internal state AFTER ending history session and processing stop_request_result
         self._is_monitoring_globally_active = False
-        stopped_platform = self._monitoring_platform
-        self._monitoring_platform = None
-        self._current_pnl_text = "N/A" # Reset P&L display
+        self._monitoring_platform = None  # Clear which platform *was* monitored
+        self._current_pnl_text = "N/A"
         self.current_pnl_text_changed.emit(self._current_pnl_text)
+        self._last_monitor_result = None
 
-        if stop_result.is_success:
-            self._logger.info(f"Monitoring stopped successfully for {stopped_platform}.")
+        if stop_request_result.is_success:
+            self._logger.info(
+                f"Monitoring stop request sent successfully for {current_monitoring_platform_when_stopped}.")
             self.status_message_changed.emit("Monitoring stopped.", "INFO")
             self.activity_log_appended.emit("Monitoring stopped.", "SUCCESS")
         else:
-            self._logger.error(f"Failed to stop monitoring gracefully: {stop_result.error}")
-            self.status_message_changed.emit(f"Monitoring stopped (with error: {stop_result.error}).", "WARNING")
-            self.activity_log_appended.emit(f"Error stopping monitoring: {stop_result.error}", "ERROR")
+            self._logger.error(f"Failed to send stop monitoring request gracefully: {stop_request_result.error}")
+            self.status_message_changed.emit(f"Monitoring stop request failed: ({stop_request_result.error}).",
+                                             "WARNING")
+            self.activity_log_appended.emit(f"Error sending stop request: {stop_request_result.error}", "ERROR")
 
-        # Update UI state
         self._update_button_states()
 
     @Slot()
@@ -477,13 +534,14 @@ class DashboardViewModel(QObject):
 
         # Add to recent alerts if it's a warning/error
         if level.upper() in ["WARNING", "ERROR"]:
-             timestamp = time.strftime("%H:%M:%S")
-             alert_msg = f"{timestamp}: {message}"
-             self._recent_alerts.append(alert_msg)
-             # Keep only last 5 alerts
-             if len(self._recent_alerts) > 5:
-                  self._recent_alerts = self._recent_alerts[-5:]
-             self.recent_alerts_updated.emit(self._recent_alerts.copy()) # Emit copy
+            timestamp = time.strftime("%H:%M:%S")
+            # Include level in the message for better type detection
+            alert_msg = f"{timestamp}: [{level.upper()}] {message}"
+            self._recent_alerts.append(alert_msg)
+            # Keep only last 5 alerts
+            if len(self._recent_alerts) > 5:
+                self._recent_alerts = self._recent_alerts[-5:]
+            self.recent_alerts_updated.emit(self._recent_alerts.copy())
 
     def _handle_monitoring_result(self, result: MonitoringResult):
         """Callback for when MonitoringService completes a check."""
@@ -499,77 +557,107 @@ class DashboardViewModel(QObject):
 
     def _handle_threshold_exceeded(self, result: MonitoringResult):
         """Callback for when MonitoringService detects threshold breach."""
-        active_monitoring_platform = self._monitoring_platform # Store before clearing state
+        active_monitoring_platform = self._monitoring_platform
 
-        self._logger.error(f"THRESHOLD EXCEEDED reported by MonitoringService! Value: {result.minimum_value}, Platform: {active_monitoring_platform}")
+        self._logger.error(
+            f"DashboardViewModel: THRESHOLD EXCEEDED! Value: {result.minimum_value}, Platform: {active_monitoring_platform}")
 
-        # --- Update internal state and UI signals ---
+        # --- End History Session for Lockout ---
+        session_id_to_end = self._current_session_id
+        final_screenshot_path_on_breach = result.screenshot_path
+
+        if session_id_to_end:
+            try:
+                self._history_service.end_session(
+                    session_id=session_id_to_end,
+                    final_pnl=result.minimum_value,
+                    lockout_triggered=True,
+                    final_screenshot_path=final_screenshot_path_on_breach
+                )
+                self._logger.info(f"History session {session_id_to_end} ended due to threshold exceeded.")
+            except Exception as e_hist_end:
+                self._logger.error(
+                    f"Failed to properly end history session {session_id_to_end} on threshold exceeded: {e_hist_end}",
+                    exc_info=True)
+            self._current_session_id = None
+        else:
+            self._logger.error(
+                "Threshold exceeded callback received, but no active session ID was tracked in ViewModel!")
+        # --- END End History Session ---
+
+        # --- Update internal state and UI signals AFTER ending history session ---
         self._is_monitoring_globally_active = False
-        self._monitoring_platform = None # Clear which platform IS monitored
+        self._monitoring_platform = None  # Clear this AFTER using it to get active_monitoring_platform
         self._current_pnl_text = f"LOCKOUT (${result.minimum_value:,.2f})"
         self.current_pnl_text_changed.emit(self._current_pnl_text)
+        self._last_monitor_result = None
 
-        # Add alert
+        # Add to UI alerts list
         timestamp = time.strftime("%H:%M:%S")
         alert_msg = f"{timestamp}: LOCKOUT TRIGGERED! P&L: ${result.minimum_value:.2f}"
         self._recent_alerts.append(alert_msg)
         if len(self._recent_alerts) > 5: self._recent_alerts = self._recent_alerts[-5:]
         self.recent_alerts_updated.emit(self._recent_alerts.copy())
 
-        # Log and update status bar
-        self.activity_log_appended.emit(f"THRESHOLD EXCEEDED! Detected: ${result.minimum_value:.2f}. Initiating lockout for {active_monitoring_platform}.", "ERROR")
+        self.activity_log_appended.emit(
+            f"THRESHOLD EXCEEDED! Detected: ${result.minimum_value:.2f}. Initiating lockout for {active_monitoring_platform}.",
+            "ERROR")  # Use original variable
         self.status_message_changed.emit("Lockout triggered!", "ERROR")
-        self._update_button_states() # Reflect inactive monitoring state
+        self._update_button_states()
 
 
         # --- Trigger automatic lockout ---
-        if active_monitoring_platform: # Ensure we know which platform triggered it
+        if active_monitoring_platform:  # Use original variable
             self._logger.info(f"Threshold exceeded for {active_monitoring_platform}. Triggering automatic lockout.")
-            self.activity_log_appended.emit(f"Initiating automatic lockout sequence for {active_monitoring_platform}...", "INFO")
-            # Fetch necessary data
-            duration = self._config_repo.get_lockout_duration()
-            flatten_res = self._region_service.get_regions_by_platform(active_monitoring_platform, "flatten")
+            self.activity_log_appended.emit(
+                f"Initiating automatic lockout sequence for {active_monitoring_platform}...", "INFO")
 
+            duration_res = self._config_repo.get_platform_lockout_duration(active_monitoring_platform)
+            if duration_res.is_failure:
+                self._logger.error(
+                    f"Could not get lockout duration for {active_monitoring_platform}: {duration_res.error}")
+                self.activity_log_appended.emit(f"LOCKOUT FAILED: Could not get duration.", "ERROR")
+                return
+            duration = duration_res.value
+
+            flatten_res = self._region_service.get_regions_by_platform(active_monitoring_platform, "flatten")
             if flatten_res.is_failure or not flatten_res.value:
                 err = flatten_res.error if flatten_res.is_failure else "No flatten regions found"
                 self._logger.error(f"Cannot perform automatic lockout: Failed to get flatten regions: {err}")
                 self.activity_log_appended.emit(f"LOCKOUT FAILED: Could not get flatten regions: {err}", "ERROR")
-                self.status_message_changed.emit(f"Lockout Failed: Missing flatten regions for {active_monitoring_platform}", "ERROR")
-                return # Stop if flatten regions are missing
+                self.status_message_changed.emit(
+                    f"Lockout Failed: Missing flatten regions for {active_monitoring_platform}", "ERROR")
+                return
 
-            # Format flatten positions
             flatten_positions_for_service = []
             for region in flatten_res.value:
                 x, y, w, h = region.coordinates
                 flatten_positions_for_service.append({"coords": (x, y, x + w, y + h)})
 
-            # Check fullscreen setting (example - adjust key if different)
             fullscreen_enabled = self._config_repo.get_global_setting("fullscreen_overlay", True)
 
-            # --- *** THE CRUCIAL CALL *** ---
-            # Call lockout service to perform the actual lockout
             lockout_start_res = self._lockout_service.perform_lockout(
                 platform=active_monitoring_platform,
                 flatten_positions=flatten_positions_for_service,
                 lockout_duration=duration,
                 fullscreen=fullscreen_enabled,
-                # Pass the status update callback so lockout steps are logged in UI
                 on_status_update=self._handle_monitoring_status_update
             )
-            # --- *** END CRUCIAL CALL *** ---
 
             if lockout_start_res.is_failure:
                 self._logger.error(f"Failed to initiate automatic lockout task: {lockout_start_res.error}")
                 self.activity_log_appended.emit(f"LOCKOUT START FAILED: {lockout_start_res.error}", "ERROR")
                 self.status_message_changed.emit(f"Lockout Start Failed: {lockout_start_res.error}", "ERROR")
             else:
-                self._logger.info(f"Automatic lockout sequence task initiated successfully for {active_monitoring_platform}.")
-                self.activity_log_appended.emit(f"Automatic lockout sequence initiated for {active_monitoring_platform}.", "INFO")
-                # Status bar already shows "Lockout triggered!"
+                self._logger.info(
+                    f"Automatic lockout sequence task initiated successfully for {active_monitoring_platform}.")
+                self.activity_log_appended.emit(
+                    f"Automatic lockout sequence initiated for {active_monitoring_platform}.", "INFO")
         else:
-             # This case should be rare if monitoring was active
-             self._logger.error("Threshold exceeded but could not determine which platform was being monitored. Lockout not triggered.")
-             self.activity_log_appended.emit("Threshold exceeded but monitoring platform unknown. Lockout skipped.", "ERROR")
+            self._logger.error(
+                "Threshold exceeded but could not determine which platform was being monitored. Lockout not triggered.")
+            self.activity_log_appended.emit("Threshold exceeded but monitoring platform unknown. Lockout skipped.",
+                                            "ERROR")
 
     def _handle_monitoring_error(self, error_msg: str):
         """Callback for errors reported by MonitoringService."""
@@ -581,6 +669,28 @@ class DashboardViewModel(QObject):
         self._monitoring_platform = None
         self._current_pnl_text = "ERROR" # Update P&L display
         self.current_pnl_text_changed.emit(self._current_pnl_text)
+
+        # --- ADD End History Session ---
+        session_id_to_end = self._current_session_id
+        if session_id_to_end:
+            last_pnl = 0.0  # Placeholder - ideally get from last recorded history point?
+            if self._last_monitor_result:  # Use the VM's tracking if available
+                last_pnl = self._last_monitor_result.minimum_value
+
+            try:
+                self._history_service.end_session(
+                    session_id=session_id_to_end,
+                    final_pnl=last_pnl,
+                    lockout_triggered=False,  # Error, not lockout
+                    final_screenshot_path=None
+                )
+            except Exception as e_hist_end:
+                self._logger.error(f"Failed to properly end history session {session_id_to_end} on error: {e_hist_end}",
+                                   exc_info=True)
+            self._current_session_id = None  # Clear stored session ID
+        else:
+            self._logger.error("Monitoring error occurred but no active session ID found in ViewModel!")
+        # --- END End History Session ---
 
         # Add alert
         timestamp = time.strftime("%H:%M:%S")
@@ -595,97 +705,98 @@ class DashboardViewModel(QObject):
         self._update_button_states()
 
     def _update_prerequisite_statuses(self, platform: Optional[str]):
-        """Checks prerequisites for the given platform, emits status signals, and updates completion badge."""
         if not platform:
             for key in self._prerequisite_keys_list:
-                # Update internal state first
                 self._prerequisite_states[key] = "info"
+                # ViewModel now sends only the status description for "no platform"
                 self.prerequisite_status_updated.emit(key, "Select Platform", "info", False)
-            self._update_prerequisite_completion_badge() # Update badge based on new states
+            self._update_prerequisite_completion_badge()
             return
 
-        self._logger.debug(f"Dashboard VM: Updating prerequisite checks for {platform}")
+        self._logger.debug(f"Dashboard VM: Updating prerequisite checks for {platform} (Simplified Text)")
 
-        # --- Define checks and update self._prerequisite_states before emitting ---
+        # --- 1. Cold Turkey Path ---
+        ct_path_ok = self._cold_turkey_service.is_blocker_path_configured()
+        self._prerequisite_states["ct_path"] = "ok" if ct_path_ok else "error"
+        status_desc_ctp = "Set"
+        if not ct_path_ok:
+            ct_path_val = self._config_repo.get_cold_turkey_path()
+            status_desc_ctp = "Not Set" if not ct_path_val else "Invalid/Missing"
+        self.prerequisite_status_updated.emit(  # Emitting status_desc_ctp as status_text
+            "ct_path", status_desc_ctp, self._prerequisite_states["ct_path"], not ct_path_ok
+        )
 
-        # 1. P&L Monitor Region
+        # --- 2. Cold Turkey Block Setup ---
+        ct_block_setup_state = "error";
+        status_desc_ct_block = "Path Not Set";
+        ct_block_setup_show_action = True
+        if ct_path_ok:
+            platform_settings = self._config_repo.get_platform_settings(platform)
+            block_name = platform_settings.get("cold_turkey_block_name")
+            if not block_name:
+                status_desc_ct_block = "Block Name Not Set"
+            else:
+                verified_block_res = self._config_repo.get_verified_block(platform)
+                if verified_block_res.is_success and verified_block_res.value:
+                    if verified_block_res.value == block_name:
+                        status_desc_ct_block = f"Verified (Block: {block_name})"
+                        ct_block_setup_state = "ok";
+                        ct_block_setup_show_action = False
+                    else:
+                        status_desc_ct_block = f"Mismatch! Set: '{block_name}', Verified: '{verified_block_res.value}'"
+                else:
+                    status_desc_ct_block = f"Not Verified (Block: {block_name})"
+        self._prerequisite_states["ct_block_setup"] = ct_block_setup_state
+        self.prerequisite_status_updated.emit(
+            "ct_block_setup", status_desc_ct_block, ct_block_setup_state, ct_block_setup_show_action
+        )
+
+        # --- 3. P&L Monitor Region ---
         region_res = self._region_service.get_monitor_region(platform)
         region_defined = region_res.is_success and region_res.value is not None
         self._prerequisite_states["monitor_region"] = "ok" if region_defined else "error"
+        status_desc_mr = "Defined" if region_defined else "Not Defined"
         self.prerequisite_status_updated.emit(
-            "monitor_region",
-            "P&L Region Defined" if region_defined else "P&L Region Not Defined",
-            self._prerequisite_states["monitor_region"],
-            not region_defined  # show_action
+            "monitor_region", status_desc_mr, self._prerequisite_states["monitor_region"], not region_defined
         )
 
-        # 2. Cold Turkey Path
-        ct_path_ok = self._cold_turkey_service.is_blocker_path_configured()
-        self._prerequisite_states["ct_path"] = "ok" if ct_path_ok else "error"
-        ct_path_text = "Cold Turkey Path Set"
-        if not ct_path_ok:
-            ct_path_val = self._config_repo.get_cold_turkey_path()
-            ct_path_text = "Cold Turkey Path Not Set" if not ct_path_val else "Cold Turkey Path Invalid/Missing"
-        self.prerequisite_status_updated.emit(
-            "ct_path", ct_path_text, self._prerequisite_states["ct_path"], not ct_path_ok
-        )
-
-        # 3. CT Block Name
-        settings = self._config_repo.get_platform_settings(platform)
-        block_name_set = bool(settings.get("cold_turkey_block_name"))
-        self._prerequisite_states["ct_block_name"] = "ok" if block_name_set else "error"
-        self.prerequisite_status_updated.emit(
-            "ct_block_name",
-            "CT Block Name Set" if block_name_set else "CT Block Name Not Set",
-            self._prerequisite_states["ct_block_name"],
-            not block_name_set
-        )
-
-        # 4. CT Block Verification
-        verified_block_res = self._config_repo.get_verified_block(platform)
-        is_verified = verified_block_res.is_success and verified_block_res.value is not None
-        self._prerequisite_states["ct_verified"] = "ok" if is_verified else "error"
-        verified_text = f"CT Block Verified ({verified_block_res.value})" if is_verified else "CT Block Not Verified"
-        can_verify_now = ct_path_ok and block_name_set  # Verification depends on path and name
-        self.prerequisite_status_updated.emit(
-            "ct_verified", verified_text, self._prerequisite_states["ct_verified"], (not is_verified and can_verify_now)
-        )
-
-        # 5. Flatten Regions
+        # --- 4. Flatten Regions ---
         flatten_res = self._region_service.get_regions_by_platform(platform, "flatten")
         flatten_defined = flatten_res.is_success and bool(flatten_res.value)
-        self._prerequisite_states["flatten_regions"] = "ok" if flatten_defined else "warning"  # Warning, not error
+        self._prerequisite_states["flatten_regions"] = "ok" if flatten_defined else "warning"
+        status_desc_fr = "Defined" if flatten_defined else "Missing (Optional for lockout)"
         self.prerequisite_status_updated.emit(
-            "flatten_regions",
-            "Flatten Regions Defined" if flatten_defined else "Flatten Regions Missing",
-            self._prerequisite_states["flatten_regions"],
-            not flatten_defined  # show_action (to go add them)
+            "flatten_regions", status_desc_fr, self._prerequisite_states["flatten_regions"], not flatten_defined
         )
 
-        # 6. OCR Profile
+        # --- 5. P&L Detector ---
         profile_res = self._profile_service.get_profile(platform)
-        ocr_status_text = "N/A"
-        ocr_state = "error"  # Default to error
-        ocr_show_action = False  # Default
-        if profile_res.is_success and profile_res.value:  # Check profile_res.value
-            # TODO: Add more sophisticated check for "default" vs "calibrated" if needed
-            ocr_status_text = "OCR Profile Loaded"
-            ocr_state = "ok"
-            # ocr_show_action = False # Typically don't need action if loaded and OK
+        status_desc_pnl_detector = "Configuration Error";
+        pnl_detector_state = "error";
+        pnl_detector_show_action = True
+        if profile_res.is_success and profile_res.value:
+            is_default_patterns = False
+            try:
+                default_patterns = self._profile_service._get_default_patterns_for_platform(platform)
+                if profile_res.value.numeric_patterns == default_patterns or not profile_res.value.numeric_patterns:
+                    is_default_patterns = True
+            except AttributeError:
+                self._logger.warning("Cannot check P&L Detector patterns")
+            if is_default_patterns:
+                status_desc_pnl_detector = "Default Settings (Calibration Recommended)";
+                pnl_detector_state = "warning"
+            else:
+                status_desc_pnl_detector = "Custom Settings Applied";
+                pnl_detector_state = "ok";
+                pnl_detector_show_action = True
         else:
-            ocr_status_text = "OCR Profile Error/Missing"
-            ocr_state = "error"
-            ocr_show_action = True  # Show action to calibrate/create
-
-        self._prerequisite_states["ocr_profile"] = ocr_state
+            status_desc_pnl_detector = "Not Configured"
+        self._prerequisite_states["pnl_detector"] = pnl_detector_state
         self.prerequisite_status_updated.emit(
-            "ocr_profile", ocr_status_text, ocr_state, ocr_show_action
+            "pnl_detector", status_desc_pnl_detector, pnl_detector_state, pnl_detector_show_action
         )
 
-        # --- After all individual statuses are updated, update the completion badge ---
         self._update_prerequisite_completion_badge()
-
-        # --- NEW Method to calculate and emit completion status ---
 
     def _update_prerequisite_completion_badge(self):
         """Calculates prerequisite completion and emits the signal."""

@@ -28,7 +28,6 @@ class MainViewModel(QObject): # Ensure QObject inheritance
     summary_region_changed = Signal(str)
     summary_threshold_changed = Signal(str)
     summary_duration_changed = Signal(str)
-    summary_patterns_changed = Signal(str)
 
     current_theme_changed = Signal(str)     # Emits "light" or "dark"
     theme_refresh_requested = Signal()      # <<< THIS SIGNAL MUST BE HERE
@@ -55,7 +54,6 @@ class MainViewModel(QObject): # Ensure QObject inheritance
         self._summary_region_text: str = "N/A"
         self._summary_threshold_text: str = "N/A"
         self._summary_duration_text: str = "N/A"
-        self._summary_patterns_text: str = "N/A"
 
         self._logger.debug("Initializing MainViewModel...")
 
@@ -104,13 +102,15 @@ class MainViewModel(QObject): # Ensure QObject inheritance
         from src.presentation.views.main_view import MainView
         from src.presentation.views.dashboard_view import DashboardView
         from src.presentation.views.settings_view import SettingsView
-        from src.presentation.views.region_setup_view import RegionSetupView
-        from src.presentation.views.ocr_calibration_view import OcrCalibrationView
+        from src.presentation.views.visual_setup_view import VisualSetupView  # <<< ADD NEW VIEW
         from src.presentation.views.history_view import HistoryView
 
         target_view_types = (
-            MainView, DashboardView, SettingsView, RegionSetupView,
-            OcrCalibrationView, HistoryView
+            MainView,
+            DashboardView,
+            VisualSetupView,  # <<< ADD NEW VIEW TO TUPLE
+            SettingsView,
+            HistoryView
         )
         widgets_to_process = list(root_widgets)
         processed_widgets = set()
@@ -148,29 +148,48 @@ class MainViewModel(QObject): # Ensure QObject inheritance
 
     @Slot()
     def refresh_summary_data(self):
-         self._logger.debug(f"Explicit refresh summary data requested for {self._selected_platform}")
-         self._update_summary(self._selected_platform)
+        """
+        Recalculates summary data for the current platform and emits signals
+        to update the UI. This slot is typically called by other ViewModels
+        when their actions might affect the summary display.
+        """
+        self._logger.debug(
+            f"MainViewModel: Explicit refresh summary data requested for platform: '{self._selected_platform or 'None'}'")
+        self._update_summary(self._selected_platform)
+        # No need to call refresh_ui_signals() here IF _update_summary now emits signals directly.
+        # If _update_summary ONLY updates internal variables, then refresh_ui_signals() IS needed here.
+        # Let's assume _update_summary will now emit directly for clarity.
 
     @Slot()
     def refresh_ui_signals(self):
-        self._logger.debug(f"MainViewModel Refreshing UI signals for {self._selected_platform or 'None'}")
+        """
+        Emits all signals reflecting the current state for initial MainView UI sync
+        or full UI refresh.
+        """
+        self._logger.debug(
+            f"MainViewModel: Refreshing all UI signals for platform: '{self._selected_platform or 'None'}'")
+
         self.available_platforms_changed.emit(self._available_platforms)
-        self.selected_platform_changed.emit(self._selected_platform or "")
+        self.selected_platform_changed.emit(self._selected_platform or "")  # For combo box sync
+
+        # Emit summary signals (they will use the latest values from _summary_..._text attributes)
         self.summary_region_changed.emit(self._summary_region_text)
         self.summary_threshold_changed.emit(self._summary_threshold_text)
         self.summary_duration_changed.emit(self._summary_duration_text)
-        self.summary_patterns_changed.emit(self._summary_patterns_text)
-        self.current_theme_changed.emit(self._current_theme)
+        # self.summary_patterns_changed.emit(self._summary_patterns_text) # REMOVED
+
+        self.current_theme_changed.emit(self._current_theme)  # For theme toggle button & view properties
 
     @Slot(str)
     def _handle_platform_change_from_service(self, platform: str):
-        self._logger.debug(f"MainViewModel: Received platform change from service: {platform}")
-        if platform != self._selected_platform:
+        self._logger.debug(f"MainViewModel: Received platform change from service: '{platform}'")
+        if platform != self._selected_platform or self._selected_platform is None:
             self._selected_platform = platform
-            self.selected_platform_changed.emit(platform or "")
-            self._update_summary(platform)
+            # selected_platform_changed is emitted by refresh_ui_signals
+            self._update_summary(platform)  # This now emits summary_..._changed signals
+            self.refresh_ui_signals()  # Emits other UI states like available_platforms, selected_platform, current_theme
         else:
-            self._logger.debug("Platform change notification matches current state or platform is unchanged.")
+            self._logger.debug("Platform change notification matches current state. No update.")
 
     def _load_available_platforms(self):
         self._available_platforms = self._platform_selection_service.get_available_platforms()
@@ -184,39 +203,60 @@ class MainViewModel(QObject): # Ensure QObject inheritance
         self._update_summary(initial_platform)
 
     def _update_summary(self, platform: Optional[str]):
-        self._logger.debug(f"Updating summary display for platform: {platform or 'None'}")
+        """
+        Updates internal summary state variables and emits corresponding signals
+        for the status bar display.
+        """
+        self._logger.debug(f"MainViewModel: Updating summary for status bar. Platform: '{platform or 'None'}'")
+
+        # Store previous values to only emit if changed (optional optimization)
+        # prev_region_text = self._summary_region_text
+        # prev_threshold_text = self._summary_threshold_text
+        # prev_duration_text = self._summary_duration_text
+
         if not platform:
-            self._summary_region_text = "N/A"
-            self._summary_threshold_text = "N/A"
-            self._summary_duration_text = "N/A"
-            self._summary_patterns_text = "N/A"
+            self._summary_region_text = "Region: N/A"
+            self._summary_threshold_text = "Threshold: N/A"
+            self._summary_duration_text = "Duration: N/A"
         else:
+            # Region Status
             region_res = self._region_service.get_monitor_region(platform)
-            if region_res.is_success and region_res.value:
-                coords = region_res.value.coordinates
-                self._summary_region_text = f"({coords[0]},{coords[1]},{coords[2]},{coords[3]})"
+            if region_res.is_success and region_res.value and region_res.value.coordinates:
+                self._summary_region_text = "Region: Defined"
             else:
-                self._summary_region_text = "Not Defined"
+                self._summary_region_text = "Region: Not Set"
 
+            # Threshold
             threshold_res = self._config_repo.get_platform_stop_loss_threshold(platform)
-            threshold_val = threshold_res.value if threshold_res.is_success else self._config_repo.DEFAULT_PLATFORM_THRESHOLD
-            self._summary_threshold_text = f"${threshold_val:,.2f}"
+            if threshold_res.is_success:
+                threshold_val = threshold_res.value
+            else:  # Fallback to default from config repo if possible, else hardcoded
+                threshold_val = getattr(self._config_repo, 'DEFAULT_PLATFORM_THRESHOLD', -0.0)  # Use 0 if no default
+                self._logger.warning(f"Could not get threshold for {platform}, using default/fallback: {threshold_val}")
+            self._summary_threshold_text = f"Threshold: ${threshold_val:,.2f}"
 
+            # Duration
             duration_res = self._config_repo.get_platform_lockout_duration(platform)
-            duration_val = duration_res.value if duration_res.is_success else self._config_repo.DEFAULT_PLATFORM_DURATION
-            self._summary_duration_text = f"{duration_val} min"
+            if duration_res.is_success:
+                duration_val = duration_res.value
+            else:  # Fallback
+                duration_val = getattr(self._config_repo, 'DEFAULT_PLATFORM_DURATION', 0)
+                self._logger.warning(f"Could not get duration for {platform}, using default/fallback: {duration_val}")
+            self._summary_duration_text = f"Duration: {duration_val} min"
 
-            profile_res = self._profile_service.get_profile(platform)
-            patterns_dict = {}
-            if profile_res.is_success and profile_res.value:
-                patterns_dict = profile_res.value.numeric_patterns or {}
-            self._summary_patterns_text = self._format_patterns_description(patterns_dict, platform)
+            # Patterns logic is removed from summary bar display
 
-        # No need to emit here if refresh_ui_signals covers these or they are set before view is shown
-        # self.summary_region_changed.emit(self._summary_region_text)
-        # self.summary_threshold_changed.emit(self._summary_threshold_text)
-        # self.summary_duration_changed.emit(self._summary_duration_text)
-        # self.summary_patterns_changed.emit(self._summary_patterns_text)
+        # Emit signals directly after updating internal values
+        # (Optional: Add checks to emit only if value changed from prev_..._text)
+        self.summary_region_changed.emit(self._summary_region_text)
+        self.summary_threshold_changed.emit(self._summary_threshold_text)
+        self.summary_duration_changed.emit(self._summary_duration_text)
+        # self.summary_patterns_changed.emit(self._summary_patterns_text) # REMOVED
+
+        self._logger.debug(f"MainViewModel: Summary updated and signals emitted: "
+                           f"Region='{self._summary_region_text}', "
+                           f"Threshold='{self._summary_threshold_text}', "
+                           f"Duration='{self._summary_duration_text}'")
 
     def _format_patterns_description(self, patterns: Dict[str, str], platform_name: Optional[str]) -> str:
         description = "N/A"

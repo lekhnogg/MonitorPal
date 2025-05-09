@@ -1,6 +1,6 @@
 # src/presentation/views/dashboard_view.py
 
-from typing import List, Dict, Any # Added Dict, Any
+from typing import List, Dict, Any, Optional, Tuple  # Added Dict, Any
 
 # --- Qt Imports ---
 from PySide6.QtWidgets import (
@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QPushButton, QGraphicsColorizeEffect, QGridLayout  # Added QGroupBox, QPushButton
 )
 from PySide6.QtCore import Slot, Qt, QTimer, Signal, QSize  # Added Signal
-from PySide6.QtGui import QFont, QColor, QPixmap
+from PySide6.QtGui import QFont, QColor, QPixmap, QIcon
 
 # --- Application Imports ---
 from src.presentation.view_models.dashboard_view_model import DashboardViewModel
@@ -25,9 +25,7 @@ class DashboardView(QWidget):
     """
     View for the Dashboard tab, displaying monitoring status and quick actions.
     """
-    # --- NEW Signal for Navigation ---
     request_tab_navigation = Signal(str) # Emits the target tab key (e.g., "Settings")
-    # --- END NEW ---
 
     def __init__(self, view_model: DashboardViewModel, parent: QWidget = None):
         """
@@ -39,17 +37,53 @@ class DashboardView(QWidget):
         """
         super().__init__(parent)
         self.view_model = view_model
-        self._setup_ui()
+
+        self.pnl_icon_label: Optional[QLabel] = None
+        self.pnl_display_label: Optional[QLabel] = None
+        self.status_icon_label: Optional[QLabel] = None
+        self.monitoring_status_label: Optional[QLabel] = None
+        self.region_icon_label: Optional[QLabel] = None
+        self.region_name_label: Optional[QLabel] = None
+        self.region_position_label: Optional[QLabel] = None
+        self.prereq_badge_label: Optional[QLabel] = None
+        self.alerts_list: Optional[QListWidget] = None
+        self.activity_log_display: Optional[LogDisplay] = None
+        self.start_button: Optional[ActionButton] = None
+        self.stop_button: Optional[DangerButton] = None
+        self.flash_button: Optional[StyledButton] = None
+
+        # --- Crucially, initialize prereq_widgets and prerequisite_setup_data HERE ---
+        self.prereq_widgets: Dict[str, Dict[str, Any]] = {}
+        self.prerequisite_setup_data: List[Tuple[str, str]] = [
+            ("ct_path", "Cold Turkey Application Path"),
+            ("ct_block_setup", "Cold Turkey Trading Block"),
+            ("monitor_region", "P&L Monitor Region"),
+            ("flatten_regions", "Flatten Position Regions"),
+            ("pnl_detector", "P&L Detector"),
+        ]
+
+        self._setup_ui()  # This method will now populate self.prereq_widgets
         self._connect_signals()
-        # Schedule the VM to emit its initial state signals shortly after setup
-        self.view_model._logger.debug("View: Scheduling initial UI refresh via VM.refresh_ui_signals.")
-        QTimer.singleShot(0, self.view_model.refresh_ui_signals)
 
-    # In src/presentation/views/dashboard_view.py
+        # Schedule the VM to emit its initial state signals
+        if hasattr(self.view_model, '_logger') and self.view_model._logger:  # Safety check
+            self.view_model._logger.debug("DashboardView: Scheduling initial UI refresh via VM.refresh_ui_signals.")
+        else:
+            print("DEBUG: DashboardView.__init__ - ViewModel has no _logger attribute or it's None.")
 
-    # ... (imports should be fine, make sure QPixmap is imported if not already from PySide6.QtGui)
-    from PySide6.QtGui import QPixmap, QColor  # QColor might be needed for _update_alerts_list
-    # ...
+        # Ensure view_model is not None before accessing refresh_ui_signals
+        if self.view_model and hasattr(self.view_model, 'refresh_ui_signals'):
+            QTimer.singleShot(0, self.view_model.refresh_ui_signals)
+        elif self.view_model:
+            # Log if the method is missing, which would be a critical error
+            if hasattr(self.view_model, '_logger') and self.view_model._logger:
+                self.view_model._logger.error("DashboardViewModel is missing 'refresh_ui_signals' method!")
+            else:
+                print("ERROR: DashboardViewModel is missing 'refresh_ui_signals' method!")
+        else:
+            # This case should ideally not happen if __init__ receives a valid view_model
+            print("ERROR: DashboardView initialized with no ViewModel!")
+
 
     def _setup_ui(self):
         """Creates and arranges the UI elements for the dashboard."""
@@ -57,15 +91,6 @@ class DashboardView(QWidget):
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(15)
 
-        # The 'darkTheme' property on self (DashboardView instance) is still important.
-        # It's set by MainViewModel and allows QSS rules like:
-        # QWidget[darkTheme="true"] { background-color: #111827; }
-        # to apply to the base of this view if not overridden by more specific panel styles.
-        # The line `self.setProperty("darkTheme", "true")` that was here before
-        # should ideally be removed, as the MainViewModel now controls this property for all views
-        # dynamically based on the actual selected theme.
-        # If it's causing issues by being hardcoded, ensure it's removed and relies on
-        # MainViewModel setting it. For now, I'll assume it's managed externally.
 
         # -----------------------------------------
         # --- Status Cards (Top Row) ---
@@ -181,8 +206,8 @@ class DashboardView(QWidget):
         # --- Prerequisites Panel ---
         # -----------------------------------------
         prereq_panel = QFrame()
-        prereq_panel.setObjectName("prereqPanel")  # Keep specific objectName
-        prereq_panel.setProperty("class", "contentSectionPanel")  # <<< CHANGED
+        prereq_panel.setObjectName("prereqPanel")
+        prereq_panel.setProperty("class", "contentSectionPanel")  # Neutral class name
         prereq_layout = QVBoxLayout(prereq_panel)
         prereq_layout.setContentsMargins(15, 15, 15, 15)
         prereq_layout.setSpacing(8)
@@ -193,42 +218,49 @@ class DashboardView(QWidget):
         prereq_header_layout.addWidget(prereq_title)
         prereq_header_layout.addStretch(1)
 
-        self.prereq_badge_label = QLabel("Loading...")
+        self.prereq_badge_label = QLabel("Loading...")  # Initialized in __init__
         self.prereq_badge_label.setObjectName("prereqBadge")
         prereq_header_layout.addWidget(self.prereq_badge_label)
         prereq_layout.addLayout(prereq_header_layout)
 
-        prereq_divider = QFrame();
-        prereq_divider.setFrameShape(QFrame.Shape.HLine)  # Use Shape enum
-        prereq_divider.setFrameShadow(QFrame.Shadow.Sunken);
+        prereq_divider = QFrame()
+        prereq_divider.setFrameShape(QFrame.Shape.HLine)
+        prereq_divider.setFrameShadow(QFrame.Shadow.Sunken)
         prereq_divider.setObjectName("panelDivider")
         prereq_layout.addWidget(prereq_divider)
 
-        self.prereq_widgets: Dict[str, Dict[str, Any]] = {}
-        prerequisite_keys = [
-            ("monitor_region", "P&L Monitor Region"), ("ocr_profile", "OCR Profile"),
-            ("ct_path", "Cold Turkey Path"), ("ct_block_name", "CT Block Name"),
-            ("ct_verified", "CT Block Verified"), ("flatten_regions", "Flatten Regions"),
-        ]
-        for key, display_name in prerequisite_keys:
+        # self.prereq_widgets is already an instance dict: {}
+        # self.prerequisite_setup_data is an instance list of tuples
+        for key, display_name_in_ui in self.prerequisite_setup_data:  # Use instance attribute
             row_layout = QHBoxLayout();
             row_layout.setSpacing(6)
+
             icon_label = QLabel();
             icon_label.setFixedSize(18, 18)
             icon_label.setObjectName(f"prereqIcon_{key}");
             icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             row_layout.addWidget(icon_label)
-            status_label = QLabel(f"{display_name}: Loading...");
+
+            status_label = QLabel(f"{display_name_in_ui}: Loading...")
             status_label.setObjectName(f"prereqText_{key}")
+            status_label.setWordWrap(True)
             row_layout.addWidget(status_label, 1)
-            action_button = SecondaryButton("Go to Setup");
+
+            action_button = SecondaryButton("...")  # Placeholder text
             action_button.setObjectName(f"prereqAction_{key}")
             action_button.setVisible(False);
             action_button.setMinimumWidth(90)
-            action_button.setStyleSheet("padding-top: 1px; padding-bottom: 1px;")
+            action_button.setStyleSheet("padding-top: 1px; padding-bottom: 1px;")  # Specific override
             row_layout.addWidget(action_button)
+
             prereq_layout.addLayout(row_layout)
-            self.prereq_widgets[key] = {"icon": icon_label, "text": status_label, "button": action_button}
+            # Populate the instance dictionary
+            self.prereq_widgets[key] = {
+                "icon": icon_label,
+                "text": status_label,
+                "display_name": display_name_in_ui,  # Store for _update_prerequisite_row
+                "button": action_button
+            }
         prereq_layout.addStretch(1)
         main_content_layout.addWidget(prereq_panel, 0, 0, 2, 1)
 
@@ -287,31 +319,6 @@ class DashboardView(QWidget):
         main_content_layout.addWidget(actions_panel, 0, 1)  # Add to the grid
 
         # -----------------------------------------
-        # --- P&L Trend Chart Panel ---
-        # -----------------------------------------
-        chart_panel = QFrame()
-        chart_panel.setObjectName("chartPanel")  # Keep specific objectName
-        chart_panel.setProperty("class", "contentSectionPanel")  # <<< CHANGED
-        chart_layout = QVBoxLayout(chart_panel)
-        chart_layout.setContentsMargins(15, 15, 15, 15);
-        chart_layout.setSpacing(8)
-
-        chart_title = QLabel("P&L TREND");
-        chart_title.setProperty("class", "panelTitle")
-        chart_layout.addWidget(chart_title)
-        chart_divider = QFrame();
-        chart_divider.setFrameShape(QFrame.Shape.HLine)
-        chart_divider.setFrameShadow(QFrame.Shadow.Sunken);
-        chart_divider.setObjectName("panelDivider")
-        chart_layout.addWidget(chart_divider)
-        self.graph_placeholder = QLabel("[ P&L Graph Area ]");
-        self.graph_placeholder.setObjectName("graphPlaceholder")
-        self.graph_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter);
-        self.graph_placeholder.setMinimumHeight(150)
-        chart_layout.addWidget(self.graph_placeholder, 1)
-        main_content_layout.addWidget(chart_panel, 1, 1)
-
-        # -----------------------------------------
         # --- Alerts Panel ---
         # -----------------------------------------
         alerts_panel = QFrame()
@@ -362,33 +369,98 @@ class DashboardView(QWidget):
 
     def _connect_signals(self):
         """Connect signals from widgets to ViewModel slots and vice versa."""
+
+        # --- Guards for critical ViewModel and UI elements ---
+        if not self.view_model:
+            # If there's no ViewModel, no signals can be connected. This is a critical failure.
+            # A logger at a higher application level or in __init__ should catch VM not being passed.
+            # For robustness here, we can log and return.
+            print(
+                "ERROR: DashboardView._connect_signals - ViewModel is None. Cannot connect signals.")  # Fallback print
+            # If self.view_model could have _logger:
+            # if hasattr(self.view_model, '_logger') and self.view_model._logger:
+            #    self.view_model._logger.critical("DashboardView: ViewModel is None in _connect_signals.")
+            return
+
+        # Check essential UI elements that will have signals connected
+        # These should have been created in _setup_ui and assigned to self.
+        essential_ui_elements = {
+            "start_button": self.start_button,
+            "stop_button": self.stop_button,
+            "flash_button": self.flash_button,
+            "pnl_display_label": self.pnl_display_label,
+            "monitoring_status_label": self.monitoring_status_label,
+            "prereq_badge_label": self.prereq_badge_label,
+            "alerts_list": self.alerts_list,
+            "activity_log_display": self.activity_log_display
+        }
+
+        for name, element in essential_ui_elements.items():
+            if element is None:
+                log_msg = f"DashboardView: UI element '{name}' is None in _connect_signals. Signals cannot be connected."
+                if hasattr(self.view_model, '_logger') and self.view_model._logger:
+                    self.view_model._logger.error(log_msg)
+                else:
+                    print(f"ERROR: {log_msg}")
+                # Decide if you want to return here or try to connect what's available.
+                # For critical buttons, probably best to log and be aware.
+                # Depending on the element, you might choose to return.
+                # For now, we'll log and continue, but this indicates a setup problem.
+
         # --- View -> ViewModel ---
-        self.start_button.clicked.connect(self.view_model.start_monitoring)
-        self.stop_button.clicked.connect(self.view_model.stop_monitoring)
-        self.flash_button.clicked.connect(self.view_model.test_flash_regions)
+        if self.start_button:
+            self.start_button.clicked.connect(self.view_model.start_monitoring)
+        if self.stop_button:
+            self.stop_button.clicked.connect(self.view_model.stop_monitoring)
+        if self.flash_button:
+            self.flash_button.clicked.connect(self.view_model.test_flash_regions)
 
         # --- ViewModel -> View ---
-        self.view_model.current_pnl_text_changed.connect(self._update_pnl_display)
-        self.view_model.monitoring_status_text_changed.connect(self._update_monitoring_status)
-        # <<< NEW CONNECTION for the completion badge >>>
-        self.view_model.prerequisites_completion_changed.connect(self.prereq_badge_label.setText)
+        if self.pnl_display_label:
+            self.view_model.current_pnl_text_changed.connect(self._update_pnl_display)
+        if self.monitoring_status_label:
+            self.view_model.monitoring_status_text_changed.connect(self._update_monitoring_status)
 
-        # --- NEW: Connect prerequisite signal ---
+        if self.prereq_badge_label:  # Check if the badge label exists
+            self.view_model.prerequisites_completion_changed.connect(self.prereq_badge_label.setText)
+
         self.view_model.prerequisite_status_updated.connect(self._update_prerequisite_row)
-        # --- END NEW ---
 
-        self.view_model.can_start_monitoring_changed.connect(self.start_button.setEnabled)
-        self.view_model.can_stop_monitoring_changed.connect(self.stop_button.setEnabled)
-        self.view_model.can_test_flash_changed.connect(self.flash_button.setEnabled)
-        self.view_model.recent_alerts_updated.connect(self._update_alerts_list)
-        self.view_model.activity_log_appended.connect(self.activity_log_display.append_message)
+        if self.start_button:
+            self.view_model.can_start_monitoring_changed.connect(self.start_button.setEnabled)
+        if self.stop_button:
+            self.view_model.can_stop_monitoring_changed.connect(self.stop_button.setEnabled)
+        if self.flash_button:
+            self.view_model.can_test_flash_changed.connect(self.flash_button.setEnabled)
 
-        # --- NEW: Connect Prerequisite Action Buttons ---
-        # Check if prereq_widgets exists before connecting
-        if hasattr(self, 'prereq_widgets'):
-            for key, widgets in self.prereq_widgets.items():
-                widgets["button"].clicked.connect(self._handle_prerequisite_action_click)
-        # --- END NEW ---
+        if self.alerts_list:
+            self.view_model.recent_alerts_updated.connect(self._update_alerts_list)
+        if self.activity_log_display:
+            self.view_model.activity_log_appended.connect(self.activity_log_display.append_message)
+
+        # --- Prerequisite Action Buttons ---
+        if hasattr(self, 'prereq_widgets') and self.prereq_widgets:  # Ensure it's not empty
+            for key, widgets_dict in self.prereq_widgets.items():
+                action_button = widgets_dict.get("button")
+                if action_button and isinstance(action_button, QPushButton):
+                    action_button.clicked.connect(self._handle_prerequisite_action_click)
+                else:
+                    log_msg_prereq = f"DashboardView: Prerequisite button for key '{key}' not found or not a QPushButton."
+                    if hasattr(self.view_model, '_logger') and self.view_model._logger:
+                        self.view_model._logger.warning(log_msg_prereq)
+                    else:
+                        print(f"WARNING: {log_msg_prereq}")
+        else:
+            log_msg_no_prereq_widgets = "DashboardView: 'prereq_widgets' dictionary not found or empty. Cannot connect prerequisite action buttons."
+            if hasattr(self.view_model, '_logger') and self.view_model._logger:
+                self.view_model._logger.warning(log_msg_no_prereq_widgets)
+            else:
+                print(f"WARNING: {log_msg_no_prereq_widgets}")
+
+        if hasattr(self.view_model, '_logger') and self.view_model._logger:
+            self.view_model._logger.debug("DashboardView: Signal connections established.")
+        else:
+            print("DEBUG: DashboardView: Signal connections established.")
 
     # --- Slots for ViewModel Signals ---
 
@@ -422,24 +494,49 @@ class DashboardView(QWidget):
 
     @Slot(list)
     def _update_alerts_list(self, alerts: List[str]):
-        """Clears and repopulates the recent alerts list."""
-        # (Keep existing implementation)
+        """Clears and repopulates the recent alerts list with enhanced styling."""
         self.alerts_list.clear()
+
         if alerts:
             for alert in alerts:
-                item = QListWidgetItem(alert)
-                if "threshold" in alert.lower() or "error" in alert.lower():
-                    item.setForeground(QColor("#e74c3c"))
-                    font = item.font(); font.setBold(True); item.setFont(font)
+                item = QListWidgetItem()
+
+                # Determine alert type and icon
+                alert_type = "info"  # default
+                icon_path = ":/icons/info.svg"
+
+                if "error" in alert.lower() or "threshold" in alert.lower() or "lockout" in alert.lower():
+                    alert_type = "error"
+                    icon_path = ":/icons/alert-triangle.svg"
+                elif "warning" in alert.lower():
+                    alert_type = "warning"
+                    icon_path = ":/icons/alert-triangle.svg"
+                elif "success" in alert.lower() or "verified" in alert.lower():
+                    alert_type = "success"
+                    icon_path = ":/icons/check-circle.svg"
+
+                # Set the icon
+                item.setIcon(QIcon(icon_path))
+
+                # Set the text
+                item.setText(alert)
+
+                # Set alert type property for styling
+                item.setData(Qt.UserRole, alert_type)
+
+                # Set size hint for better spacing
+                item.setSizeHint(QSize(0, 36))  # Adjust height as needed
+
                 self.alerts_list.addItem(item)
         else:
             placeholder_item = QListWidgetItem("No recent alerts.")
             placeholder_item.setForeground(QColor("#7f8c8d"))
+            placeholder_item.setIcon(QIcon(":/icons/info.svg"))
             self.alerts_list.addItem(placeholder_item)
 
-    # --- NEW: Slot to update prerequisite rows ---
+
     @Slot(str, str, str, bool)
-    def _update_prerequisite_row(self, key: str, status_text: str, status_state: str, show_action: bool):
+    def _update_prerequisite_row(self, key: str, status_description: str, status_state: str, show_action: bool):
         """Updates the UI row for a specific prerequisite using QLabel and QGraphicsColorizeEffect."""
         if not hasattr(self, 'prereq_widgets') or key not in self.prereq_widgets:
             if hasattr(self, 'view_model') and hasattr(self.view_model, '_logger'):
@@ -449,12 +546,14 @@ class DashboardView(QWidget):
 
         widgets = self.prereq_widgets[key]
         text_label: QLabel = widgets["text"]
-        icon_label: QLabel = widgets["icon"]  # <<< Now it's a QLabel
+        icon_label: QLabel = widgets["icon"]
         action_button: QPushButton = widgets["button"]
+        display_name: str = widgets["display_name"]  # Get the stored display name
 
-        # Update Text Label
-        display_name = text_label.text().split(':')[0]
-        text_label.setText(f"{display_name}: {status_text}")
+        # --- Update Text Label ---
+        # Construct the full text here in the View
+        text_label.setText(f"{display_name}: {status_description}")
+        # --- END Text Label Update ---
 
         # --- Update Icon Path (Use base Feather names) ---
         icon_path = ""
@@ -465,77 +564,57 @@ class DashboardView(QWidget):
         elif status_state == "error" or status_state == "missing":
             icon_path = ":/icons/x-circle.svg"
         else:
-            icon_path = ":/icons/info.svg"  # info, pending, etc.
-
-        # --- Load base icon pixmap ---
-        base_pixmap = QPixmap()  # Start with empty
+            icon_path = ":/icons/info.svg"
+        base_pixmap = QPixmap()
         if icon_path:
             loaded_pixmap = QPixmap(icon_path)
             if not loaded_pixmap.isNull():
-                # Scale the base pixmap *before* applying effect
-                base_pixmap = loaded_pixmap.scaled(16, 16, Qt.AspectRatioMode.KeepAspectRatio,
-                                                   Qt.TransformationMode.SmoothTransformation)
+                base_pixmap = loaded_pixmap.scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             else:
-                icon_label.setText("?")  # Fallback character
-                if hasattr(self, 'view_model'): self.view_model._logger.warning(f"Icon not found: {icon_path}")
-
-        # Set the base pixmap (might be empty if icon failed to load)
+                icon_label.setText("?");
+                self.view_model._logger.warning(f"Icon not found: {icon_path}")
         icon_label.setPixmap(base_pixmap)
-
-        # --- Apply or update the colorize effect ---
-        # Define color map
-        color_map = {
-            "ok": QColor("#27ae60"),  # Green
-            "warning": QColor("#f39c12"),  # Yellow/Orange
-            "error": QColor("#e74c3c"),  # Red
-            "missing": QColor("#e74c3c"),  # Red
-            "info": QColor("#95a5a6"),  # Gray
-            "neutral": QColor("#95a5a6")  # Gray
-        }
-        target_color = color_map.get(status_state, QColor("#95a5a6"))  # Default to gray
-
-        # Get existing effect or create a new one
+        color_map = {"ok": QColor("#27ae60"), "warning": QColor("#f39c12"), "error": QColor("#e74c3c"),
+                     "missing": QColor("#e74c3c"), "info": QColor("#95a5a6"), "neutral": QColor("#95a5a6")}
+        target_color = color_map.get(status_state, QColor("#95a5a6"))
         effect = icon_label.graphicsEffect()
-        colorize_effect = None
-        if isinstance(effect, QGraphicsColorizeEffect):
-            colorize_effect = effect
-        else:
-            # Remove any non-colorize effect if present
+        colorize_effect = effect if isinstance(effect, QGraphicsColorizeEffect) else None
+        if not colorize_effect:
             if effect: icon_label.setGraphicsEffect(None)
-            # Create and set the new effect
-            colorize_effect = QGraphicsColorizeEffect(icon_label)
+            colorize_effect = QGraphicsColorizeEffect(icon_label);
             icon_label.setGraphicsEffect(colorize_effect)
+        if colorize_effect:
+            colorize_effect.setColor(target_color);
+            colorize_effect.setStrength(1.0);
+            colorize_effect.setEnabled(True)
+        # --- END Icon and Effect ---
 
-        # Configure and enable the effect
-        if colorize_effect:  # Ensure effect exists
-            colorize_effect.setColor(target_color)
-            colorize_effect.setStrength(1.0)  # Use 1.0 for full color change
-            colorize_effect.setEnabled(True)  # Ensure it's active
-        # --- End Effect Application ---
-
-        # Update Button Visibility and Text/Target (No change needed here)
+        # --- Update Button Visibility and Text/Target ---
         action_button.setVisible(show_action)
         if show_action:
             target_tab = "Unknown";
             button_text = "Fix Issue"
-            if key == "monitor_region":
-                target_tab = "Region Setup"; button_text = "Define Region"
+            if key == "ct_path":
+                target_tab = "Settings";
+                button_text = "Set Path"
+            elif key == "ct_block_setup":  # New combined key
+                target_tab = "Settings";
+                button_text = "Configure Block"
+            elif key == "monitor_region":
+                target_tab = "Visual Setup";
+                button_text = "Define Region"
             elif key == "flatten_regions":
-                target_tab = "Region Setup"; button_text = "Add Regions"
-            elif key == "ct_path":
-                target_tab = "Settings"; button_text = "Set Path"
-            elif key == "ct_block_name":
-                target_tab = "Settings"; button_text = "Set Name"
-            elif key == "ct_verified":
-                target_tab = "Settings"; button_text = "Verify Block"
-            elif key == "ocr_profile":
-                target_tab = "OCR Calibration"; button_text = "Calibrate"
+                target_tab = "Visual Setup";
+                button_text = "Add Regions"
+            elif key == "pnl_detector":  # Renamed key
+                target_tab = "Visual Setup";
+                button_text = "Configure Detector"  # Or "Calibrate"
+
             action_button.setText(button_text)
             action_button.setProperty("targetTab", target_tab)
         else:
             action_button.setProperty("targetTab", None)
 
-    # --- NEW: Slot to handle action button clicks ---
     @Slot()
     def _handle_prerequisite_action_click(self):
         """Handles clicks on any prerequisite action button."""
@@ -553,4 +632,3 @@ class DashboardView(QWidget):
         else:
             if hasattr(self, 'view_model') and hasattr(self.view_model, '_logger'):
                  self.view_model._logger.warning(f"Action button {sender_button.objectName()} clicked, but no targetTab property found.")
-    # --- END NEW ---

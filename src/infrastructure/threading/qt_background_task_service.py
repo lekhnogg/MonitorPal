@@ -30,8 +30,10 @@ class WorkerSignals(QObject):
     """
     started = Signal()
     progress = Signal(int, str)
-    completed = Signal(object)
-    error = Signal(str)
+    completed = Signal(object)  # Emits the result of worker.execute()
+    error = Signal(str)  # Emits error messages from worker.report_error() or unhandled exceptions
+    _wrapper_execution_finished = Signal()  # Internal signal
+
 
 
 class WorkerWrapper(QObject):
@@ -57,6 +59,15 @@ class WorkerWrapper(QObject):
         self.task_id = task_id
         self.signals = WorkerSignals()
 
+        # --- Connect the domain worker's reporting methods to emit this wrapper's Qt signals ---
+        # This means when the domain worker calls self.report_started(), it emits self.signals.started
+        self.worker.set_on_started(self.signals.started.emit)
+        self.worker.set_on_progress(self.signals.progress.emit)
+        # The domain worker's on_completed_callback and on_error_callback are NOT set here.
+        # They are set by the *caller* of QtBackgroundTaskService.execute_task (e.g., MonitoringService)
+        # on the domain worker instance. Those will be connected to self.signals.completed/error
+        # in QtBackgroundTaskService.execute_task.
+
         # Store original callbacks
         self.original_started_callback = worker.on_started_callback
         self.original_progress_callback = worker.on_progress_callback
@@ -78,16 +89,33 @@ class WorkerWrapper(QObject):
         This method is called automatically when the thread starts.
         """
         try:
-            self.logger.debug(f"Worker for task '{self.task_id}' starting execution")
-            self.worker.report_started()
-            result = self.worker.execute()
-            self._process_and_emit_result(result)
+            self.logger.debug(f"WorkerWrapper: run() for task '{self.task_id}' is now calling worker.execute().")
+
+            # The domain worker's execute() method is responsible for calling
+            # self.report_started() at its beginning if it wants to signal "started".
+            # The connection for this is made in WorkerWrapper.__init__ via:
+            #   self.worker.set_on_started(self.signals.started.emit)
+            # So, we don't explicitly call worker.report_started() or emit signals.started here.
+
+            result_from_execute = self.worker.execute()  # Domain worker does its job (returns True/False for MonitoringWorker)
+
+            self.logger.debug(
+                f"WorkerWrapper: worker.execute() for task '{self.task_id}' finished and returned: {result_from_execute}")
+
+            # Process the return value of execute() and emit the 'completed' signal
+            # This 'completed' signal will carry the True/False result.
+            self._process_and_emit_result(result_from_execute)
+
         except Exception as e:
-            # Handle any unhandled exceptions in the worker
-            error_message = f"Unhandled error in worker: {e}"
-            self.logger.error(error_message)
-            self.logger.debug(traceback.format_exc())
-            self.worker.report_error(error_message)
+            # This catches unhandled exceptions *during* self.worker.execute()
+            error_message = f"WorkerWrapper: Unhandled exception in worker.execute() for task '{self.task_id}': {e}"
+            self.logger.error(error_message, exc_info=True)
+            self.signals.error.emit(error_message)  # Emit the generic error signal
+        finally:
+            # This block always executes, whether execute() succeeded, returned, or raised an exception.
+            self.logger.debug(
+                f"WorkerWrapper: run() for task '{self.task_id}' logically finished. Emitting _wrapper_execution_finished.")
+            self.signals._wrapper_execution_finished.emit()  # Signal that this wrapper's execution path is complete.
 
     def _process_and_emit_result(self, result):
         """
@@ -192,40 +220,38 @@ class QtBackgroundTaskService(IBackgroundTaskService):
         try:
             if task_id in self.tasks:
                 locker.unlock()  # Unlock before returning
-                self.logger.warning(f"Task '{task_id}' is already running")
                 return Result.fail(f"Task '{task_id}' is already running")
 
-            self.logger.debug(f"Starting task '{task_id}'")
-
-            # Create QThread
+            self.logger.debug(f"QtBackgroundTaskService: Starting task '{task_id}'")
             thread = QThread()
-
-            # Create worker wrapper
             wrapper = WorkerWrapper(worker, self.logger, task_id)
             wrapper.moveToThread(thread)
 
-            # Connect thread lifecycle signals
+            # --- Crucial Connections ---
             thread.started.connect(wrapper.run)
 
-            # Use deleteLater for wrapper and thread cleanup when thread finishes
-            # THIS IS CRUCIAL for safe object deletion and signal disconnection
+            # When wrapper's run() method finishes (successfully or with exception),
+            # it emits _wrapper_execution_finished. Connect this to QThread.quit.
+            wrapper.signals._wrapper_execution_finished.connect(thread.quit)
+
+            # When the QThread's event loop actually quits and the thread finishes,
+            # perform cleanup.
             thread.finished.connect(wrapper.deleteLater)
             thread.finished.connect(thread.deleteLater)
+            thread.finished.connect(lambda: self._handle_task_finished(task_id))
 
-            # Connect a slot to remove the task from our tracking dictionary *after* finished
-            thread.finished.connect(lambda: self._handle_task_finished(task_id))  # MODIFIED/ADDED
-
-            # Connect worker signals (keep existing connections)
+            # Connect the WorkerWrapper's public signals to the domain Worker's originally set callbacks.
+            # The domain worker's report_xxx methods will be set by the caller (e.g., MonitoringService)
+            # This ensures the caller's callbacks are invoked when the wrapper emits its signals.
             if worker.on_started_callback:
                 wrapper.signals.started.connect(worker.on_started_callback, Qt.QueuedConnection)
             if worker.on_progress_callback:
                 wrapper.signals.progress.connect(worker.on_progress_callback, Qt.QueuedConnection)
-            if worker.on_completed_callback:
+            if worker.on_completed_callback:  # This is for the result of execute()
                 wrapper.signals.completed.connect(worker.on_completed_callback, Qt.QueuedConnection)
-            if worker.on_error_callback:
+            if worker.on_error_callback:  # This is for errors reported by worker.report_error() or unhandled exceptions
                 wrapper.signals.error.connect(worker.on_error_callback, Qt.QueuedConnection)
 
-            # Store task info
             self.tasks[task_id] = TaskInfo(task_id, thread, wrapper, worker)
             locker.unlock()  # Unlock after modifying tasks dict
 

@@ -82,10 +82,16 @@ class Worker(Generic[T]):
             except Exception as e:
                 print(f"ERROR in worker's on_progress callback: {e}")
 
-    # Note: Completed is handled by the service wrapper usually
-    # def report_completed(self, result: T): # Not typically called directly by worker
-    #     if self.on_completed_callback:
-    #         self.on_completed_callback(result)
+    # --- ADD THIS METHOD ---
+    def report_completed(self, result: T):  # Type hint T for the result
+        """Utility method for worker implementations OR wrappers to report successful completion."""
+        if self.on_completed_callback:
+            try:
+                self.on_completed_callback(result)
+            except Exception as e:
+                # Log this error? Worker needs logger access or service needs to handle
+                print(f"ERROR in worker's on_completed callback: {e}")
+    # --- END ADDED METHOD ---
 
     def report_error(self, error_message: str):
         """Utility method for worker implementations to report errors."""

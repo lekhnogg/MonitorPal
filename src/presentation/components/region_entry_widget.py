@@ -3,7 +3,7 @@
 from typing import Tuple, Callable
 
 # --- Qt Imports ---
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 from PySide6.QtCore import Qt, Slot, Signal
 from PySide6.QtGui import QPixmap
 
@@ -12,106 +12,136 @@ from PySide6.QtGui import QPixmap
 from src.presentation.components.ui_components import StyledButton, DangerButton, SecondaryButton
 
 
-
-
 class RegionEntryWidget(QWidget):
     """
-    Widget for displaying a single flatten region entry with details and actions.
-    Emits signals when action buttons are clicked.
+    Enhanced widget for displaying a single flatten region entry with details and actions.
+    Styled to match the modern dashboard design.
     """
-    # --- Define explicit signals ---
-    delete_requested = Signal(str) # Emits region_id string
-    edit_requested = Signal(str)   # Emits region_id string
-    flash_requested = Signal(str)  # Emits region_id string
-    # --- End signal definition ---
+    # Keep original signals
+    delete_requested = Signal(str)
+    edit_requested = Signal(str)
+    flash_requested = Signal(str)
 
     def __init__(self,
-                 region_id: str, # This is the region 'name'
-                 coords_text: str, # Pass formatted coords text directly
-                 preview_pixmap: 'QPixmap', # Pass the QPixmap for preview
-                 # REMOVED CALLBACK ARGUMENTS: on_edit, on_delete, on_flash
+                 region_id: str,
+                 coords_text: str,
+                 preview_pixmap: 'QPixmap',
                  parent: QWidget = None):
-        """
-        Initialize the RegionEntryWidget.
-
-        Args:
-            region_id: The unique name/ID of the region.
-            coords_text: Formatted string of coordinates "(x, y, w, h)".
-            preview_pixmap: QPixmap object for the preview image (can be empty).
-            parent: Optional parent widget.
-        """
+        """Initialize the RegionEntryWidget with modern styling."""
         super().__init__(parent)
-        self._region_id = region_id # Store the region ID
+        self._region_id = region_id
 
-        # --- UI Setup ---
+        # Create a card-like container
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5) # Padding around the entry
-        main_layout.setSpacing(4) # Spacing between elements
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Top row with region info and buttons
-        top_layout = QHBoxLayout()
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(6) # Spacing between label and buttons
+        # Main widget container
+        container = QFrame(self)
+        container.setObjectName("regionEntryContainer")
+        container.setProperty("class", "regionEntry")
+        container.setFrameShape(QFrame.Shape.StyledPanel)
+        container.setFrameShadow(QFrame.Shadow.Raised)
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
 
-        # Region info Label (Name + Coords)
-        info_label = QLabel(f"{region_id}: {coords_text}")
-        top_layout.addWidget(info_label, 1) # Allow label to stretch
+        # 1. Header with name and expand/collapse button
+        header = QWidget()
+        header.setObjectName("regionEntryHeader")
+        header.setProperty("class", "regionEntryHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(10, 8, 10, 8)
+        header_layout.setSpacing(6)
 
-        # Flash Button
-        flash_btn = SecondaryButton("Flash") # Changed to SecondaryButton for consistency? Or keep StyledButton
-        # Connect directly to the internal slot that emits the new signal
-        flash_btn.clicked.connect(self._emit_flash_requested)
-        top_layout.addWidget(flash_btn)
+        # Region name
+        name_label = QLabel(region_id)
+        name_label.setObjectName("regionEntryName")
+        name_label.setProperty("class", "regionEntryName")
+        header_layout.addWidget(name_label, 1)
 
-        # Edit button
-        edit_btn = StyledButton("Edit")
-        edit_btn.clicked.connect(self._emit_edit_requested)
-        top_layout.addWidget(edit_btn)
+        # Coordinates
+        coords_label = QLabel(coords_text)
+        coords_label.setObjectName("regionEntryCoords")
+        coords_label.setProperty("class", "regionEntryCoords")
+        coords_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        header_layout.addWidget(coords_label)
 
-        # Delete button
-        delete_btn = DangerButton("Delete")
-        delete_btn.clicked.connect(self._emit_delete_requested)
-        top_layout.addWidget(delete_btn)
+        container_layout.addWidget(header)
 
-        # Add top row to main layout
-        main_layout.addLayout(top_layout)
+        # 2. Preview area
+        preview_container = QWidget()
+        preview_container.setObjectName("previewContainer")
+        preview_layout = QVBoxLayout(preview_container)
+        preview_layout.setContentsMargins(10, 0, 10, 10)
 
-        # Add screenshot preview label
-        self.screenshot_label = QLabel() # No default text needed if pixmap handles it
+        self.screenshot_label = QLabel()
+        self.screenshot_label.setObjectName("regionEntryPreview")
+        self.screenshot_label.setProperty("class", "regionEntryPreview")
         self.screenshot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.screenshot_label.setMaximumHeight(60) # Give it a max height for preview scaling
-        self.screenshot_label.setMinimumHeight(40)
-        self.set_preview(preview_pixmap) # Set initial preview
-        main_layout.addWidget(self.screenshot_label)
+        self.screenshot_label.setFixedHeight(40)
+        preview_layout.addWidget(self.screenshot_label)
+
+        # Set the preview
+        self.set_preview(preview_pixmap)
+
+        container_layout.addWidget(preview_container)
+
+        # 3. Action buttons
+        actions_container = QWidget()
+        actions_container.setObjectName("actionsContainer")
+        actions_layout = QHBoxLayout(actions_container)
+        actions_layout.setContentsMargins(10, 0, 10, 10)
+        actions_layout.setSpacing(6)
+
+        # Use smaller buttons to save space
+        flash_btn = SecondaryButton("Flash", icon=":/icons/zap.svg")
+        flash_btn.setObjectName("flashRegionBtn")
+        flash_btn.clicked.connect(self._emit_flash_requested)
+
+        edit_btn = StyledButton("Edit", icon=":/icons/edit.svg")
+        edit_btn.setObjectName("editRegionBtn")
+        edit_btn.clicked.connect(self._emit_edit_requested)
+
+        delete_btn = DangerButton("Delete", icon=":/icons/trash.svg")
+        delete_btn.setObjectName("deleteRegionBtn")
+        delete_btn.clicked.connect(self._emit_delete_requested)
+
+        # Add spacers and buttons
+        actions_layout.addStretch(1)
+        actions_layout.addWidget(flash_btn)
+        actions_layout.addWidget(edit_btn)
+        actions_layout.addWidget(delete_btn)
+
+        container_layout.addWidget(actions_container)
+
+        # Add the container to the main layout
+        main_layout.addWidget(container)
 
     def set_preview(self, pixmap: 'QPixmap'):
         """Sets or updates the preview image."""
         if pixmap and not pixmap.isNull():
-             # Scale pixmap to fit the label while preserving aspect ratio
-             scaled_pixmap = pixmap.scaled(
-                 150, # Max width for preview
-                 self.screenshot_label.maximumHeight() - 4, # Use max height for scaling
-                 Qt.AspectRatioMode.KeepAspectRatio,
-                 Qt.TransformationMode.SmoothTransformation
-             )
-             self.screenshot_label.setPixmap(scaled_pixmap)
-             self.screenshot_label.setText("") # Clear placeholder text
+            scaled_pixmap = pixmap.scaled(
+                150,
+                self.screenshot_label.height() - 4,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.screenshot_label.setPixmap(scaled_pixmap)
+            self.screenshot_label.setText("")
         else:
-             self.screenshot_label.setPixmap(QPixmap()) # Clear image
-             self.screenshot_label.setText("No Preview")
+            self.screenshot_label.setPixmap(QPixmap())
+            self.screenshot_label.setText("No Preview")
 
-    # --- Internal slots to emit the new signals ---
+    # Keep existing signal emitter methods
     @Slot()
     def _emit_edit_requested(self):
-        """Emits the edit_requested signal with the stored region ID."""
         self.edit_requested.emit(self._region_id)
 
     @Slot()
     def _emit_delete_requested(self):
-        """Emits the delete_requested signal with the stored region ID."""
         self.delete_requested.emit(self._region_id)
 
     @Slot()
     def _emit_flash_requested(self):
-        """Emits the flash_requested signal with the stored region ID."""
         self.flash_requested.emit(self._region_id)

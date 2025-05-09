@@ -1,6 +1,8 @@
 # src/presentation/view_models/history_view_model.py
 
 import time
+import os  # For file path manipulation in export
+import csv
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta
 
@@ -11,275 +13,306 @@ from PySide6.QtCore import QObject, Signal, Slot
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
-# Import other services if needed, e.g., a dedicated History Service
-# from src.domain.services.i_history_service import IHistoryService
+from src.domain.services.i_history_service import IHistoryService
+from src.domain.services.i_ui_service import IUIService  # For file dialog
 from src.domain.common.result import Result
 
-# Define data structures for clarity
-GraphDataType = List[Tuple[float, float]] # Example: [(timestamp, pnl_value), ...]
-SessionHistoryType = List[Dict[str, Any]] # Example: [{'date': '...', 'start_time': '...', ...}, ...]
+GraphDataType = List[Tuple[float, float]]
+SessionHistoryType = List[Dict[str, Any]]
+
 
 class HistoryViewModel(QObject):
-    """
-    ViewModel for the History tab.
-
-    Manages fetching, processing, and exposing historical monitoring data
-    for display in graphs and tables.
-    """
-
     # --- Signals for View updates ---
     # Graph Data
-    pnl_graph_data_updated = Signal(object) # Emits GraphDataType (list of tuples)
-    graph_time_range_options_changed = Signal(list) # e.g., ["Last Hour", "Last 4 Hours", "Today"]
-    graph_current_time_range_changed = Signal(str)
+    pnl_graph_data_updated = Signal(object)  # Emits GraphDataType (list of tuples)
+    #graph_time_range_options_changed = Signal(list)  # e.g., ["Session"]
+    #graph_current_time_range_changed = Signal(str)
     graph_threshold_line_visibility_changed = Signal(bool)
-    graph_threshold_value_changed = Signal(float) # To draw the line
+    graph_threshold_value_changed = Signal(float)  # To draw the line
 
     # Session History Table
-    session_history_updated = Signal(object) # Emits SessionHistoryType (list of dicts)
+    session_history_updated = Signal(object)  # Emits SessionHistoryType (list of dicts)
 
     # Actions / Status
     can_clear_history_changed = Signal(bool)
     can_generate_report_changed = Signal(bool)
-    status_message_changed = Signal(str, str) # message, level
+    status_message_changed = Signal(str, str)  # message, level
 
     def __init__(self,
                  logger: ILoggerService,
-                 config_repo: IConfigRepository, # Needed for threshold, maybe history source?
+                 config_repo: IConfigRepository,
                  platform_selection_service: IPlatformSelectionService,
-                 # history_service: Optional[IHistoryService] = None, # Optional dedicated service
+                 history_service: IHistoryService,  # Already added
+                 ui_service: IUIService,  # <<< ADD UIService for file dialogs
                  parent: Optional[QObject] = None):
-        """
-        Initialize the HistoryViewModel.
-        """
         super().__init__(parent)
         self._logger = logger
         self._config_repo = config_repo
         self._platform_selection_service = platform_selection_service
-        # self._history_service = history_service # Store if using dedicated service
+        self._history_service = history_service  # Already stored
+        self._ui_service = ui_service  # <<< STORE UIService
 
         # --- Internal State ---
         self._selected_platform: Optional[str] = None
         self._graph_data: GraphDataType = []
-        self._session_history: SessionHistoryType = []
-        self._current_time_range: str = "Last 4 Hours" # Default time range
-        self._time_range_options: List[str] = ["Last Hour", "Last 4 Hours", "Today", "Yesterday", "Last 7 Days"]
+        self._session_history: SessionHistoryType = []  # List of formatted dicts for the table
+        self._raw_session_summaries: List[Dict[str, Any]] = []  # Store raw summaries from service
+        self._current_time_range: str = "Last 4 Hours"  # Default, though less relevant if graph is per-session
+        self._time_range_options: List[str] = ["Session"]  # Simplified for per-session graph
         self._show_threshold_line: bool = True
-        self._current_threshold: float = 0.0
+        self._current_graph_threshold: float = 0.0  # Threshold for the currently displayed graph
 
         self._logger.debug("Initializing HistoryViewModel...")
         self._platform_selection_service.register_platform_change_listener(
             self._handle_platform_selection_change
         )
+
+        # --- Connect to HistoryService's signal ---
+        if isinstance(self._history_service, QObject) and hasattr(self._history_service, 'session_data_changed'):
+            # Type cast for signal connection if PyCharm complains, or use # type: ignore
+            qobject_history_service = self._history_service  # type: IHistoryService & QObject
+            qobject_history_service.session_data_changed.connect(self._trigger_data_load_from_service_signal)
+            self._logger.debug("Connected to HistoryService.session_data_changed signal.")
+        else:
+            self._logger.warning(
+                "HistoryService is not a QObject or lacks session_data_changed signal. History will not auto-update.")
+        # --- End Connection ---
+
         initial_platform = self._platform_selection_service.get_current_platform()
-        self._load_history_for_platform(initial_platform) # Load initial state
+        self._load_history_for_platform(initial_platform)
         self._logger.debug("HistoryViewModel initialized.")
 
-
-    # --- Command Slots (Called by the View) ---
+    @Slot()
+    def _trigger_data_load_from_service_signal(self):
+        self._logger.debug("HistoryViewModel: Received session_data_changed signal from HistoryService. Refreshing.")
+        # Reload for the *currently selected platform* in this view
+        self._load_history_for_platform(self._selected_platform)
 
     @Slot(str)
     def set_graph_time_range(self, time_range: str):
-        """Sets the time range for the graph and triggers data reload."""
+        # This might be less relevant if graph is always per-selected-session
+        # For now, we can keep it simple or even remove if time_range_combo is removed.
         if time_range != self._current_time_range and time_range in self._time_range_options:
-            self._logger.info(f"Setting graph time range to: {time_range}")
+            self._logger.info(f"Graph time range changed to: {time_range}")
             self._current_time_range = time_range
             self.graph_current_time_range_changed.emit(self._current_time_range)
-            self._load_graph_data() # Reload graph data for the new range
-        else:
-            self._logger.debug(f"Time range unchanged or invalid: {time_range}")
+            # If a session is selected, reload its graph data (though typically "Session" will be the only option)
+            # For now, this method might not do much if the graph always shows the selected session.
+            if self._current_time_range == "Session" and self.history_table.selectedItems():  # Assuming history_table is accessible
+                # This logic is better handled in load_graph_for_selected_session
+                pass
 
     @Slot(bool)
     def set_threshold_line_visibility(self, visible: bool):
-        """Sets the visibility of the threshold line on the graph."""
         if visible != self._show_threshold_line:
             self._show_threshold_line = visible
             self.graph_threshold_line_visibility_changed.emit(self._show_threshold_line)
 
     @Slot()
     def clear_history(self):
-        """Clears the history data for the current platform."""
         if not self._selected_platform:
-            self.status_message_changed.emit("No platform selected.", "ERROR")
+            msg = "No platform selected to clear history for."
+            self.status_message_changed.emit(msg, "WARNING")
+            self._logger.warning(msg)
             return
 
-        # TODO: Implement history clearing logic
-        # This would likely involve:
-        # 1. Confirmation dialog via UIService.
-        # 2. Calling a method on ConfigRepository or a dedicated HistoryService
-        #    to delete the relevant data (e.g., monitoring log files, database entries).
-        # 3. Reloading the (now empty) history data.
-        self._logger.warning(f"Clear History for {self._selected_platform} requested (Not Implemented Yet).")
-        self.status_message_changed.emit("Clear History feature not yet implemented.", "INFO")
-        # Example of reloading after clearing:
-        # self._load_history_for_platform(self._selected_platform)
+        confirm_res = self._ui_service.show_confirmation(
+            "Confirm Clear History",
+            f"Are you sure you want to clear all session history for {self._selected_platform} (from this app run)?\nThis action cannot be undone."
+        )
+        if confirm_res.is_success and confirm_res.value:
+            self._logger.info(f"User confirmed clearing history for {self._selected_platform}.")
+            # For in-memory, we might clear all or filter by platform if service supported it
+            # Current MemoryHistoryService clears all.
+            self._history_service.clear_all_session_data()  # Clears all data in MemoryHistoryService
+            self._load_history_for_platform(self._selected_platform)  # Reload (will be empty)
+            self.status_message_changed.emit(f"History cleared for {self._selected_platform}.", "SUCCESS")
+        else:
+            self.status_message_changed.emit("Clear history cancelled.", "INFO")
 
     @Slot()
     def generate_report(self):
-        """Generates a report based on the current history view."""
         if not self._selected_platform:
-            self.status_message_changed.emit("No platform selected.", "ERROR")
+            self.status_message_changed.emit("No platform selected.", "ERROR");
             return
 
-        # TODO: Implement report generation logic
-        # This could involve:
-        # 1. Selecting a file path via UIService.select_save_file(...)
-        # 2. Formatting the current _session_history and/or _graph_data.
-        # 3. Writing the data to a file (e.g., CSV, PDF).
-        self._logger.warning(f"Generate Report for {self._selected_platform} requested (Not Implemented Yet).")
-        self.status_message_changed.emit("Generate Report feature not yet implemented.", "INFO")
+        # Determine which session to export - let's assume the selected one for now
+        # This requires the View to tell us which one is selected.
+        # For now, let's try to get the session_id from the last graph load,
+        # or default to exporting all summaries if no specific session is "active" for graph.
 
-    @Slot(int) # Assuming the View passes the row index
+        # --- This part needs refinement based on how you want to select the export target ---
+        # For now, let's just try to enable the dialog.
+        # If you want to export the "graphed" session:
+        # session_id_to_export = None
+        # if self._graph_data and self._raw_session_summaries: # Check if graph has data from a loaded session
+        #     # This is a bit indirect. It might be better to store the
+        #     # last_selected_session_id when show_session_details is called.
+        #     # For now, we'll just make a placeholder.
+        #     pass # Needs a way to get the ID of the session whose data is in _graph_data
+
+        # If exporting ALL summaries for the current platform (as previously)
+        default_filename_base = f"MonitorPal_History_{self._selected_platform}_{datetime.now().strftime('%Y%m%d')}"
+        # --- End Refinement ---
+
+        # --- MODIFIED: Call select_save_file ---
+        file_path_res = self._ui_service.select_save_file(  # <<< --- CHANGED METHOD NAME
+            title="Save Session History Report",
+            filter_pattern="CSV files (*.csv);;All Files (*)",
+            default_filename=f"{default_filename_base}.csv"  # Pass the full suggested filename
+        )
+        # --- END MODIFICATION ---
+
+        if file_path_res.is_success and file_path_res.value:
+            file_path = file_path_res.value
+            # Ensure .csv if user didn't type it
+            if not file_path.lower().endswith(".csv"):
+                file_path += ".csv"
+
+            # --- Decide what to export. For now, simplified to export summaries of current platform ---
+            # You could later have a self.last_selected_session_id for detailed export
+            sessions_to_export_summaries = [
+                s for s in self._history_service.get_all_completed_session_summaries()
+                if s.get('platform') == self._selected_platform
+            ]
+
+            if not sessions_to_export_summaries:
+                self.status_message_changed.emit("No session summaries to export for this platform.", "INFO");
+                return
+
+            try:
+                with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    if not sessions_to_export_summaries:
+                        writer = csv.writer(csvfile)
+                        writer.writerow(["No session data available."])
+                        self.status_message_changed.emit(f"Report generated (empty): {file_path}", "INFO");
+                        return
+
+                    # Use fieldnames from the summary dicts
+                    # Ensure all dicts have the same keys or handle missing ones gracefully
+                    fieldnames = []
+                    if sessions_to_export_summaries:
+                        fieldnames = list(sessions_to_export_summaries[0].keys())
+                        # Optional: Add readable timestamp columns if not already present
+                        if 'start_timestamp' in fieldnames and 'start_timestamp_readable' not in fieldnames:
+                            fieldnames.append('start_timestamp_readable')
+                        if 'end_timestamp' in fieldnames and 'end_timestamp_readable' not in fieldnames:
+                            fieldnames.append('end_timestamp_readable')
+
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
+                    writer.writeheader()
+
+                    for session_summary in sessions_to_export_summaries:
+                        # Create a copy to add readable timestamps without modifying original
+                        summary_to_write = session_summary.copy()
+                        if 'start_timestamp' in summary_to_write and summary_to_write['start_timestamp']:
+                            summary_to_write['start_timestamp_readable'] = datetime.fromtimestamp(
+                                summary_to_write['start_timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                        if 'end_timestamp' in summary_to_write and summary_to_write['end_timestamp']:
+                            summary_to_write['end_timestamp_readable'] = datetime.fromtimestamp(
+                                summary_to_write['end_timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                        writer.writerow(summary_to_write)
+
+                self.status_message_changed.emit(f"Report generated successfully: {file_path}", "SUCCESS")
+                self._logger.info(f"Report generated to {file_path}")
+            except Exception as e:
+                self.status_message_changed.emit(f"Failed to generate report: {e}", "ERROR")
+                self._logger.error(f"Error generating report: {e}", exc_info=True)
+
+        elif file_path_res.is_failure:
+            self.status_message_changed.emit(f"Could not get save path: {file_path_res.error}", "ERROR")
+        else:  # User cancelled
+            self.status_message_changed.emit("Report generation cancelled.", "INFO")
+
+    @Slot(int)
     def show_session_details(self, row_index: int):
-        """Shows detailed information about a specific historical session."""
-        if row_index < 0 or row_index >= len(self._session_history):
+        """Shows detailed P&L data for the selected session by loading it into the graph."""
+        if row_index < 0 or row_index >= len(self._raw_session_summaries):  # Use raw summaries for ID
             self._logger.warning(f"Invalid row index for session details: {row_index}")
+            self.pnl_graph_data_updated.emit([])  # Clear graph
+            self.graph_threshold_value_changed.emit(0.0)
             return
 
-        session_data = self._session_history[row_index]
-        # TODO: Implement details display
-        # This could involve:
-        # 1. Creating a new dialog window.
-        # 2. Passing `session_data` to the dialog.
-        # 3. Displaying details like specific alerts, min/max P&L during session, etc.
-        self._logger.warning(f"Show Session Details requested for row {row_index} (Not Implemented Yet). Data: {session_data}")
-        self.status_message_changed.emit(f"Details view for session on {session_data.get('date')} not yet implemented.", "INFO")
+        selected_session_summary = self._raw_session_summaries[row_index]
+        session_id = selected_session_summary.get("session_id")
+        platform_threshold = selected_session_summary.get("threshold_value", 0.0)
+
+        if not session_id:
+            self._logger.error("Selected session summary is missing a session_id.")
+            self.pnl_graph_data_updated.emit([])
+            return
+
+        self._logger.info(f"Loading P&L graph for session: {session_id}")
+        pnl_points = self._history_service.get_current_session_pnl_data(session_id)
+
+        self._graph_data = pnl_points if pnl_points else []
+        self.pnl_graph_data_updated.emit(self._graph_data)
+        self._current_graph_threshold = platform_threshold  # Store threshold for this specific graph
+        self.graph_threshold_value_changed.emit(self._current_graph_threshold)
+        # Time range is implicitly "Selected Session" now
+        if "Session" not in self._time_range_options: self._time_range_options.append("Session")
+        #self.graph_current_time_range_changed.emit("Session")
+        self.set_threshold_line_visibility(True)  # Default to show threshold for session graph
 
     @Slot()
     def refresh_ui_signals(self):
-        """Emits all signals reflecting the current state for initial UI sync."""
         self._logger.debug(f"HistoryViewModel Refreshing UI signals for {self._selected_platform or 'None'}")
-        # Emit all relevant signals based on current internal state
-        self.pnl_graph_data_updated.emit(self._graph_data)
-        self.graph_time_range_options_changed.emit(self._time_range_options)
-        self.graph_current_time_range_changed.emit(self._current_time_range)
+        # These emit current state. _load_history_for_platform populates the state.
+        self.pnl_graph_data_updated.emit(self._graph_data)  # Initially empty or last viewed
+        #self.graph_time_range_options_changed.emit(self._time_range_options)
+        #self.graph_current_time_range_changed.emit(self._current_time_range)
         self.graph_threshold_line_visibility_changed.emit(self._show_threshold_line)
-        self.graph_threshold_value_changed.emit(self._current_threshold)
+        self.graph_threshold_value_changed.emit(self._current_graph_threshold)
         self.session_history_updated.emit(self._session_history)
-        # Calculate button states based on current data
-        has_data = bool(self._graph_data) or bool(self._session_history)
+        has_data = bool(self._session_history)
         self.can_clear_history_changed.emit(has_data)
         self.can_generate_report_changed.emit(has_data)
 
-    # --- Private Helper / Update Methods ---
-
-
-
     @Slot(str)
     def _handle_platform_selection_change(self, platform: str):
-        """Reloads history when the globally selected platform changes."""
         self._logger.debug(f"HistoryViewModel received platform change: {platform}")
         self._load_history_for_platform(platform)
 
     def _load_history_for_platform(self, platform: str):
-        """Loads graph and session data for the specified platform."""
         self._selected_platform = platform
-        self._logger.info(f"Loading history for platform: {platform}")
+        self._logger.info(f"Loading history for platform: {platform or 'None'}")
 
-        # Reset state before loading
         self._graph_data = []
         self._session_history = []
-        # Keep button states disabled until data potentially loaded
-        # self.can_clear_history_changed.emit(False)
-        # self.can_generate_report_changed.emit(False)
+        self._raw_session_summaries = []
+        self._current_graph_threshold = 0.0  # Reset graph specific threshold
 
         if not platform:
-            # Clear displays if no platform selected
-            self.pnl_graph_data_updated.emit(self._graph_data)
-            self.session_history_updated.emit(self._session_history)
-            self.graph_threshold_value_changed.emit(0.0) # Reset threshold line value
-            self.can_clear_history_changed.emit(False) # Disable buttons
-            self.can_generate_report_changed.emit(False)
+            self.refresh_ui_signals()  # Emit empty/default states
             return
 
-        # --- Load PLATFORM-SPECIFIC Threshold for Graph ---
+        # Fetch all completed session summaries from the service
+        all_summaries_raw = self._history_service.get_all_completed_session_summaries()
+        self._raw_session_summaries = [s for s in all_summaries_raw if s.get('platform') == platform]
+
+        # Format for the table view
+        formatted_table_data: SessionHistoryType = []
+        for summary in self._raw_session_summaries:
+            start_ts = summary.get("start_timestamp")
+            end_ts = summary.get("end_timestamp")
+            duration_s = summary.get("duration_seconds")
+
+            formatted_table_data.append({
+                "session_id": summary.get("session_id"),  # Keep for internal use
+                "date": datetime.fromtimestamp(start_ts).strftime('%Y-%m-%d') if start_ts else "N/A",
+                "start_time": datetime.fromtimestamp(start_ts).strftime('%I:%M %p') if start_ts else "N/A",
+                "duration": f"{int(duration_s // 60)}m {int(duration_s % 60)}s" if duration_s is not None else "N/A",
+                "min_pnl": f"${summary.get('min_pnl_value', 0.0):,.2f}",
+                "threshold": f"${summary.get('threshold_value', 0.0):,.2f}",
+                "locked": summary.get("lockout_triggered", False)
+            })
+        self._session_history = formatted_table_data
+
+        # Load platform-specific threshold for default graph view (might be overridden by session selection)
         threshold_res = self._config_repo.get_platform_stop_loss_threshold(platform)
-        # Use default from repo if loading fails
-        self._current_threshold = threshold_res.value if threshold_res.is_success else self._config_repo.DEFAULT_PLATFORM_THRESHOLD
-        if threshold_res.is_failure:
-            self._logger.warning(f"History View: Failed load threshold for {platform}: {threshold_res.error}. Using default.")
-        # Emit the threshold value for the graph line
-        self.graph_threshold_value_changed.emit(self._current_threshold)
-        # --- END Load Threshold ---
+        self._current_graph_threshold = threshold_res.value if threshold_res.is_success else self._config_repo.DEFAULT_PLATFORM_THRESHOLD
 
-        # --- Load Graph and Session Data ---
-        # (Keep your existing logic or placeholder logic here)
-        self._load_graph_data()
-        self._load_session_history()
+        self.refresh_ui_signals()  # Emit all updated states
 
-        # --- Update Button States based on loaded data ---
-        has_data = bool(self._graph_data) or bool(self._session_history)
-        self.can_clear_history_changed.emit(has_data)
-        self.can_generate_report_changed.emit(has_data)
-
-        # --- Emit other initial states for the view ---
-        self.graph_time_range_options_changed.emit(self._time_range_options)
-        self.graph_current_time_range_changed.emit(self._current_time_range)
-        self.graph_threshold_line_visibility_changed.emit(self._show_threshold_line)
-
-
-    def _load_graph_data(self):
-        """Loads P&L graph data based on the current platform and time range."""
-        if not self._selected_platform:
-            self.pnl_graph_data_updated.emit([])
-            return
-
-        self._logger.debug(f"Loading graph data for {self._selected_platform} - Range: {self._current_time_range}")
-
-        # --- Placeholder Data Generation ---
-        # Replace this with actual data fetching logic
-        end_time = time.time()
-        start_time = self._calculate_start_time(end_time, self._current_time_range)
-        num_points = 100
-        timestamps = [start_time + i * (end_time - start_time) / num_points for i in range(num_points)]
-        # Simulate P&L fluctuating around -50 with noise and occasional dips
-        pnl_values = [
-            -50 + 20 * ((i / num_points) - 0.5) + 15 * (time.time() % (i + 1)) / (i + 1) - (20 if i % 20 == 0 else 0)
-            for i in range(num_points)
-        ]
-        self._graph_data = list(zip(timestamps, pnl_values))
-        # --- End Placeholder ---
-
-        self.pnl_graph_data_updated.emit(self._graph_data)
-        self._logger.debug(f"Loaded {len(self._graph_data)} points for graph.")
-
-
-    def _load_session_history(self):
-        """Loads the session history table data."""
-        if not self._selected_platform:
-            self.session_history_updated.emit([])
-            return
-
-        self._logger.debug(f"Loading session history for {self._selected_platform}")
-
-        # --- Placeholder Data Generation ---
-        # Replace this with actual data fetching logic
-        self._session_history = [
-            {'date': '2023-10-27', 'start_time': '09:30 AM', 'duration': '2h 45m', 'min_pnl': '-$134.50', 'threshold': f"{self._current_threshold:,.2f}", 'locked': True},
-            {'date': '2023-10-26', 'start_time': '10:15 AM', 'duration': '3h 20m', 'min_pnl': '-$87.25', 'threshold': f"{self._current_threshold:,.2f}", 'locked': False},
-            {'date': '2023-10-25', 'start_time': '09:45 AM', 'duration': '4h 10m', 'min_pnl': '-$45.75', 'threshold': f"{self._current_threshold:,.2f}", 'locked': False},
-        ]
-        # --- End Placeholder ---
-
-        self.session_history_updated.emit(self._session_history)
-        self._logger.debug(f"Loaded {len(self._session_history)} session history entries.")
-
-
-    def _calculate_start_time(self, end_time: float, time_range: str) -> float:
-        """Helper to calculate start timestamp based on time range string."""
-        now = datetime.fromtimestamp(end_time)
-        if time_range == "Last Hour":
-            return end_time - 3600
-        elif time_range == "Last 4 Hours":
-            return end_time - (4 * 3600)
-        elif time_range == "Today":
-            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            return today_start.timestamp()
-        elif time_range == "Yesterday":
-            yesterday = now - timedelta(days=1)
-            yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-            return yesterday_start.timestamp()
-        elif time_range == "Last 7 Days":
-            return end_time - (7 * 24 * 3600)
-        else: # Default to Last 4 Hours
-            return end_time - (4 * 3600)
+    # _calculate_start_time can be removed if graph is always per-session
+    # def _calculate_start_time(self, end_time: float, time_range: str) -> float: ...

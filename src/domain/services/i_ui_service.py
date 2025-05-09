@@ -46,3 +46,7 @@ class IUIService(ABC):
     def create_flash_overlay(self, coords: Tuple[int, int, int, int]) -> Result[IFlashOverlay]:
         """Creates a non-interactive overlay for flashing."""
         pass
+
+    @abstractmethod
+    def select_save_file(self, title: str, filter_pattern: str, default_filename: str = "") -> Result[Optional[str]]:
+        pass

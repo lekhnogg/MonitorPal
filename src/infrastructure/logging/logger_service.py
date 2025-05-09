@@ -44,6 +44,12 @@ class ConsoleLoggerService(ILoggerService):
             # Add handler to logger
             self.logger.addHandler(console_handler)
 
+            # --- THIS IS THE CRUCIAL FIX for duplicated logs ---
+            # Prevent messages sent to this logger from also being passed to the
+            # handlers of higher level (ancestor) loggers, like the root logger.
+            self.logger.propagate = False
+            # self.logger.debug(f"Logger '{name}' propagation set to False.") # Optional debug log
+
     def _log(self, level: str, message: str, **kwargs) -> None:
         """
         Generic logging method to handle all log levels.
