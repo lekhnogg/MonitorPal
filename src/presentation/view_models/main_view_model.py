@@ -32,6 +32,11 @@ class MainViewModel(QObject): # Ensure QObject inheritance
     current_theme_changed = Signal(str)     # Emits "light" or "dark"
     theme_refresh_requested = Signal()      # <<< THIS SIGNAL MUST BE HERE
 
+    platform_selection_enabled_changed = Signal(bool)  # New signal for MainView
+
+    # Store a flag indicating if platform selection should be enabled
+    _platform_selection_enabled: bool = True  # Default to True
+
     def __init__(self,
                  logger: ILoggerService,
                  config_repo: IConfigRepository,
@@ -73,6 +78,24 @@ class MainViewModel(QObject): # Ensure QObject inheritance
 
     def get_current_theme(self) -> str:
         return self._current_theme
+
+        # New Slot to connect to DashboardViewModel.monitoring_session_activity_changed
+
+    @Slot(bool, object)  # Corresponds to (is_active: bool, monitored_platform_name: Optional[str])
+    def on_monitoring_activity_changed(self, is_monitoring_active: bool, monitored_platform: Optional[str]):
+        self._logger.info(
+            f"MainViewModel: Monitoring activity changed. Active: {is_monitoring_active}, Platform: '{monitored_platform}'."
+        )
+        # If monitoring is active, disable platform selection. Otherwise, enable it.
+        should_be_enabled = not is_monitoring_active
+
+        if self._platform_selection_enabled != should_be_enabled:
+            self._platform_selection_enabled = should_be_enabled
+            self.platform_selection_enabled_changed.emit(self._platform_selection_enabled)
+            self._logger.debug(f"Platform selection enabled state changed to: {self._platform_selection_enabled}")
+
+    # In your DI setup (e.g., app.py or where ViewModels are instantiated and connected):
+    # dashboard_vm.monitoring_session_activity_changed.connect(main_vm.on_monitoring_activity_changed)
 
     @Slot()
     def toggle_theme(self):
@@ -177,6 +200,8 @@ class MainViewModel(QObject): # Ensure QObject inheritance
         self.summary_threshold_changed.emit(self._summary_threshold_text)
         self.summary_duration_changed.emit(self._summary_duration_text)
         # self.summary_patterns_changed.emit(self._summary_patterns_text) # REMOVED
+
+        self.platform_selection_enabled_changed.emit(self._platform_selection_enabled)
 
         self.current_theme_changed.emit(self._current_theme)  # For theme toggle button & view properties
 

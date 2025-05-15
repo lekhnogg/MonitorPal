@@ -4,38 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="Major upgrades..MORE">
-      <change afterPath="$PROJECT_DIR$/src/domain/services/i_history_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/history/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/infrastructure/history/history_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/view_models/visual_setup_view_model.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/presentation/views/visual_setup_view.py" afterDir="false" />
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="History tab works, all tabs look somewhat the same, minor adjustments needed, also lockout sequence no idea if works at this point.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/application/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_ui_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_ui_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/logging/logger_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/logging/logger_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ui/qt_ui_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ui/qt_ui_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/components/ui_components.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/ui_components.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/styles/stylesheets/dark_theme.qss" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/dark_theme.qss" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/styles/stylesheets/light_theme.qss" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/styles/stylesheets/light_theme.qss" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/history_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/history_view_model.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/presentation/view_models/main_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/main_view_model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/ocr_calibration_view_model.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/region_setup_view_model.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/views/history_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/history_view.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/presentation/views/main_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/main_view.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/views/ocr_calibration_view.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/views/region_setup_view.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/views/settings_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/settings_view.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -427,7 +406,15 @@
       <option name="project" value="LOCAL" />
       <updated>1746558567615</updated>
     </task>
-    <option name="localTasksCounter" value="29" />
+    <task id="LOCAL-00029" summary="History tab works, all tabs look somewhat the same, minor adjustments needed, also lockout sequence no idea if works at this point.">
+      <option name="closed" value="true" />
+      <created>1746822076890</created>
+      <option name="number" value="00029" />
+      <option name="presentableId" value="LOCAL-00029" />
+      <option name="project" value="LOCAL" />
+      <updated>1746822076890</updated>
+    </task>
+    <option name="localTasksCounter" value="30" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -451,6 +438,7 @@
     <MESSAGE value="Working on OCR calibration not updating upon launch. potentially added a bunch of garbage code. this needs assessing." />
     <MESSAGE value="Major upgrades.." />
     <MESSAGE value="Major upgrades..MORE" />
-    <option name="LAST_COMMIT_MESSAGE" value="Major upgrades..MORE" />
+    <MESSAGE value="History tab works, all tabs look somewhat the same, minor adjustments needed, also lockout sequence no idea if works at this point." />
+    <option name="LAST_COMMIT_MESSAGE" value="History tab works, all tabs look somewhat the same, minor adjustments needed, also lockout sequence no idea if works at this point." />
   </component>
 </project>

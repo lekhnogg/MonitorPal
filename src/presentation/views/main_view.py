@@ -439,6 +439,17 @@ class MainView(QMainWindow):
         self.platform_combo.currentTextChanged.connect(self.main_view_model.user_selected_platform)
         self.main_view_model.selected_platform_changed.connect(self._update_platform_combo)
         self.main_view_model.available_platforms_changed.connect(self._update_available_platforms)
+
+        # <<< NEW CONNECTION FOR ENABLING/DISABLING PLATFORM COMBOBOX >>>
+        if self.main_view_model and hasattr(self.main_view_model, 'platform_selection_enabled_changed'):
+            self.main_view_model.platform_selection_enabled_changed.connect(self._set_platform_combo_enabled_state)
+            self._logger.debug(
+                "Connected MainVM.platform_selection_enabled_changed to MainView._set_platform_combo_enabled_state.")
+        else:
+            self._logger.warning(
+                "MainViewModel does not have 'platform_selection_enabled_changed' signal. Platform ComboBox will not be dynamically enabled/disabled.")
+        # <<< END NEW CONNECTION >>>
+
         self.main_view_model.summary_region_changed.connect(self.status_bar_region_label.setText)
         self.main_view_model.summary_threshold_changed.connect(self.status_bar_threshold_label.setText)
         self.main_view_model.summary_duration_changed.connect(self.status_bar_duration_label.setText)
@@ -482,6 +493,31 @@ class MainView(QMainWindow):
             self.stacked_widget.currentChanged.connect(self._on_stacked_widget_changed)
 
         self._logger.info("MainView signal connections process completed.")
+
+        # +++ NEW SLOT TO HANDLE ENABLING/DISABLING THE PLATFORM COMBOBOX +++
+
+    @Slot(bool)
+    def _set_platform_combo_enabled_state(self, enabled: bool):
+        """
+        Sets the enabled state of the platform selection ComboBox.
+        Also provides a tooltip when disabled.
+        """
+        if self.platform_combo:
+            is_currently_enabled = self.platform_combo.isEnabled()
+            if is_currently_enabled != enabled:  # Only update if state actually changes
+                self.platform_combo.setEnabled(enabled)
+                self._logger.info(f"Platform ComboBox enabled state set to: {enabled}")
+                if not enabled:
+                    self.platform_combo.setToolTip(
+                        "Platform selection is disabled while monitoring is active.\n"
+                        "Stop monitoring to change platforms."
+                    )
+                else:
+                    self.platform_combo.setToolTip("")  # Clear tooltip
+            else:
+                self._logger.debug(f"Platform ComboBox already in desired enabled state: {enabled}. No change.")
+        else:
+            self._logger.error("MainView: platform_combo is None. Cannot set enabled state.")
 
     @Slot(str)
     def _handle_platform_selection_change(self, platform: str):

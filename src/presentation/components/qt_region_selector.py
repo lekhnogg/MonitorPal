@@ -14,10 +14,6 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QRubberBand
 )
 
-# --- Application Imports ---
-from src.presentation.styles.style_manager import StyleManager
-# Removed imports for Worker and ILoggerService as the Worker class is removed
-
 
 class RegionSelectorDialog(QDialog):
     """Dialog for showing instructions before region selection."""
@@ -287,9 +283,7 @@ def select_region_qt(message="Select a region by clicking and dragging") -> Opti
         timer.timeout.connect(lambda: loop.quit() if selection_done else None)
         timer.start()
 
-        print("Starting region selection event loop...") # Debugging
         loop.exec() # Blocks here until loop.quit() is called
-        print("Region selection event loop finished.") # Debugging
         timer.stop()
 
         # 5. Ensure selector is closed after loop exits

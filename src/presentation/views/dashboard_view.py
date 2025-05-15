@@ -14,12 +14,9 @@ from PySide6.QtGui import QFont, QColor, QPixmap, QIcon
 from src.presentation.view_models.dashboard_view_model import DashboardViewModel
 # Import custom UI components
 from src.presentation.components.ui_components import (
-    StyledButton, ActionButton, SecondaryButton, LogDisplay, DangerButton
+    StyledButton, ActionButton, SecondaryButton, LogDisplay, DangerButton, create_colored_svg_icon
 )
 from src.presentation.views import resources_rc # Ensure icons are imported
-# Import the StyleManager for component-specific styles (if needed, though less likely now)
-# from src.presentation.styles.style_manager import StyleManager
-
 
 class DashboardView(QWidget):
     """
@@ -38,21 +35,24 @@ class DashboardView(QWidget):
         super().__init__(parent)
         self.view_model = view_model
 
-        self.pnl_icon_label: Optional[QLabel] = None
-        self.pnl_display_label: Optional[QLabel] = None
-        self.status_icon_label: Optional[QLabel] = None
-        self.monitoring_status_label: Optional[QLabel] = None
-        self.region_icon_label: Optional[QLabel] = None
-        self.region_name_label: Optional[QLabel] = None
-        self.region_position_label: Optional[QLabel] = None
+        # --- Attributes for the new consolidated card ---
+        self.live_status_card: Optional[QFrame] = None  # The main container
+
+        self.status_indicator_icon_label: Optional[QLabel] = None  # New: For CheckCircle, Info, XCircle etc.
+        self.pnl_title_label: Optional[QLabel] = None  # Existing: "CURRENT P&L"
+        self.pnl_display_label: Optional[QLabel] = None  # Existing: The P&L value
+        # self.pnl_small_trend_bar: Optional[QFrame] = None # Optional: like the React example's mini chart/bar
+
+        self.monitoring_target_title_label: Optional[QLabel] = None  # New: "MONITORING:"
+        self.monitoring_target_info_label: Optional[QLabel] = None  # New: "Platform - Region: Defined/Not Set"
+
+        # --- Other existing attributes for lower sections ---
         self.prereq_badge_label: Optional[QLabel] = None
         self.alerts_list: Optional[QListWidget] = None
         self.activity_log_display: Optional[LogDisplay] = None
         self.start_button: Optional[ActionButton] = None
         self.stop_button: Optional[DangerButton] = None
         self.flash_button: Optional[StyledButton] = None
-
-        # --- Crucially, initialize prereq_widgets and prerequisite_setup_data HERE ---
         self.prereq_widgets: Dict[str, Dict[str, Any]] = {}
         self.prerequisite_setup_data: List[Tuple[str, str]] = [
             ("ct_path", "Cold Turkey Application Path"),
@@ -62,7 +62,7 @@ class DashboardView(QWidget):
             ("pnl_detector", "P&L Detector"),
         ]
 
-        self._setup_ui()  # This method will now populate self.prereq_widgets
+        self._setup_ui()
         self._connect_signals()
 
         # Schedule the VM to emit its initial state signals
@@ -84,114 +84,91 @@ class DashboardView(QWidget):
             # This case should ideally not happen if __init__ receives a valid view_model
             print("ERROR: DashboardView initialized with no ViewModel!")
 
-
     def _setup_ui(self):
         """Creates and arranges the UI elements for the dashboard."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(15)
 
-
         # -----------------------------------------
-        # --- Status Cards (Top Row) ---
+        # --- NEW: Consolidated Live Status Card (Top Row) ---
         # -----------------------------------------
-        status_cards_layout = QHBoxLayout()
-        status_cards_layout.setSpacing(15)
+        self.live_status_card = QFrame()
+        self.live_status_card.setObjectName("liveStatusCard")  # New object name
+        self.live_status_card.setProperty("class", "statusInfoCard")  # Use existing styling
+        live_status_card_main_layout = QHBoxLayout(self.live_status_card)  # Main HBox for card
+        live_status_card_main_layout.setContentsMargins(15, 10, 15, 10)  # Adjusted padding
+        live_status_card_main_layout.setSpacing(15)
 
-        # --- P&L Card ---
-        pnl_card = QFrame()
-        pnl_card.setObjectName("pnlStatusCard")  # Keep specific objectName if needed
-        pnl_card.setProperty("class", "statusInfoCard")  # <<< CHANGED FROM "darkPanel"
-        pnl_card_layout = QVBoxLayout(pnl_card)
-        pnl_card_layout.setContentsMargins(15, 15, 15, 15)
-        pnl_card_layout.setSpacing(5)
+        # --- Left Part of Live Status Card: P&L and Status Indicator ---
+        left_section_widget = QWidget()  # Container for left items
+        left_section_layout = QVBoxLayout(left_section_widget)
+        left_section_layout.setContentsMargins(0, 0, 0, 0)
+        left_section_layout.setSpacing(3)  # Tight spacing
 
-        pnl_header_layout = QHBoxLayout()
-        pnl_title = QLabel("CURRENT P&L")
-        pnl_title.setProperty("class", "panelTitle")  # This class is fine, describes the label's role
-        pnl_header_layout.addWidget(pnl_title, 1)
+        # Row 1: P&L Title and Status Indicator Icon
+        pnl_header_row_layout = QHBoxLayout()
+        pnl_header_row_layout.setSpacing(6)
 
-        self.pnl_icon_label = QLabel()
-        self.pnl_icon_label.setObjectName("pnlCardIcon")
-        self.pnl_icon_label.setFixedSize(24, 24)
-        self.pnl_icon_label.setPixmap(
-            QPixmap(":/icons/trending-up.svg").scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        pnl_header_layout.addWidget(self.pnl_icon_label)
-        pnl_card_layout.addLayout(pnl_header_layout)
+        self.status_indicator_icon_label = QLabel()
+        self.status_indicator_icon_label.setObjectName("statusIndicatorIcon")
+        self.status_indicator_icon_label.setFixedSize(20, 20)  # Adjust size as needed
+        # Icon will be set by ViewModel based on monitoring state
+        pnl_header_row_layout.addWidget(self.status_indicator_icon_label)
 
+        self.pnl_title_label = QLabel("CURRENT P&L")
+        self.pnl_title_label.setProperty("class", "cardTitle")  # Use smaller cardTitle class
+        pnl_header_row_layout.addWidget(self.pnl_title_label)
+        pnl_header_row_layout.addStretch(1)  # Push title and icon left
+        left_section_layout.addLayout(pnl_header_row_layout)
+
+        # Row 2: P&L Value
         self.pnl_display_label = QLabel("N/A")
-        self.pnl_display_label.setObjectName("pnlDisplayLabel")
+        self.pnl_display_label.setObjectName("pnlDisplayLabel")  # Keep this ID for main P&L styling
         self.pnl_display_label.setProperty("state", "neutral")
-        pnl_card_layout.addWidget(self.pnl_display_label)
+        # Align left if desired for this layout
+        # self.pnl_display_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        left_section_layout.addWidget(self.pnl_display_label)
 
-        pnl_chart = QFrame()
-        pnl_chart.setObjectName("pnlChartPlaceholder")  # This is specific, fine
-        pnl_chart.setMinimumHeight(20);
-        pnl_chart.setMaximumHeight(20)
-        pnl_card_layout.addWidget(pnl_chart)
-        pnl_card_layout.addStretch(1)
-        status_cards_layout.addWidget(pnl_card, 1)
+        # Optional: Small P&L progress/trend bar (like React example)
+        # self.pnl_small_trend_bar = QFrame()
+        # self.pnl_small_trend_bar.setObjectName("pnlSmallTrendBar")
+        # self.pnl_small_trend_bar.setMinimumHeight(8); self.pnl_small_trend_bar.setMaximumHeight(8)
+        # self.pnl_small_trend_bar.setStyleSheet("background-color: #374151; border-radius: 4px;") # Placeholder
+        # left_section_layout.addWidget(self.pnl_small_trend_bar)
 
-        # --- Status Card ---
-        status_card = QFrame()
-        status_card.setObjectName("monitoringStatusCard")  # Keep specific objectName
-        status_card.setProperty("class", "statusInfoCard")  # <<< CHANGED
-        status_card_layout = QVBoxLayout(status_card)
-        status_card_layout.setContentsMargins(15, 15, 15, 15)
-        status_card_layout.setSpacing(5)
+        left_section_layout.addStretch(1)  # Push P&L info to the top of its VBox
 
-        status_header_layout = QHBoxLayout()
-        status_title = QLabel("MONITORING STATUS")
-        status_title.setProperty("class", "panelTitle")
-        status_header_layout.addWidget(status_title, 1)
+        live_status_card_main_layout.addWidget(left_section_widget, 1)  # P&L + Status Icon takes some space
 
-        self.status_icon_label = QLabel()
-        self.status_icon_label.setObjectName("statusCardIcon")
-        self.status_icon_label.setFixedSize(24, 24)
-        self.status_icon_label.setPixmap(
-            QPixmap(":/icons/activity.svg").scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        status_header_layout.addWidget(self.status_icon_label)
-        status_card_layout.addLayout(status_header_layout)
+        # --- Optional: Vertical Separator Line ---
+        v_separator = QFrame()
+        v_separator.setFrameShape(QFrame.Shape.VLine)
+        v_separator.setFrameShadow(QFrame.Shadow.Sunken)
+        v_separator.setObjectName("cardVerticalSeparator")  # For QSS styling
+        live_status_card_main_layout.addWidget(v_separator)
 
-        self.monitoring_status_label = QLabel("Inactive")
-        self.monitoring_status_label.setObjectName("monitoringStatusLabel")
-        self.monitoring_status_label.setProperty("state", "inactive")
-        status_card_layout.addWidget(self.monitoring_status_label)
-        status_card_layout.addStretch(1)
-        status_cards_layout.addWidget(status_card, 1)
+        # --- Right Part of Live Status Card: Monitoring Target Info ---
+        right_section_widget = QWidget()  # Container for right items
+        right_section_layout = QVBoxLayout(right_section_widget)
+        right_section_layout.setContentsMargins(0, 0, 0, 0)
+        right_section_layout.setSpacing(3)
 
-        # --- Region Card ---
-        region_card = QFrame()
-        region_card.setObjectName("regionStatusCard")  # Keep specific objectName
-        region_card.setProperty("class", "statusInfoCard")  # <<< CHANGED
-        region_card_layout = QVBoxLayout(region_card)
-        region_card_layout.setContentsMargins(15, 15, 15, 15)
-        region_card_layout.setSpacing(5)
+        self.monitoring_target_title_label = QLabel("MONITORING TARGET")
+        self.monitoring_target_title_label.setProperty("class", "cardTitle")
+        right_section_layout.addWidget(self.monitoring_target_title_label)
 
-        region_header_layout = QHBoxLayout()
-        region_title = QLabel("MONITOR REGION")
-        region_title.setProperty("class", "panelTitle")
-        region_header_layout.addWidget(region_title, 1)
+        self.monitoring_target_info_label = QLabel("Platform: N/A - Region: N/A")
+        self.monitoring_target_info_label.setObjectName("monitoringTargetInfoLabel")
+        # This label can have its tooltip updated by the VM with coordinates
+        right_section_layout.addWidget(self.monitoring_target_info_label)
 
-        self.region_icon_label = QLabel()
-        self.region_icon_label.setObjectName("regionCardIcon")
-        self.region_icon_label.setFixedSize(24, 24)
-        self.region_icon_label.setPixmap(
-            QPixmap(":/icons/monitor.svg").scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        region_header_layout.addWidget(self.region_icon_label)
-        region_card_layout.addLayout(region_header_layout)
+        right_section_layout.addStretch(1)  # Push info to the top
 
-        self.region_name_label = QLabel("N/A")
-        self.region_name_label.setObjectName("regionNameLabel")
-        region_card_layout.addWidget(self.region_name_label)
+        live_status_card_main_layout.addWidget(right_section_widget, 2)  # Give target info more space
 
-        self.region_position_label = QLabel("Position: N/A")
-        self.region_position_label.setObjectName("regionPositionLabel")
-        region_card_layout.addWidget(self.region_position_label)
-        region_card_layout.addStretch(1)
-        status_cards_layout.addWidget(region_card, 1)
-
-        main_layout.addLayout(status_cards_layout)
+        main_layout.addWidget(self.live_status_card)  # Add the consolidated card to the main layout
+        # --- END NEW Consolidated Card ---
 
         # -----------------------------------------
         # --- Main Content Grid ---
@@ -369,193 +346,226 @@ class DashboardView(QWidget):
 
     def _connect_signals(self):
         """Connect signals from widgets to ViewModel slots and vice versa."""
-
-        # --- Guards for critical ViewModel and UI elements ---
         if not self.view_model:
-            # If there's no ViewModel, no signals can be connected. This is a critical failure.
-            # A logger at a higher application level or in __init__ should catch VM not being passed.
-            # For robustness here, we can log and return.
-            print(
-                "ERROR: DashboardView._connect_signals - ViewModel is None. Cannot connect signals.")  # Fallback print
-            # If self.view_model could have _logger:
-            # if hasattr(self.view_model, '_logger') and self.view_model._logger:
-            #    self.view_model._logger.critical("DashboardView: ViewModel is None in _connect_signals.")
+            # Using print as logger might not be initialized if VM itself is None early on
+            print("ERROR: DashboardView._connect_signals - ViewModel is None. Cannot connect signals.")
             return
 
-        # Check essential UI elements that will have signals connected
-        # These should have been created in _setup_ui and assigned to self.
-        essential_ui_elements = {
-            "start_button": self.start_button,
-            "stop_button": self.stop_button,
-            "flash_button": self.flash_button,
-            "pnl_display_label": self.pnl_display_label,
-            "monitoring_status_label": self.monitoring_status_label,
-            "prereq_badge_label": self.prereq_badge_label,
-            "alerts_list": self.alerts_list,
-            "activity_log_display": self.activity_log_display
-        }
+        self.view_model._logger.debug("DashboardView: Establishing signal connections...")
 
-        for name, element in essential_ui_elements.items():
-            if element is None:
-                log_msg = f"DashboardView: UI element '{name}' is None in _connect_signals. Signals cannot be connected."
-                if hasattr(self.view_model, '_logger') and self.view_model._logger:
-                    self.view_model._logger.error(log_msg)
-                else:
-                    print(f"ERROR: {log_msg}")
-                # Decide if you want to return here or try to connect what's available.
-                # For critical buttons, probably best to log and be aware.
-                # Depending on the element, you might choose to return.
-                # For now, we'll log and continue, but this indicates a setup problem.
-
-        # --- View -> ViewModel ---
-        if self.start_button:
+        # --- View -> ViewModel (User Actions) ---
+        if hasattr(self, 'start_button') and self.start_button:
             self.start_button.clicked.connect(self.view_model.start_monitoring)
-        if self.stop_button:
+        if hasattr(self, 'stop_button') and self.stop_button:
             self.stop_button.clicked.connect(self.view_model.stop_monitoring)
-        if self.flash_button:
+        if hasattr(self, 'flash_button') and self.flash_button:
             self.flash_button.clicked.connect(self.view_model.test_flash_regions)
 
-        # --- ViewModel -> View ---
-        if self.pnl_display_label:
-            self.view_model.current_pnl_text_changed.connect(self._update_pnl_display)
-        if self.monitoring_status_label:
-            self.view_model.monitoring_status_text_changed.connect(self._update_monitoring_status)
+        # --- ViewModel -> View (UI Updates) ---
 
-        if self.prereq_badge_label:  # Check if the badge label exists
+        # Consolidated "Live Status Card" Updates
+        if hasattr(self, 'pnl_display_label') and self.pnl_display_label:
+            self.view_model.current_pnl_text_changed.connect(self._update_pnl_display_text_and_state)
+        else:
+            self.view_model._logger.warning("DashboardView: pnl_display_label not found for connection.")
+
+        if hasattr(self, 'status_indicator_icon_label') and self.status_indicator_icon_label:
+            self.view_model.status_indicator_icon_info_changed.connect(self._update_status_indicator)
+        else:
+            self.view_model._logger.warning("DashboardView: status_indicator_icon_label not found for connection.")
+
+        if hasattr(self, 'monitoring_target_info_label') and self.monitoring_target_info_label:
+            # self.view_model.monitoring_target_text_changed.connect(self.monitoring_target_info_label.setText) # Old direct connection
+            self.view_model.monitoring_target_text_changed.connect(self._set_monitoring_target_text)
+        else:
+            self.view_model._logger.warning("DashboardView: monitoring_target_info_label not found for connection.")
+        # Prerequisites Panel Updates
+        if hasattr(self, 'prereq_badge_label') and self.prereq_badge_label:
             self.view_model.prerequisites_completion_changed.connect(self.prereq_badge_label.setText)
+        self.view_model.prerequisite_status_updated.connect(
+            self._update_prerequisite_row)  # Assuming _update_prerequisite_row exists
 
-        self.view_model.prerequisite_status_updated.connect(self._update_prerequisite_row)
-
-        if self.start_button:
+        # Quick Actions Button Enablement
+        if hasattr(self, 'start_button') and self.start_button:
             self.view_model.can_start_monitoring_changed.connect(self.start_button.setEnabled)
-        if self.stop_button:
+        if hasattr(self, 'stop_button') and self.stop_button:
             self.view_model.can_stop_monitoring_changed.connect(self.stop_button.setEnabled)
-        if self.flash_button:
+        if hasattr(self, 'flash_button') and self.flash_button:
             self.view_model.can_test_flash_changed.connect(self.flash_button.setEnabled)
 
-        if self.alerts_list:
-            self.view_model.recent_alerts_updated.connect(self._update_alerts_list)
-        if self.activity_log_display:
+        # Alerts List Update
+        if hasattr(self, 'alerts_list') and self.alerts_list:
+            self.view_model.recent_alerts_updated.connect(
+                self._update_alerts_list)  # Assuming _update_alerts_list exists
+
+        # Activity Log Update
+        if hasattr(self, 'activity_log_display') and self.activity_log_display:
             self.view_model.activity_log_appended.connect(self.activity_log_display.append_message)
 
-        # --- Prerequisite Action Buttons ---
-        if hasattr(self, 'prereq_widgets') and self.prereq_widgets:  # Ensure it's not empty
+        # Prerequisite Action Buttons (assuming self.prereq_widgets is populated in _setup_ui)
+        if hasattr(self, 'prereq_widgets') and self.prereq_widgets:
             for key, widgets_dict in self.prereq_widgets.items():
                 action_button = widgets_dict.get("button")
                 if action_button and isinstance(action_button, QPushButton):
-                    action_button.clicked.connect(self._handle_prerequisite_action_click)
+                    # Check if already connected to avoid duplicate connections if _connect_signals is called multiple times
+                    # This is a bit advanced; usually, connect_signals is called once.
+                    # For simplicity now, we assume it's called once.
+                    action_button.clicked.connect(self._handle_prerequisite_action_click)  # Assuming this slot exists
                 else:
-                    log_msg_prereq = f"DashboardView: Prerequisite button for key '{key}' not found or not a QPushButton."
-                    if hasattr(self.view_model, '_logger') and self.view_model._logger:
-                        self.view_model._logger.warning(log_msg_prereq)
-                    else:
-                        print(f"WARNING: {log_msg_prereq}")
+                    self.view_model._logger.warning(
+                        f"DashboardView: Prerequisite button for key '{key}' not found or not a QPushButton.")
         else:
-            log_msg_no_prereq_widgets = "DashboardView: 'prereq_widgets' dictionary not found or empty. Cannot connect prerequisite action buttons."
-            if hasattr(self.view_model, '_logger') and self.view_model._logger:
-                self.view_model._logger.warning(log_msg_no_prereq_widgets)
-            else:
-                print(f"WARNING: {log_msg_no_prereq_widgets}")
+            self.view_model._logger.warning(
+                "DashboardView: 'prereq_widgets' dictionary not found or empty. Cannot connect prerequisite action buttons.")
 
-        if hasattr(self.view_model, '_logger') and self.view_model._logger:
-            self.view_model._logger.debug("DashboardView: Signal connections established.")
-        else:
-            print("DEBUG: DashboardView: Signal connections established.")
+        self.view_model._logger.debug("DashboardView: Signal connections established/updated.")
 
     # --- Slots for ViewModel Signals ---
 
     @Slot(str)
-    def _update_pnl_display(self, pnl_text: str):
-        """Updates the main P&L value label."""
-        # (Keep existing implementation)
-        self.pnl_display_label.setText(pnl_text)
-        if "-" in pnl_text or pnl_text.startswith("LOCKOUT") or pnl_text.startswith("ERROR"):
-            self.pnl_display_label.setProperty("state", "negative")
-        elif pnl_text == "N/A":
-            self.pnl_display_label.setProperty("state", "neutral")
+    def _set_monitoring_target_text(self, text: str):  # Or a more descriptive name
+        if hasattr(self, 'monitoring_target_info_label') and self.monitoring_target_info_label:
+            if self.view_model and hasattr(self.view_model, '_logger'):
+                self.view_model._logger.debug(f"DashboardView: Setting monitoring_target_info_label to '{text}'.")
+
+            self.monitoring_target_info_label.setText(text)
+            # Keep the unpolish/polish for robustness on initial load
+            self.monitoring_target_info_label.style().unpolish(self.monitoring_target_info_label)
+            self.monitoring_target_info_label.style().polish(self.monitoring_target_info_label)
+            # self.monitoring_target_info_label.update() # update() is probably not needed if unpolish/polish is there
         else:
-            self.pnl_display_label.setProperty("state", "positive")
+            if self.view_model and hasattr(self.view_model, '_logger'):
+                self.view_model._logger.warning(
+                    "DIAG: monitoring_target_info_label not found in _diag_update_target_text")
+
+    @Slot(str)
+    def _update_pnl_display_text_and_state(self, pnl_text: str):  # Renamed and used for consolidated card
+        if not self.pnl_display_label: return
+        self.pnl_display_label.setText(pnl_text)
+        state = "neutral"
+        if "N/A" == pnl_text:
+            state = "neutral"
+        elif "-" in pnl_text or "LOCKOUT" in pnl_text or "ERROR" in pnl_text:
+            state = "negative"
+        elif pnl_text != "Starting..." and pnl_text != "Waiting for data...":
+            state = "positive"  # Avoid "positive" for intermediate states
+
+        self.pnl_display_label.setProperty("state", state)
         self.pnl_display_label.style().unpolish(self.pnl_display_label)
         self.pnl_display_label.style().polish(self.pnl_display_label)
 
-    @Slot(str)
-    def _update_monitoring_status(self, status_text: str):
-        """Updates the monitoring status label and potentially its style."""
-        # (Keep existing implementation)
-        self.monitoring_status_label.setText(status_text)
-        if "Active" in status_text: state = "active"
-        elif "Inactive" in status_text: state = "inactive"
-        elif "Error" in status_text: state = "error"
-        elif "Busy" in status_text: state = "busy"
-        else: state = "neutral"
-        self.monitoring_status_label.setProperty("state", state)
-        self.monitoring_status_label.style().unpolish(self.monitoring_status_label)
-        self.monitoring_status_label.style().polish(self.monitoring_status_label)
+    # --- NEW Slot for status indicator icon ---
+    @Slot(str, str)  # icon_key, tooltip_text
+    def _update_status_indicator(self, icon_key: str, tooltip_text: str):
+        if not hasattr(self, 'status_indicator_icon_label') or not self.status_indicator_icon_label: return
+        if not hasattr(self, 'view_model') or not self.view_model or not hasattr(self.view_model, '_logger'): return
 
-    @Slot(list)
+        icon_path = ":/icons/info.svg"  # Default icon
+        is_dark = self.property("darkTheme") == True
+
+        icon_color = QColor("#9ca3af") if is_dark else QColor("#6b7280")
+
+        if icon_key == "active":
+            icon_path = ":/icons/check-circle.svg"
+            icon_color = QColor("#4ade80") if is_dark else QColor("#10b981")
+        elif icon_key == "inactive":
+            icon_path = ":/icons/info.svg"
+            icon_color = QColor("#9ca3af") if is_dark else QColor("#6b7280")
+        elif icon_key == "error":
+            icon_path = ":/icons/x-circle.svg"
+            icon_color = QColor("#f87171") if is_dark else QColor("#ef4444")
+        elif icon_key == "busy":
+            icon_path = ":/icons/activity.svg"
+            icon_color = QColor("#facc15") if is_dark else QColor("#f59e0b")
+
+        try:
+            icon_size = QSize(18, 18)
+            colored_icon = create_colored_svg_icon(icon_path, icon_color, icon_size)
+            self.status_indicator_icon_label.setPixmap(colored_icon.pixmap(icon_size))
+        except Exception as e:
+            self.view_model._logger.error(f"Error setting status indicator icon ('{icon_key}'): {e}")
+            self.status_indicator_icon_label.setText("?")
+            self.status_indicator_icon_label.setPixmap(QPixmap())
+
+        self.status_indicator_icon_label.setToolTip(tooltip_text)
+
     def _update_alerts_list(self, alerts: List[str]):
         """Clears and repopulates the recent alerts list with enhanced styling."""
+        if not self.alerts_list: return  # Safety check
         self.alerts_list.clear()
 
+        is_dark_theme = self.property("darkTheme") == True  # Check current theme
+
         if alerts:
-            for alert in alerts:
+            for alert_text_with_level in alerts:  # Assuming alerts might now be "timestamp: [LEVEL] message"
                 item = QListWidgetItem()
 
-                # Determine alert type and icon
                 alert_type = "info"  # default
                 icon_path = ":/icons/info.svg"
+                base_text = alert_text_with_level
 
-                if "error" in alert.lower() or "threshold" in alert.lower() or "lockout" in alert.lower():
+                # Determine alert type and icon from the message content more robustly
+                if "[ERROR]" in alert_text_with_level.upper() or "THRESHOLD" in alert_text_with_level.upper() or "LOCKOUT" in alert_text_with_level.upper():
                     alert_type = "error"
-                    icon_path = ":/icons/alert-triangle.svg"
-                elif "warning" in alert.lower():
+                    icon_path = ":/icons/x-circle.svg"  # Or alert-triangle
+                elif "[WARNING]" in alert_text_with_level.upper():
                     alert_type = "warning"
                     icon_path = ":/icons/alert-triangle.svg"
-                elif "success" in alert.lower() or "verified" in alert.lower():
+                elif "[SUCCESS]" in alert_text_with_level.upper() or "VERIFIED" in alert_text_with_level.upper():
                     alert_type = "success"
                     icon_path = ":/icons/check-circle.svg"
 
-                # Set the icon
-                item.setIcon(QIcon(icon_path))
+                # Define icon colors based on type and theme
+                icon_color = QColor()
+                if alert_type == "error":
+                    icon_color = QColor("#f87171") if is_dark_theme else QColor("#ef4444")  # Red
+                elif alert_type == "warning":
+                    icon_color = QColor("#fcd34d") if is_dark_theme else QColor("#f59e0b")  # Amber
+                elif alert_type == "success":
+                    icon_color = QColor("#4ade80") if is_dark_theme else QColor("#10b981")  # Green
+                else:  # info
+                    icon_color = QColor("#60a5fa") if is_dark_theme else QColor("#3b82f6")  # Blue
 
-                # Set the text
-                item.setText(alert)
+                try:
+                    colored_icon = create_colored_svg_icon(icon_path, icon_color, QSize(16, 16))
+                    item.setIcon(colored_icon)
+                except Exception as e:
+                    if hasattr(self, 'view_model') and self.view_model:
+                        self.view_model._logger.error(f"Error setting alert icon for '{alert_text_with_level}': {e}")
 
-                # Set alert type property for styling
-                item.setData(Qt.UserRole, alert_type)
-
-                # Set size hint for better spacing
-                item.setSizeHint(QSize(0, 36))  # Adjust height as needed
-
+                item.setText(alert_text_with_level)  # Set the full text
+                item.setData(Qt.ItemDataRole.UserRole, alert_type)  # For QSS: QListWidget::item[alertType="error"]
+                item.setSizeHint(QSize(0, 32))  # Adjust height for icon + text
                 self.alerts_list.addItem(item)
         else:
+            # ... (your existing placeholder item logic) ...
             placeholder_item = QListWidgetItem("No recent alerts.")
-            placeholder_item.setForeground(QColor("#7f8c8d"))
-            placeholder_item.setIcon(QIcon(":/icons/info.svg"))
+            # Optional: Style placeholder differently or set a default icon
+            # info_icon_color = QColor("#9ca3af") if is_dark_theme else QColor("#6b7280")
+            # placeholder_item.setIcon(create_colored_svg_icon(":/icons/info.svg", info_icon_color, QSize(16,16)))
+            placeholder_item.setForeground(QColor("#9ca3af") if is_dark_theme else QColor("#6b7280"))
             self.alerts_list.addItem(placeholder_item)
-
 
     @Slot(str, str, str, bool)
     def _update_prerequisite_row(self, key: str, status_description: str, status_state: str, show_action: bool):
-        """Updates the UI row for a specific prerequisite using QLabel and QGraphicsColorizeEffect."""
+        """Updates the UI row for a specific prerequisite using create_colored_svg_icon."""
         if not hasattr(self, 'prereq_widgets') or key not in self.prereq_widgets:
-            if hasattr(self, 'view_model') and hasattr(self.view_model, '_logger'):
+            # Log error if ViewModel is available
+            if hasattr(self, 'view_model') and self.view_model and hasattr(self.view_model, '_logger'):
                 self.view_model._logger.error(
                     f"DashboardView: Received update for unknown/uninitialized prerequisite key '{key}'")
             return
 
         widgets = self.prereq_widgets[key]
         text_label: QLabel = widgets["text"]
-        icon_label: QLabel = widgets["icon"]
+        icon_label: QLabel = widgets["icon"]  # This is the QLabel where the icon will be set
         action_button: QPushButton = widgets["button"]
-        display_name: str = widgets["display_name"]  # Get the stored display name
+        display_name: str = widgets["display_name"]
 
-        # --- Update Text Label ---
-        # Construct the full text here in the View
+        # 1. Update Text Label
         text_label.setText(f"{display_name}: {status_description}")
-        # --- END Text Label Update ---
 
-        # --- Update Icon Path (Use base Feather names) ---
+        # 2. Determine Icon Path based on status_state
         icon_path = ""
         if status_state == "ok":
             icon_path = ":/icons/check-circle.svg"
@@ -563,53 +573,64 @@ class DashboardView(QWidget):
             icon_path = ":/icons/alert-triangle.svg"
         elif status_state == "error" or status_state == "missing":
             icon_path = ":/icons/x-circle.svg"
-        else:
+        else:  # "info", "pending", "neutral", or any other default
             icon_path = ":/icons/info.svg"
-        base_pixmap = QPixmap()
-        if icon_path:
-            loaded_pixmap = QPixmap(icon_path)
-            if not loaded_pixmap.isNull():
-                base_pixmap = loaded_pixmap.scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            else:
-                icon_label.setText("?");
-                self.view_model._logger.warning(f"Icon not found: {icon_path}")
-        icon_label.setPixmap(base_pixmap)
-        color_map = {"ok": QColor("#27ae60"), "warning": QColor("#f39c12"), "error": QColor("#e74c3c"),
-                     "missing": QColor("#e74c3c"), "info": QColor("#95a5a6"), "neutral": QColor("#95a5a6")}
-        target_color = color_map.get(status_state, QColor("#95a5a6"))
-        effect = icon_label.graphicsEffect()
-        colorize_effect = effect if isinstance(effect, QGraphicsColorizeEffect) else None
-        if not colorize_effect:
-            if effect: icon_label.setGraphicsEffect(None)
-            colorize_effect = QGraphicsColorizeEffect(icon_label);
-            icon_label.setGraphicsEffect(colorize_effect)
-        if colorize_effect:
-            colorize_effect.setColor(target_color);
-            colorize_effect.setStrength(1.0);
-            colorize_effect.setEnabled(True)
-        # --- END Icon and Effect ---
 
-        # --- Update Button Visibility and Text/Target ---
+        # 3. Determine Icon Color based on status_state AND current theme
+        is_dark_theme = self.property("darkTheme") == True
+
+        # Define theme-aware colors for the icons
+        # These colors are for the icons themselves, not necessarily text or backgrounds elsewhere.
+        ok_icon_color = QColor("#4ade80") if is_dark_theme else QColor("#10b981")  # Green
+        warning_icon_color = QColor("#fcd34d") if is_dark_theme else QColor("#f59e0b")  # Amber/Yellow
+        error_icon_color = QColor("#f87171") if is_dark_theme else QColor("#ef4444")  # Red
+        info_icon_color = QColor("#9ca3af") if is_dark_theme else QColor("#6b7280")  # Muted Gray
+
+        icon_color_map = {
+            "ok": ok_icon_color,
+            "warning": warning_icon_color,
+            "error": error_icon_color,
+            "missing": error_icon_color,  # Same as error
+            "info": info_icon_color,
+            "pending": info_icon_color,  # Use info color for pending
+            "neutral": info_icon_color  # Use info color for neutral
+        }
+        actual_icon_color_to_use = icon_color_map.get(status_state, info_icon_color)
+
+        # 4. Create and Set the Colored Icon
+        if icon_path:
+            try:
+                # Ensure icon_label has no old graphics effect if switching from QGraphicsColorizeEffect
+                if icon_label.graphicsEffect():
+                    icon_label.setGraphicsEffect(None)
+
+                colored_icon = create_colored_svg_icon(icon_path, actual_icon_color_to_use, QSize(16, 16))
+                icon_label.setPixmap(colored_icon.pixmap(QSize(16, 16)))  # Set directly on the QLabel
+                icon_label.setText("")  # Clear any fallback text
+            except Exception as e:
+                icon_label.setText("!")  # Fallback if icon creation fails
+                icon_label.setPixmap(QPixmap())  # Clear pixmap
+                if hasattr(self, 'view_model') and self.view_model and hasattr(self.view_model, '_logger'):
+                    self.view_model._logger.warning(f"Icon error for prereq '{key}': {icon_path}, {e}")
+        else:
+            icon_label.setPixmap(QPixmap())  # Clear pixmap if no icon path
+            icon_label.setText("")
+
+        # 5. Update Button Visibility and Text/Target (existing logic)
         action_button.setVisible(show_action)
         if show_action:
             target_tab = "Unknown";
             button_text = "Fix Issue"
             if key == "ct_path":
-                target_tab = "Settings";
-                button_text = "Set Path"
-            elif key == "ct_block_setup":  # New combined key
-                target_tab = "Settings";
-                button_text = "Configure Block"
+                target_tab = "Settings"; button_text = "Set Path"
+            elif key == "ct_block_setup":
+                target_tab = "Settings"; button_text = "Configure Block"
             elif key == "monitor_region":
-                target_tab = "Visual Setup";
-                button_text = "Define Region"
+                target_tab = "Visual Setup"; button_text = "Define Region"
             elif key == "flatten_regions":
-                target_tab = "Visual Setup";
-                button_text = "Add Regions"
-            elif key == "pnl_detector":  # Renamed key
-                target_tab = "Visual Setup";
-                button_text = "Configure Detector"  # Or "Calibrate"
-
+                target_tab = "Visual Setup"; button_text = "Add Regions"
+            elif key == "pnl_detector":
+                target_tab = "Visual Setup"; button_text = "Configure Detector"
             action_button.setText(button_text)
             action_button.setProperty("targetTab", target_tab)
         else:

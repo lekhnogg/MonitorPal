@@ -84,38 +84,30 @@ class WorkerWrapper(QObject):
 
     @Slot()
     def run(self):
-        """
-        Execute the worker's task in the background thread.
-        This method is called automatically when the thread starts.
-        """
         try:
-            self.logger.debug(f"WorkerWrapper: run() for task '{self.task_id}' is now calling worker.execute().")
+            self.logger.debug(f"WorkerWrapper: run() for task '{self.task_id}' starting.")
+            if self.worker.on_started_callback:  # If the caller set a specific on_started
+                try:
+                    self.worker.on_started_callback()  # Invoke it directly
+                except Exception as e_start:
+                    self.logger.error(f"Error in worker's custom on_started_callback: {e_start}")
+            else:  # Fallback to emitting the generic signal
+                self.signals.started.emit()
 
-            # The domain worker's execute() method is responsible for calling
-            # self.report_started() at its beginning if it wants to signal "started".
-            # The connection for this is made in WorkerWrapper.__init__ via:
-            #   self.worker.set_on_started(self.signals.started.emit)
-            # So, we don't explicitly call worker.report_started() or emit signals.started here.
+            result = self.worker.execute()  # Domain worker does its job
+            self.logger.debug(f"WorkerWrapper: worker.execute() for task '{self.task_id}' returned: {result}")
 
-            result_from_execute = self.worker.execute()  # Domain worker does its job (returns True/False for MonitoringWorker)
-
-            self.logger.debug(
-                f"WorkerWrapper: worker.execute() for task '{self.task_id}' finished and returned: {result_from_execute}")
-
-            # Process the return value of execute() and emit the 'completed' signal
-            # This 'completed' signal will carry the True/False result.
-            self._process_and_emit_result(result_from_execute)
+            # Process and emit the *result* of execute() via the 'completed' signal
+            self._process_and_emit_result(result)
 
         except Exception as e:
-            # This catches unhandled exceptions *during* self.worker.execute()
-            error_message = f"WorkerWrapper: Unhandled exception in worker.execute() for task '{self.task_id}': {e}"
+            error_message = f"WorkerWrapper: Unhandled error in worker.execute() for task '{self.task_id}': {e}"
             self.logger.error(error_message, exc_info=True)
-            self.signals.error.emit(error_message)  # Emit the generic error signal
+            self.signals.error.emit(error_message)  # Emit error signal
         finally:
-            # This block always executes, whether execute() succeeded, returned, or raised an exception.
             self.logger.debug(
-                f"WorkerWrapper: run() for task '{self.task_id}' logically finished. Emitting _wrapper_execution_finished.")
-            self.signals._wrapper_execution_finished.emit()  # Signal that this wrapper's execution path is complete.
+                f"WorkerWrapper: run() for task '{self.task_id}' finished. Emitting _wrapper_execution_finished.")
+            self.signals._wrapper_execution_finished.emit()  # Signal that this wrapper's run is done
 
     def _process_and_emit_result(self, result):
         """

@@ -22,29 +22,30 @@ class IMonitoringService(ABC):
     @abstractmethod
     def start_monitoring(self,
                          platform: str,
-                         region: Tuple[int, int, int, int],
-                         region_name: str,
+                         region: Tuple[int, int, int, int],  # Kept
+                         region_name: str,  # Kept
                          threshold: float,
-                         session_id: str,  # <-- ADD session_id
+                         session_id: str,
                          interval_seconds: float = 5.0,
                          on_status_update: Optional[Callable[[str, str], None]] = None,
                          on_threshold_exceeded: Optional[Callable[[MonitoringResult], None]] = None,
-                         on_error: Optional[Callable[[str], None]] = None) -> Result[bool]:
+                         on_error: Optional[Callable[[str], None]] = None,
+                         on_individual_check_complete: Optional[Callable[[MonitoringResult], None]] = None) -> Result[
+        bool]:  # <<< ADDED LINE
         """
-        Start monitoring the specified region for P&L values.
+        Starts the monitoring process for a given platform and threshold.
 
         Args:
-            platform: The platform being monitored (e.g., "Quantower")
-            region: The region to monitor (left, top, width, height)
-            region_name: The name of the region being monitored
-            threshold: The threshold value (negative number, losses below this trigger alerts)
-            interval_seconds: How often to check (in seconds)
-            on_status_update: Callback for status updates (message, level)
-            on_threshold_exceeded: Callback for when threshold is exceeded
-            on_error: Callback for monitoring errors
-
-        Returns:
-            Result indicating success or failure
+            platform: The name of the platform to monitor.
+            region: The screen coordinates (x, y, w, h) of the P&L region.
+            region_name: A descriptive name for the P&L region.
+            threshold: The loss threshold to monitor against.
+            session_id: The unique identifier for this monitoring session.
+            interval_seconds: How often to check, in seconds.
+            on_status_update: Callback for general status updates.
+            on_threshold_exceeded: Callback for when the loss threshold is breached.
+            on_error: Callback for errors during monitoring.
+            on_individual_check_complete: Callback for when each monitoring check is complete. # <<< ADDED DOC
         """
         pass
 
@@ -65,35 +66,5 @@ class IMonitoringService(ABC):
 
         Returns:
             True if monitoring is active, False otherwise
-        """
-        pass
-
-    @abstractmethod
-    def get_latest_result(self) -> Optional[MonitoringResult]:
-        """
-        Get the latest monitoring result.
-
-        Returns:
-            The most recent monitoring result, or None if no monitoring has occurred
-        """
-        pass
-
-    @abstractmethod
-    def select_monitoring_region(self) -> Result[Tuple[int, int, int, int]]:
-        """
-        Open a UI for the user to select a monitoring region.
-
-        Returns:
-            Result containing the selected region (left, top, width, height)
-        """
-        pass
-
-    @abstractmethod
-    def get_monitoring_history(self) -> Result[List[MonitoringResult]]:
-        """
-        Get the history of monitoring results.
-
-        Returns:
-            Result containing the list of monitoring results
         """
         pass
