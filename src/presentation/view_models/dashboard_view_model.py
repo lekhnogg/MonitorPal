@@ -21,6 +21,7 @@ from src.domain.services.i_region_service import IRegionService
 from src.domain.services.i_profile_service import IProfileService
 from src.domain.models.monitoring_result import MonitoringResult
 from src.domain.common.result import Result # For type hinting
+from src.infrastructure.ui.qt_flash_service import QtFlashService
 
 
 class DashboardViewModel(QObject):
@@ -109,6 +110,11 @@ class DashboardViewModel(QObject):
         self._flatten_regions_defined: bool = False
         self._last_monitor_result: Optional[MonitoringResult] = None
 
+        # --- NEW State for managing flash operation ---
+        self._is_flash_test_in_progress: bool = False
+        self._current_flash_task_id: Optional[str] = None
+        # --- End NEW State ---
+
         self._prerequisite_keys_list = [
             "ct_path", "ct_block_setup", "monitor_region",
             "flatten_regions", "pnl_detector"
@@ -121,6 +127,21 @@ class DashboardViewModel(QObject):
         self._platform_selection_service.register_platform_change_listener(
             self._handle_platform_selection_change
         )
+
+        # --- Connect to signals from QtFlashService ---
+        # This is crucial for knowing when the flash animation completes or fails.
+        # We check if the provided flash_service is an instance of QtFlashService
+        # or at least has the expected signals, to make the connection.
+        if isinstance(self._flash_service, QtFlashService):  # Check if it's the concrete type that has signals
+            self._logger.debug("Connecting to QtFlashService signals for flash completion/failure.")
+            self._flash_service.flash_animation_completed.connect(self._handle_flash_animation_completed)
+            self._flash_service.flash_animation_failed.connect(self._handle_flash_animation_failed)
+        else:
+            self._logger.warning(
+                "Flash service is not an instance of QtFlashService or does not have expected signals. "
+                "Flash button state during animation might not work correctly."
+            )
+        # --- End Connection to QtFlashService signals ---
 
         # Load initial data for the currently selected platform
         # This will call _update_state_for_platform, which in turn will call
@@ -204,7 +225,6 @@ class DashboardViewModel(QObject):
         self.current_pnl_text_changed.emit(self._current_pnl_text)
 
         # --- 2. DETERMINE STATUS INDICATOR ICON KEY AND TOOLTIP ---
-        # (This section remains the same as your provided code)
         current_icon_key = "inactive"
         current_tooltip = "Monitoring Inactive. Select platform and ensure prerequisites are met."
 
@@ -236,56 +256,52 @@ class DashboardViewModel(QObject):
         self.status_indicator_icon_info_changed.emit(self._status_indicator_icon_key, self._status_indicator_tooltip)
 
         # --- 3. DETERMINE MONITORING TARGET TEXT ---
-        # (This section remains the same)
+
         platform_name_display = self._selected_platform or "N/A"
         region_status_display = "Defined" if self._monitor_region_defined else "Not Set"
         self._monitoring_target_text = f"{platform_name_display} - Region: {region_status_display}"
         self.monitoring_target_text_changed.emit(self._monitoring_target_text)
 
         # --- 4. UPDATE BUTTON ENABLEMENT STATES ---
-        # (This section remains the same - it calls _update_button_states())
         self._update_button_states()
 
-        self._logger.debug(
-            f"Dashboard display state emitted: PNL='{self._current_pnl_text}', "
-            f"IconKey='{self._status_indicator_icon_key}', Tooltip='{self._status_indicator_tooltip}', "
-            f"Target='{self._monitoring_target_text}'"
-        )
 
     def _update_button_states(self):
         """Updates the internal state and emits signals for button enablement."""
-        # Calculate states based on current internal state like self._is_monitoring_globally_active,
-        # self._selected_platform, self._monitor_region_defined, and ALL prerequisites.
-        all_prereqs_met = True  # Assume true initially
+        all_prereqs_met = True
         if self._selected_platform:
-            # Iterate through self._prerequisite_states or re-check critical ones here
-            # For simplicity, let's assume _monitor_region_defined is the most critical for *starting*.
-            # A more robust check would be if all items in self._prerequisite_states for the
-            # current platform are "ok".
-            if not self._monitor_region_defined:  # Example critical prerequisite
+            if not self._monitor_region_defined: # Using simplified check for now
                 all_prereqs_met = False
-            # You might also check CT path, block setup if they are hard requirements for starting
-            # For example:
-            # if not self._prerequisite_states.get("ct_path") == "ok" or \
-            #    not self._prerequisite_states.get("ct_block_setup") == "ok":
-            #     all_prereqs_met = False
         else:
             all_prereqs_met = False
 
         self._can_start = (
                 not self._is_monitoring_globally_active and
                 bool(self._selected_platform) and
-                all_prereqs_met  # Use combined prerequisite check
+                all_prereqs_met
         )
         self._can_stop = self._is_monitoring_globally_active
-        self._can_test_flash = bool(self._selected_platform) and \
-                               (self._monitor_region_defined or self._flatten_regions_defined)
+
+        # Calculate _can_test_flash correctly ONCE
+        self._can_test_flash = (
+                bool(self._selected_platform) and
+                (self._monitor_region_defined or self._flatten_regions_defined) and
+                not self._is_flash_test_in_progress  # Disable if a flash test is currently running
+        )
+
+        # REMOVE THE DUPLICATE/INCORRECT ASSIGNMENT THAT WAS HERE:
+        # self._can_test_flash = bool(self._selected_platform) and \
+        #                        (self._monitor_region_defined or self._flatten_regions_defined)
 
         self.can_start_monitoring_changed.emit(self._can_start)
         self.can_stop_monitoring_changed.emit(self._can_stop)
-        self.can_test_flash_changed.emit(self._can_test_flash)
+        self.can_test_flash_changed.emit(self._can_test_flash) # Emit the correct value
+
+        # Also, update your logger line here to include the FlashInProgress state for better debugging
         self._logger.debug(
-            f"Button states updated: CanStart={self._can_start}, CanStop={self._can_stop}, CanFlash={self._can_test_flash}")
+            f"Button states updated: CanStart={self._can_start}, CanStop={self._can_stop}, "
+            f"CanFlash={self._can_test_flash} (FlashInProgress={self._is_flash_test_in_progress})"
+        )
 
     # --- Command Slots (Called by the View) ---
 
@@ -480,97 +496,143 @@ class DashboardViewModel(QObject):
     @Slot()
     def test_flash_regions(self):
         """
-        Collects coordinates for all defined regions (monitor and flatten)
-        for the currently selected platform and initiates a simultaneous
-        flash effect for all of them using the FlashService.
+        Collects coordinates for defined regions and initiates a flash effect.
+        The 'Test Flash' button will be disabled during the flash animation.
         """
-        # 1. Check if a platform is selected
+        # --- Prevent multiple concurrent flash tests ---
+        if self._is_flash_test_in_progress:
+            self._logger.info("Flash test is already in progress. Ignoring new request.")
+            self.status_message_changed.emit("Flash test already running.", "INFO")
+            return
+
+        # 1. Check platform selection
         if not self._selected_platform:
             self.status_message_changed.emit("No platform selected to test flash.", "ERROR")
             self.activity_log_appended.emit("Flash test failed: No platform selected.", "ERROR")
+            self._logger.warning("test_flash_regions: Attempted with no platform selected.")  # Added log
             return
 
-        # 2. Check if any regions are defined (using internal flags updated by _update_state_for_platform)
+        # 2. Check if any regions are defined
         if not self._monitor_region_defined and not self._flatten_regions_defined:
             msg = f"No regions defined for {self._selected_platform} to flash."
             self.status_message_changed.emit(msg, "ERROR")
             self.activity_log_appended.emit(f"Flash test failed: {msg}", "ERROR")
+            self._logger.warning(f"test_flash_regions: {msg}")  # Added log
             return
 
-        # 3. Log initiation
-        self._logger.info(f"Testing flash for all regions on {self._selected_platform}")  # Use _logger
-        self.status_message_changed.emit(f"Gathering regions for {self._selected_platform}...", "INFO")
+        self._logger.info(f"Initiating flash test for all regions on {self._selected_platform}")
         self.activity_log_appended.emit(f"Initiating flash test for {self._selected_platform}...", "INFO")
 
-        # 4. Collect *Coordinate Tuples* for all valid defined regions
+        # 4. Collect coordinates
         coords_to_flash: List[Tuple[int, int, int, int]] = []
-
-        # Get Monitor Region Coords
         try:
             if self._monitor_region_defined:
                 monitor_result = self._region_service.get_monitor_region(self._selected_platform)
-                # Check result is success, has a value, and coordinates are valid
                 if monitor_result.is_success and monitor_result.value and isinstance(monitor_result.value.coordinates,
                                                                                      tuple) and len(
-                        monitor_result.value.coordinates) == 4:
+                    monitor_result.value.coordinates) == 4:
                     coords_to_flash.append(monitor_result.value.coordinates)
-                    self._logger.debug(
-                        f"Added monitor region coords for flash: {monitor_result.value.coordinates}")  # Use _logger
-                elif monitor_result.is_failure:
-                    self._logger.warning(
-                        f"Failed to get monitor region details during flash test: {monitor_result.error}")  # Use _logger
-                else:
-                    self._logger.warning(
-                        f"Monitor region object or coordinates invalid: {monitor_result.value}")  # Use _logger
-        except Exception as e:
-            self._logger.error(f"Unexpected error getting monitor region for flash: {e}", exc_info=True)  # Use _logger
-
-        # Get Flatten Regions Coords
-        try:
             if self._flatten_regions_defined:
                 flatten_result = self._region_service.get_regions_by_platform(self._selected_platform, "flatten")
                 if flatten_result.is_success and flatten_result.value:
                     for region in flatten_result.value:
-                        # Check region and coordinates are valid before appending
                         if region and isinstance(region.coordinates, tuple) and len(region.coordinates) == 4:
                             coords_to_flash.append(region.coordinates)
-                            self._logger.debug(
-                                f"Added flatten region '{region.name}' coords for flash: {region.coordinates}")  # Use _logger
-                        else:
-                            self._logger.warning(
-                                f"Skipping invalid flatten region data during flash test: {region}")  # Use _logger
-                elif flatten_result.is_failure:
-                    self._logger.warning(
-                        f"Failed to get flatten region details during flash test: {flatten_result.error}")  # Use _logger
         except Exception as e:
-            self._logger.error(f"Unexpected error getting flatten regions for flash: {e}", exc_info=True)  # Use _logger
-
-        # 5. Check if any coordinates were actually gathered
-        if not coords_to_flash:
-            msg = f"No valid regions with coordinates found for {self._selected_platform} to flash."
-            self.status_message_changed.emit(msg, "ERROR")
-            self.activity_log_appended.emit(f"Flash test failed: {msg}", "ERROR")
-            self._logger.error(msg)  # Use _logger
+            self._logger.error(f"Error collecting regions for flash: {e}", exc_info=True)
+            self.status_message_changed.emit("Error preparing regions for flash. Check logs.", "ERROR")
             return
 
-        # 6. Call the SINGLE flash service method with the LIST of coordinates
-        self.status_message_changed.emit(f"Flashing {len(coords_to_flash)} region(s)...", "INFO")
-        # --- Ensure this is the correct method name in your IFlashService/QtFlashService ---
-        flash_result = self._flash_service.flash_regions(coords_to_flash)
-        # --- End method call ---
+        if not coords_to_flash:
+            msg = f"No valid regions with coordinates found for {self._selected_platform} to flash."
+            self.status_message_changed.emit(msg, "ERROR");
+            self.activity_log_appended.emit(f"Flash test failed: {msg}", "ERROR")
+            self._logger.error(f"test_flash_regions: {msg}")  # Added log
+            return
 
-        # 7. Handle the result of *starting* the flash task
-        if flash_result.is_success:
-            msg = f"Flash test initiated successfully for {len(coords_to_flash)} region(s)."
-            # Optional: Status bar message might be too brief, rely on logs/visual flash
-            # self.status_message_changed.emit(msg, "INFO")
+        # --- Set state to indicate flash is in progress & update button ---
+        self._logger.debug("test_flash_regions: >>> Setting _is_flash_test_in_progress = True")  # NEW DEBUG LOG
+        self._is_flash_test_in_progress = True
+        self._current_flash_task_id = None  # Will be set if start is successful
+
+        self._logger.debug(
+            "test_flash_regions: >>> Calling _update_button_states() to disable flash button.")  # NEW DEBUG LOG
+        self._update_button_states()  # This will disable the 'Test Flash' button
+        # The _update_button_states method itself has a debug log that will show the CanFlash state
+        self._logger.debug(
+            f"test_flash_regions: >>> After _update_button_states(). Current _is_flash_test_in_progress: {self._is_flash_test_in_progress}")  # NEW DEBUG LOG
+
+        self.status_message_changed.emit(f"Flashing {len(coords_to_flash)} region(s)...", "BUSY")  # Use BUSY
+
+        # --- Call the flash service ---
+        # The flash_service.flash_regions should return Result[str] where str is task_id
+        flash_start_result: Result[str] = self._flash_service.flash_regions(coords_to_flash)
+
+        if flash_start_result.is_success:
+            self._current_flash_task_id = flash_start_result.value  # Store the task_id
+            msg = f"Flash test initiated (Task ID: {self._current_flash_task_id}) for {len(coords_to_flash)} region(s)."
             self.activity_log_appended.emit(msg, "INFO")
-            self._logger.info(msg)  # Use _logger
+            self._logger.info(msg)
+            # Button remains disabled as _is_flash_test_in_progress is True.
+            # Status message will be updated upon completion/failure via signals.
         else:
-            msg = f"Failed to start flash test task: {flash_result.error}"
+            # Flash task failed to START
+            msg = f"Failed to start flash test task: {flash_start_result.error}"
             self.status_message_changed.emit(msg, "ERROR")
-            self.activity_log_appended.emit(msg, "ERROR")
-            self._logger.error(msg)  # Use _logger
+            self.activity_log_appended.emit(f"Flash test START FAILED: {msg}", "ERROR")
+            self._logger.error(msg)
+
+            # --- Reset flashing state as it failed to start ---
+            self._logger.debug(
+                "test_flash_regions: >>> Flash start FAILED. Resetting flag and updating buttons.")  # NEW DEBUG LOG
+            self._is_flash_test_in_progress = False
+            self._current_flash_task_id = None
+            self._update_button_states()  # This will re-enable the 'Test Flash' button
+            self._logger.debug(
+                f"test_flash_regions: >>> After FAILED start, _is_flash_test_in_progress: {self._is_flash_test_in_progress}")  # NEW DEBUG
+
+    # --- NEW SLOTS for Flash Service Signals ---
+    @Slot(str)  # Receives task_id
+    def _handle_flash_animation_completed(self, task_id: str):
+        """
+        Called when the QtFlashService signals that the flash animation has completed.
+        """
+        self._logger.info(f"Received flash animation completed signal for task: {task_id}")
+        # Check if this is the task we are currently tracking
+        if self._is_flash_test_in_progress and (
+                self._current_flash_task_id is None or self._current_flash_task_id == task_id):
+            self._is_flash_test_in_progress = False
+            self._current_flash_task_id = None
+            self._update_button_states()  # Re-enable the 'Test Flash' button
+            self.status_message_changed.emit("Flash test completed.", "SUCCESS")
+            self.activity_log_appended.emit(f"Flash test (Task: {task_id}) completed successfully.", "SUCCESS")
+        elif not self._is_flash_test_in_progress:
+            self._logger.warning(
+                f"Flash animation completed for task '{task_id}', but no flash test was marked as in progress. State inconsistency?")
+        elif self._current_flash_task_id != task_id:
+            self._logger.warning(
+                f"Flash animation completed for task '{task_id}', but current tracked task is '{self._current_flash_task_id}'. Ignoring stale signal.")
+
+    @Slot(str, str)  # Receives task_id, error_message
+    def _handle_flash_animation_failed(self, task_id: str, error_msg: str):
+        """
+        Called when the QtFlashService signals that the flash animation has failed.
+        This can be due to an error during the animation itself, or if the task failed to start.
+        """
+        self._logger.error(f"Received flash animation failed signal for task: {task_id}, Error: {error_msg}")
+        if self._is_flash_test_in_progress and (
+                self._current_flash_task_id is None or self._current_flash_task_id == task_id):
+            self._is_flash_test_in_progress = False
+            self._current_flash_task_id = None
+            self._update_button_states()  # Re-enable the 'Test Flash' button
+            self.status_message_changed.emit(f"Flash test error: {error_msg}", "ERROR")
+            self.activity_log_appended.emit(f"Flash test (Task: {task_id}) FAILED: {error_msg}", "ERROR")
+        elif not self._is_flash_test_in_progress:
+            self._logger.warning(
+                f"Flash animation failed for task '{task_id}', but no flash test was marked as in progress. State inconsistency?")
+        elif self._current_flash_task_id != task_id:
+            self._logger.warning(
+                f"Flash animation failed for task '{task_id}', but current tracked task is '{self._current_flash_task_id}'. Ignoring stale signal.")
 
     # --- Private Helper / Update Methods ---
 
@@ -715,10 +777,6 @@ class DashboardViewModel(QObject):
                 f"selected_platform: '{self._selected_platform}') "
                 "are not met for this result to update the current view's P&L."
             )
-
-        # Note: Even if we don't update _current_pnl_text here, the _last_monitor_result is still updated.
-        # This could be relevant if, for example, stop_monitoring needs the PNL from a session that was
-        # running on a platform different from the one currently selected in the UI.
 
     def _handle_threshold_exceeded(self, result: MonitoringResult):  # result is MonitoringResult from the service
         """Callback from MonitoringService when threshold is breached."""

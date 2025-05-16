@@ -367,6 +367,9 @@ class VisualSetupView(QWidget):
             entry_widget.delete_requested.connect(self.view_model.delete_flatten_region)
             entry_widget.flash_requested.connect(self.view_model.flash_flatten_region)
 
+            # NEW CONNECTION for enabling/disabling the flash button within this entry_widget
+            self.view_model.can_flash_flatten_region_item_changed.connect(entry_widget.on_can_flash_state_changed)
+
             list_item = QListWidgetItem(self.flatten_list_widget)
             list_item.setSizeHint(entry_widget.sizeHint())
             self.flatten_list_widget.addItem(list_item)

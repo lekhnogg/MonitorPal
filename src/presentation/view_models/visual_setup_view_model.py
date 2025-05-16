@@ -26,6 +26,7 @@ from src.domain.models.region_model import Region
 from src.domain.models.platform_profile import PlatformProfile, OcrProfile
 from src.domain.common.result import Result
 from src.domain.common.errors import ErrorCategory, ConfigurationError, ResourceError
+from src.infrastructure.ui.qt_flash_service import QtFlashService
 
 # --- CalibrationWorker Definition (can be moved to a separate file if large) ---
 # For now, let's assume it's copied here from ocr_calibration_view_model.py
@@ -328,6 +329,11 @@ class VisualSetupViewModel(QObject):
 
     can_save_calibrated_profile_changed = Signal(bool)
     can_save_manual_edits_changed = Signal(bool)
+
+    # --- NEW Signal for individual flatten region flash button state ---
+    # Emits: region_name (str), enabled_state (bool)
+    can_flash_flatten_region_item_changed = Signal(str, bool)  # <<<< ADD THIS LINE
+
     # profile_potentially_changed # Renamed/repurposed from OcrCalibrationViewModel
     visual_setup_profile_changed = Signal(
         str)  # Emits platform name when OCR profile or monitor region (which might affect profile) is saved/reset
@@ -372,9 +378,18 @@ class VisualSetupViewModel(QObject):
         self._can_delete_monitor: bool = False
         self._can_flash_monitor: bool = False
 
+        # --- NEW state variables for Monitor Region flash ---
+        self._is_monitor_region_flashing: bool = False
+        self._monitor_flash_task_id: Optional[str] = None
+
         # Flatten Regions State
         self._flatten_list_data: List[Dict[str, Any]] = []
         self._can_add_flatten: bool = True  # Usually true if platform selected
+
+        # --- NEW state variables for Flatten Region flashes ---
+        # Key: region_name (unique identifier for the flatten region)
+        # Value: task_id (from _flash_service)
+        self._active_flatten_flash_operations: Dict[str, str] = {}
 
         # OCR Calibration State
         self._expected_value: str = ""
@@ -389,6 +404,27 @@ class VisualSetupViewModel(QObject):
         self._platform_selection_service.register_platform_change_listener(
             self._handle_platform_selection_change
         )
+
+        # --- ADD THIS BLOCK ---
+        # Connect to FlashService signals for asynchronous completion
+        # This allows the ViewModel to know when a flash operation (started by it)
+        # has actually finished or failed.
+        if isinstance(self._flash_service, QtFlashService):  # Good practice to check type or signal existence
+            self._logger.debug(
+                "VisualSetupVM: Connecting to QtFlashService signals (flash_animation_completed, flash_animation_failed).")
+            self._flash_service.flash_animation_completed.connect(self._handle_flash_animation_completed)
+            self._flash_service.flash_animation_failed.connect(self._handle_flash_animation_failed)
+        else:
+            # Log a warning if the flash service isn't the expected type or doesn't have the signals.
+            # This helps in debugging if the injected flash_service is incorrect.
+            self._logger.warning(
+                "VisualSetupVM: _flash_service is not an instance of QtFlashService or does not "
+                "appear to have 'flash_animation_completed'/'flash_animation_failed' signals. "
+                "Button state management during flash animations may not work correctly."
+            )
+        # --- END OF BLOCK TO ADD ---
+
+
         initial_platform = self._platform_selection_service.get_current_platform()
         self._load_data_for_platform(initial_platform)
 
@@ -496,6 +532,7 @@ class VisualSetupViewModel(QObject):
             self._monitor_region_coords_text = f"({x}, {y}, {w}, {h})"
             self._can_delete_monitor = True
             self._can_flash_monitor = True
+            self._base_can_flash_monitor = True  # <<<< SET BASE CAPABILITY
             preview_pixmap = self._load_region_preview(region)  # Reusable helper
 
             if region.screenshot_path and os.path.exists(region.screenshot_path):
@@ -655,13 +692,99 @@ class VisualSetupViewModel(QObject):
 
     @Slot()
     def flash_monitor_region(self):
-        # (Copy logic from RegionSetupViewModel.flash_monitor_region)
-        if not self._selected_platform: self.status_message_changed.emit("No platform selected.", "ERROR"); return
+        """Initiates flashing of the P&L monitor region and manages button state."""
+        if not self._selected_platform:
+            self.status_message_changed.emit("No platform selected.", "ERROR")
+            return
+        if self._is_monitor_region_flashing:
+            self._logger.info("Monitor region flash already in progress.")
+            return
+        if not self._base_can_flash_monitor:  # Check if region is defined
+            self.status_message_changed.emit(f"P&L monitor region not defined for {self._selected_platform}.", "ERROR")
+            return
+
         region_result = self._region_service.get_monitor_region(self._selected_platform)
         if not (region_result.is_success and region_result.value and region_result.value.coordinates):
-            self.status_message_changed.emit(f"P&L region not defined for {self._selected_platform}.", "ERROR");
+            self.status_message_changed.emit(f"P&L monitor region data invalid for {self._selected_platform}.", "ERROR")
             return
-        self._flash_service.flash_regions([region_result.value.coordinates])
+
+        coords_to_flash = [region_result.value.coordinates]
+
+        self._is_monitor_region_flashing = True
+        self._monitor_flash_task_id = None  # Reset before new task
+        self.can_flash_monitor_region_changed.emit(False)  # Disable button
+        self.status_message_changed.emit("Flashing P&L monitor region...", "BUSY")
+
+        flash_start_result: Result[str] = self._flash_service.flash_regions(coords_to_flash)
+
+        if flash_start_result.is_success and flash_start_result.value:
+            self._monitor_flash_task_id = flash_start_result.value
+            self._logger.info(f"Monitor region flash initiated (Task ID: {self._monitor_flash_task_id}).")
+        else:
+            self._is_monitor_region_flashing = False
+            self._monitor_flash_task_id = None
+            self.can_flash_monitor_region_changed.emit(self._base_can_flash_monitor)  # Re-enable if possible
+            error_msg = flash_start_result.error if flash_start_result.is_failure else "Unknown error starting flash"
+            self.status_message_changed.emit(f"Failed to start P&L monitor flash: {error_msg}", "ERROR")
+            self._logger.error(f"Failed to start P&L monitor flash: {error_msg}")
+
+    # --- NEW Handler Slots for FlashService Signals ---
+    @Slot(str)  # task_id
+    def _handle_flash_animation_completed(self, task_id: str):
+        self._logger.info(f"VisualSetupVM: Flash animation completed for task_id: {task_id}")
+
+        # Check if it was the P&L monitor region flash
+        if self._is_monitor_region_flashing and self._monitor_flash_task_id == task_id:
+            self._is_monitor_region_flashing = False
+            self._monitor_flash_task_id = None
+            self.can_flash_monitor_region_changed.emit(self._base_can_flash_monitor)  # Re-enable if possible
+            self.status_message_changed.emit("P&L monitor region flash completed.", "SUCCESS")
+            return  # Processed
+
+        # Check if it was one of the flatten region flashes
+        completed_flatten_region_name: Optional[str] = None
+        for name, active_task_id in self._active_flatten_flash_operations.items():
+            if active_task_id == task_id:
+                completed_flatten_region_name = name
+                break
+
+        if completed_flatten_region_name:
+            del self._active_flatten_flash_operations[completed_flatten_region_name]
+            self.can_flash_flatten_region_item_changed.emit(completed_flatten_region_name, True)  # Re-enable button
+            self.status_message_changed.emit(f"Flash for '{completed_flatten_region_name}' completed.", "SUCCESS")
+            return  # Processed
+
+        self._logger.warning(
+            f"VisualSetupVM: Received flash completion for an untracked or mismatched task_id: {task_id}")
+
+    @Slot(str, str)  # task_id, error_message
+    def _handle_flash_animation_failed(self, task_id: str, error_msg: str):
+            self._logger.error(f"VisualSetupVM: Flash animation failed for task_id: {task_id}, Error: {error_msg}")
+
+            # Check if it was the P&L monitor region flash
+            if self._is_monitor_region_flashing and self._monitor_flash_task_id == task_id:
+                self._is_monitor_region_flashing = False
+                self._monitor_flash_task_id = None
+                self.can_flash_monitor_region_changed.emit(self._base_can_flash_monitor)  # Re-enable if possible
+                self.status_message_changed.emit(f"P&L monitor region flash failed: {error_msg}", "ERROR")
+                return  # Processed
+
+            # Check if it was one of the flatten region flashes
+            failed_flatten_region_name: Optional[str] = None
+            for name, active_task_id in self._active_flatten_flash_operations.items():
+                if active_task_id == task_id:
+                    failed_flatten_region_name = name
+                    break
+
+            if failed_flatten_region_name:
+                del self._active_flatten_flash_operations[failed_flatten_region_name]
+                self.can_flash_flatten_region_item_changed.emit(failed_flatten_region_name, True)  # Re-enable button
+                self.status_message_changed.emit(f"Flash for '{failed_flatten_region_name}' failed: {error_msg}",
+                                                 "ERROR")
+                return  # Processed
+
+            self._logger.warning(
+                f"VisualSetupVM: Received flash failure for an untracked or mismatched task_id: {task_id}")
 
     @Slot()
     def add_flatten_region(self):
@@ -838,29 +961,57 @@ class VisualSetupViewModel(QObject):
         # Refresh the flatten list display
         self._load_flatten_regions(self._selected_platform)
 
-    @Slot(str)  # Expects the region name
+    @Slot(str)  # Expects the region name (unique ID for the flatten region)
     def flash_flatten_region(self, region_name: str):
-        """Flashes a specific flatten region."""
+        """Flashes a specific flatten region and manages its button state."""
         if not self._selected_platform:
             self.status_message_changed.emit("No platform selected.", "ERROR")
+            self._logger.warning("flash_flatten_region: Called with no platform selected.")
+            return
+
+        if region_name in self._active_flatten_flash_operations:
+            self._logger.info(f"Flatten region '{region_name}' flash is already in progress. Ignoring request.")
+            # Optionally emit a status message to the user
+            # self.status_message_changed.emit(f"Flash for '{region_name}' already running.", "INFO")
             return
 
         # 1. Get Region Object
         region_result = self._region_service.get_region(self._selected_platform, "flatten", region_name)
         if region_result.is_failure or not region_result.value or not region_result.value.coordinates:
-            self.status_message_changed.emit(f"Flatten region '{region_name}' not found or invalid.", "ERROR")
+            self.status_message_changed.emit(f"Flatten region '{region_name}' not found or has invalid coordinates.",
+                                             "ERROR")
+            self._logger.error(f"flash_flatten_region: Could not get valid region data for '{region_name}'.")
             return
 
         # 2. Extract Coordinates
-        coords = region_result.value.coordinates
+        coords_to_flash = [region_result.value.coordinates]
 
-        # 3. Call flash_regions with a list containing the single tuple
-        self.status_message_changed.emit(f"Flashing flatten region '{region_name}' for {self._selected_platform}...",
-                                         "INFO")
-        flash_result = self._flash_service.flash_regions([coords])  # Pass as a list
-        if flash_result.is_failure:
-            self.status_message_changed.emit(f"Failed to initiate flash for '{region_name}': {flash_result.error}",
-                                             "ERROR")
+        # 3. Update state: Mark as flashing, disable button via signal
+        # Temporarily store a placeholder task_id or just use region_name to mark as "attempting"
+        self._active_flatten_flash_operations[region_name] = "pending_task_id"  # Placeholder
+        self.can_flash_flatten_region_item_changed.emit(region_name, False)  # Disable button
+        self.status_message_changed.emit(f"Flashing flatten region '{region_name}'...", "BUSY")
+        self._logger.debug(f"flash_flatten_region: Initiating flash for '{region_name}'. Button disabled.")
+
+        # 4. Call the flash service
+        flash_start_result: Result[str] = self._flash_service.flash_regions(coords_to_flash)
+
+        if flash_start_result.is_success and flash_start_result.value:
+            task_id = flash_start_result.value
+            # Update with the actual task_id
+            self._active_flatten_flash_operations[region_name] = task_id
+            self._logger.info(f"Flatten region '{region_name}' flash initiated successfully (Task ID: {task_id}).")
+            # Button remains disabled. Completion/failure will re-enable it.
+        else:
+            # Flash task failed to START
+            error_msg = flash_start_result.error if flash_start_result.is_failure else "Unknown error starting flash"
+            self.status_message_changed.emit(f"Failed to start flash for '{region_name}': {error_msg}", "ERROR")
+            self._logger.error(f"flash_flatten_region: Failed to start flash task for '{region_name}': {error_msg}")
+
+            # Reset state for this specific flatten region as it failed to start
+            if region_name in self._active_flatten_flash_operations:
+                del self._active_flatten_flash_operations[region_name]
+            self.can_flash_flatten_region_item_changed.emit(region_name, True)  # Re-enable button
 
     @Slot(str)
     def set_expected_value(self, value: str):

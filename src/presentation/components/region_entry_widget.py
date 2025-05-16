@@ -94,10 +94,11 @@ class RegionEntryWidget(QWidget):
         actions_layout.setContentsMargins(10, 0, 10, 10)
         actions_layout.setSpacing(6)
 
-        # Use smaller buttons to save space
-        flash_btn = SecondaryButton("Flash", icon=":/icons/zap.svg")
-        flash_btn.setObjectName("flashRegionBtn")
-        flash_btn.clicked.connect(self._emit_flash_requested)
+        # STORE THE BUTTON AS AN INSTANCE ATTRIBUTE:
+        self.flash_button_widget = SecondaryButton("Flash",
+                                                   icon=":/icons/zap.svg")  # CHANGED: flash_btn -> self.flash_button_widget
+        self.flash_button_widget.setObjectName("flashRegionBtn")
+        self.flash_button_widget.clicked.connect(self._emit_flash_requested)
 
         edit_btn = StyledButton("Edit", icon=":/icons/edit.svg")
         edit_btn.setObjectName("editRegionBtn")
@@ -109,7 +110,7 @@ class RegionEntryWidget(QWidget):
 
         # Add spacers and buttons
         actions_layout.addStretch(1)
-        actions_layout.addWidget(flash_btn)
+        actions_layout.addWidget(self.flash_button_widget)
         actions_layout.addWidget(edit_btn)
         actions_layout.addWidget(delete_btn)
 
@@ -145,3 +146,13 @@ class RegionEntryWidget(QWidget):
     @Slot()
     def _emit_flash_requested(self):
         self.flash_requested.emit(self._region_id)
+
+    def set_flash_button_enabled(self, enabled: bool):
+        """Sets the enabled state of the internal 'Flash' button."""
+        if hasattr(self, 'flash_button_widget') and self.flash_button_widget:
+            self.flash_button_widget.setEnabled(enabled)
+
+    @Slot(str, bool)
+    def on_can_flash_state_changed(self, emitted_region_id: str, enabled: bool):
+        if self._region_id == emitted_region_id:  # _region_id is the ID of this specific widget
+            self.set_flash_button_enabled(enabled)

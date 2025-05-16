@@ -4,17 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="History tab works, all tabs look somewhat the same, minor adjustments needed, also lockout sequence no idea if works at this point.">
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="STUFF WORKS. MONITOR WITHOUT APP RUNNING CORRECTLY DEALS WITH THREAD AND CLEANS UP. FLASH WORKS BUT IS STILL WEAK BECAUSE OF THE BUTTON NOT BEING DISABLED. APART FROM THAT STUFF WORKS.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/application/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/qt_region_selector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/ui/qt_flash_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ui/qt_flash_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/main_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/main_view_model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/views/main_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/main_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/visual_setup_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/visual_setup_view_model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/visual_setup_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/visual_setup_view.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -90,6 +87,7 @@
     "Python.main.executor": "Run",
     "Python.monitorPal_test.executor": "Run",
     "Python.monitoring_service.executor": "Run",
+    "Python.qt_background_task_service.executor": "Run",
     "Python.simple_test_app.executor": "Run",
     "Python.test_app.executor": "Run",
     "Python.test_appOLD.executor": "Run",
@@ -414,7 +412,15 @@
       <option name="project" value="LOCAL" />
       <updated>1746822076890</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="STUFF WORKS. MONITOR WITHOUT APP RUNNING CORRECTLY DEALS WITH THREAD AND CLEANS UP. FLASH WORKS BUT IS STILL WEAK BECAUSE OF THE BUTTON NOT BEING DISABLED. APART FROM THAT STUFF WORKS.">
+      <option name="closed" value="true" />
+      <created>1747350810743</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1747350810743</updated>
+    </task>
+    <option name="localTasksCounter" value="31" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -439,6 +445,7 @@
     <MESSAGE value="Major upgrades.." />
     <MESSAGE value="Major upgrades..MORE" />
     <MESSAGE value="History tab works, all tabs look somewhat the same, minor adjustments needed, also lockout sequence no idea if works at this point." />
-    <option name="LAST_COMMIT_MESSAGE" value="History tab works, all tabs look somewhat the same, minor adjustments needed, also lockout sequence no idea if works at this point." />
+    <MESSAGE value="STUFF WORKS. MONITOR WITHOUT APP RUNNING CORRECTLY DEALS WITH THREAD AND CLEANS UP. FLASH WORKS BUT IS STILL WEAK BECAUSE OF THE BUTTON NOT BEING DISABLED. APART FROM THAT STUFF WORKS." />
+    <option name="LAST_COMMIT_MESSAGE" value="STUFF WORKS. MONITOR WITHOUT APP RUNNING CORRECTLY DEALS WITH THREAD AND CLEANS UP. FLASH WORKS BUT IS STILL WEAK BECAUSE OF THE BUTTON NOT BEING DISABLED. APART FROM THAT STUFF WORKS." />
   </component>
 </project>
