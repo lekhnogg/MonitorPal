@@ -22,30 +22,21 @@ class IMonitoringService(ABC):
     @abstractmethod
     def start_monitoring(self,
                          platform: str,
-                         region: Tuple[int, int, int, int],  # Kept
-                         region_name: str,  # Kept
                          threshold: float,
                          session_id: str,
                          interval_seconds: float = 5.0,
                          on_status_update: Optional[Callable[[str, str], None]] = None,
                          on_threshold_exceeded: Optional[Callable[[MonitoringResult], None]] = None,
-                         on_error: Optional[Callable[[str], None]] = None,
-                         on_individual_check_complete: Optional[Callable[[MonitoringResult], None]] = None) -> Result[
-        bool]:  # <<< ADDED LINE
+                         on_error: Optional[Callable[[str, bool], None]] = None, # <<< CHANGED: (error_message, is_fatal)
+                         on_individual_check_complete: Optional[Callable[[MonitoringResult], None]] = None
+                         ) -> Result[bool]:
         """
-        Starts the monitoring process for a given platform and threshold.
-
+        ...
         Args:
-            platform: The name of the platform to monitor.
-            region: The screen coordinates (x, y, w, h) of the P&L region.
-            region_name: A descriptive name for the P&L region.
-            threshold: The loss threshold to monitor against.
-            session_id: The unique identifier for this monitoring session.
-            interval_seconds: How often to check, in seconds.
-            on_status_update: Callback for general status updates.
-            on_threshold_exceeded: Callback for when the loss threshold is breached.
+            ...
             on_error: Callback for errors during monitoring.
-            on_individual_check_complete: Callback for when each monitoring check is complete. # <<< ADDED DOC
+                      Args: (error_message: str, is_task_definitively_stopped: bool) # <<< UPDATED DOC
+            ...
         """
         pass
 
@@ -66,5 +57,20 @@ class IMonitoringService(ABC):
 
         Returns:
             True if monitoring is active, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def check_platform_readiness(self, platform: str) -> Result[bool]:  # Returns True if ready, False with error if not
+        """
+        Performs a quick check to see if the specified platform is
+        running and detectable, as a prerequisite for starting monitoring.
+
+        Args:
+            platform: The name of the platform to check.
+
+        Returns:
+            Result.ok(True) if the platform is ready for monitoring.
+            Result.fail(error_message) if the platform is not ready (e.g., not running).
         """
         pass

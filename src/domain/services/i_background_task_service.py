@@ -24,7 +24,7 @@ class Worker(Generic[T]):
         # Initialize callbacks to None
         self.on_started_callback: Optional[Callable[[], None]] = None
         self.on_progress_callback: Optional[Callable[[int, str], None]] = None
-        self.on_completed_callback: Optional[Callable[[Any], None]] = None # Use Any for flexibility
+        self.on_completed_callback: Optional[Callable[[Any], None]] = None  # Use Any for flexibility
         self.on_error_callback: Optional[Callable[[str], None]] = None
 
     @abstractmethod
@@ -82,7 +82,6 @@ class Worker(Generic[T]):
             except Exception as e:
                 print(f"ERROR in worker's on_progress callback: {e}")
 
-
     def report_completed(self, result: T):  # Type hint T for the result
         """Utility method for worker implementations OR wrappers to report successful completion."""
         if self.on_completed_callback:
@@ -91,7 +90,6 @@ class Worker(Generic[T]):
             except Exception as e:
                 # Log this error? Worker needs logger access or service needs to handle
                 print(f"ERROR in worker's on_completed callback: {e}")
-
 
     def report_error(self, error_message: str):
         """Utility method for worker implementations to report errors."""
@@ -144,7 +142,7 @@ class IBackgroundTaskService(ABC):
 
     @abstractmethod
     def execute_ui_task(self, task_id: str, worker: Worker[T],
-                        ui_callback: Callable[[Any], None]) -> Result[bool]: # Use Any result type
+                        ui_callback: Callable[[Any], None]) -> Result[bool]:  # Use Any result type
         """
         Execute a task with a callback that is guaranteed to run on the UI thread.
 

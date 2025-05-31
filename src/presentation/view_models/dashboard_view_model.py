@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any, Tuple
 # --- Qt Imports ---
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
 
+from src.domain.common.errors import PlatformNotRunningError, UnknownPlatformError
 from src.domain.services.i_cold_turkey_service import IColdTurkeyService
 # --- Application Imports ---
 from PySide6.QtWidgets import QApplication
@@ -265,9 +266,44 @@ class DashboardViewModel(QObject):
         # --- 4. UPDATE BUTTON ENABLEMENT STATES ---
         self._update_button_states()
 
+        # --- 5. NEW: DETERMINE AND EMIT MAIN WINDOW STATUS BAR MESSAGE ---
+        if self._is_monitoring_globally_active:
+            # When monitoring is active, specific events (start, stop, errors, P&L updates)
+            # should set their own transient messages. Avoid setting a generic "Active"
+            # message here that might overwrite more specific, temporary statuses.
+            # If the last message was an error, but monitoring is now active and fine,
+            # perhaps a general "Monitoring [Platform]..." could be set if no other
+            # BUSY or specific status update message is pending.
+            # For now, let's assume active monitoring messages are handled elsewhere.
+            pass
+        else:
+            # Monitoring is NOT globally active. Set a clear inactive/ready/error state.
+            if "LOCKOUT" in self._current_pnl_text.upper():
+                # Lockout state is dominant. _handle_threshold_exceeded already set the status bar.
+                # No change needed here; let the lockout message persist.
+                pass
+            elif self._current_pnl_text == "Error":
+                # An error occurred that stopped monitoring.
+                # _handle_monitoring_error (with is_stopped=True) or the pre-check failure
+                # in start_monitoring would have already emitted a specific error message.
+                # Let that specific error persist.
+                pass
+            elif not self._selected_platform:
+                self.status_message_changed.emit("Ready. Please select a platform.", "INFO")
+            elif not self._monitor_region_defined:
+                self.status_message_changed.emit(f"Ready. Monitor region for {self._selected_platform} needs setup.",
+                                                 "WARNING")
+            # Add other "not ready because of prerequisite X" checks here if desired
+            else:
+                # All prerequisites for the selected platform seem okay, monitoring is just not active.
+                self.status_message_changed.emit("Ready.", "INFO")
 
     def _update_button_states(self):
         """Updates the internal state and emits signals for button enablement."""
+        self._logger.info(
+            f"DASHBOARD_VM: _update_button_states - Called. _is_monitoring_globally_active: {self._is_monitoring_globally_active}, "
+            f"_selected_platform: {self._selected_platform}, _monitor_region_defined: {self._monitor_region_defined}"
+        )
         all_prereqs_met = True
         if self._selected_platform:
             if not self._monitor_region_defined: # Using simplified check for now
@@ -289,10 +325,6 @@ class DashboardViewModel(QObject):
                 not self._is_flash_test_in_progress  # Disable if a flash test is currently running
         )
 
-        # REMOVE THE DUPLICATE/INCORRECT ASSIGNMENT THAT WAS HERE:
-        # self._can_test_flash = bool(self._selected_platform) and \
-        #                        (self._monitor_region_defined or self._flatten_regions_defined)
-
         self.can_start_monitoring_changed.emit(self._can_start)
         self.can_stop_monitoring_changed.emit(self._can_stop)
         self.can_test_flash_changed.emit(self._can_test_flash) # Emit the correct value
@@ -307,10 +339,9 @@ class DashboardViewModel(QObject):
 
     @Slot()
     def start_monitoring(self):
-        """Starts monitoring for the currently selected platform."""
         self._logger.debug(f"DashboardVM: start_monitoring called for platform '{self._selected_platform or 'None'}'")
 
-        # --- 1. PRE-START VALIDATIONS ---
+        # --- 1. PRE-START VALIDATIONS (ViewModel Level) ---
         if not self._selected_platform:
             self.status_message_changed.emit("No platform selected. Cannot start monitoring.", "ERROR")
             self._logger.warning("Start monitoring attempt with no platform selected.")
@@ -322,7 +353,7 @@ class DashboardViewModel(QObject):
             self._logger.warning(f"Start monitoring attempt while already active for '{self._monitoring_platform}'.")
             return
 
-        if not self._monitor_region_defined:  # Assuming _monitor_region_defined is accurate
+        if not self._monitor_region_defined:
             self.status_message_changed.emit(f"Cannot start: Monitor region not defined for {self._selected_platform}.",
                                              "ERROR")
             self.activity_log_appended.emit(f"Start monitoring failed: Monitor region not defined.", "ERROR")
@@ -330,6 +361,41 @@ class DashboardViewModel(QObject):
                 f"Start monitoring attempt for {self._selected_platform} but monitor region not defined.")
             return
 
+        # --- 1.5. NEW: PLATFORM READINESS PRE-CHECK (Service Level) ---
+        self._logger.info(f"DashboardVM: Performing platform readiness pre-check for '{self._selected_platform}'.")
+        readiness_check_result = self._monitoring_service.check_platform_readiness(self._selected_platform)
+
+        if readiness_check_result.is_failure:
+            error_object = readiness_check_result.error
+            error_message_str = str(error_object)
+            user_facing_error_message = f"Cannot start monitoring: {error_message_str}"
+
+            level_for_status_bar = "ERROR"
+            if isinstance(error_object, PlatformNotRunningError):
+                level_for_status_bar = "WARNING"
+
+            self.status_message_changed.emit(user_facing_error_message, level_for_status_bar)
+            self.activity_log_appended.emit(user_facing_error_message, "ERROR")
+            self._logger.warning(
+                f"Monitoring start aborted for '{self._selected_platform}' due to pre-check failure: {error_message_str}")
+
+            # --- ADD TO RECENT ALERTS for pre-check failure ---
+            timestamp = time.strftime("%H:%M:%S")
+            # Use the core error_message_str for the alert, not the user_facing_error_message with "Cannot start..."
+            alert_msg_for_list = f"{timestamp}: [ERROR] {error_message_str}"
+            self._recent_alerts.append(alert_msg_for_list)
+            if len(self._recent_alerts) > 5: self._recent_alerts = self._recent_alerts[-5:]
+            self.recent_alerts_updated.emit(self._recent_alerts.copy())
+            # No flag needed here as _handle_monitoring_error is not involved in this path.
+
+            if self._is_monitoring_globally_active:  # Safeguard
+                self._is_monitoring_globally_active = False
+                self._monitoring_platform = None
+                self.monitoring_session_activity_changed.emit(False, None)
+
+            self._current_pnl_text = "Error"
+            self._update_dashboard_display_state()
+            return
         # --- 2. FETCH CONFIGURATION (Threshold, Interval) ---
         self._logger.debug(f"Fetching configuration for starting monitoring on {self._selected_platform}.")
         threshold_res = self._config_repo.get_platform_stop_loss_threshold(self._selected_platform)
@@ -642,67 +708,69 @@ class DashboardViewModel(QObject):
         self._logger.debug(f"DashboardViewModel received platform change: {platform}")
         self._update_state_for_platform(platform)
 
-    def _update_state_for_platform(self, platform: str):
+    def _update_state_for_platform(self, platform: Optional[str]):  # platform can be None
         """Updates the ViewModel's state based on the selected platform."""
         self._logger.info(f"DashboardViewModel._update_state_for_platform: Updating for '{platform or 'None'}'")
+
+        # If the selected platform is changing AND monitoring is not globally active,
+        # clear any lingering PNL text that might indicate an error from a previous attempt/platform.
+        if self._selected_platform != platform and not self._is_monitoring_globally_active:
+            if self._current_pnl_text == "Error" or \
+                    self._current_pnl_text == "Waiting for data..." or \
+                    self._current_pnl_text == "No P&L data":  # Clear these non-live states
+                self._logger.debug(
+                    f"Platform changed while inactive from '{self._selected_platform}' to '{platform}'. "
+                    f"Resetting _current_pnl_text from '{self._current_pnl_text}' to 'N/A'.")
+                self._current_pnl_text = "N/A"
+            self._last_monitor_result = None  # Also clear any stale result from a different context
+
         self._selected_platform = platform
-        #self.selected_platform_name_changed.emit(platform or "None Selected")
 
         if not platform:
-            self._logger.debug("Platform is None. Resetting state and calling _update_prerequisite_statuses(None)")
-            # Reset prerequisite status display
-            keys = ["monitor_region", "ct_path", "ct_block_name", "ct_verified", "flatten_regions", "ocr_profile"]
-            for key in keys:
-                self.prerequisite_status_updated.emit(key, "Select Platform", "info", False)
-
-            # Reset internal flags and other relevant state
+            self._logger.debug("Platform is None. Resetting relevant states.")
             self._monitor_region_defined = False
             self._flatten_regions_defined = False
-            # Update button states for 'no platform' state
-            self._update_button_states()
-            return  # Exit early
+            # Ensure PNL text is neutral if no platform and not actively monitoring
+            if not self._is_monitoring_globally_active:
+                self._current_pnl_text = "N/A"
+            # _update_prerequisite_statuses will be called by refresh_ui_signals (or _update_dashboard_display_state)
+            # _update_button_states will be called by _update_dashboard_display_state
+        else:
+            # Platform is valid, load its specific region status
+            try:
+                monitor_region_res = self._region_service.get_monitor_region(platform)
+                self._monitor_region_defined = monitor_region_res.is_success and monitor_region_res.value is not None
+                self._logger.debug(f"  Monitor region defined for {platform}: {self._monitor_region_defined}")
 
-        # --- Platform is valid, proceed with loading ---
+                flatten_regions_res = self._region_service.get_regions_by_platform(platform, "flatten")
+                self._flatten_regions_defined = flatten_regions_res.is_success and bool(flatten_regions_res.value)
+                self._logger.debug(f"  Flatten regions defined for {platform}: {self._flatten_regions_defined}")
+            except Exception as e:
+                self._logger.error(f"Error checking regions for {platform}: {e}", exc_info=True)
+                self._monitor_region_defined = False
+                self._flatten_regions_defined = False
 
-        # 1. Check region status FIRST to update internal flags
-        try:
-            monitor_region_res = self._region_service.get_monitor_region(platform)
-            self._monitor_region_defined = monitor_region_res.is_success and monitor_region_res.value is not None
-            self._logger.debug(f"  Monitor region defined for {platform}: {self._monitor_region_defined}")
-
-            flatten_regions_res = self._region_service.get_regions_by_platform(platform, "flatten")
-            self._flatten_regions_defined = flatten_regions_res.is_success and bool(flatten_regions_res.value)
-            self._logger.debug(f"  Flatten regions defined for {platform}: {self._flatten_regions_defined}")
-        except Exception as e:
-            self._logger.error(f"Error checking regions for {platform}: {e}", exc_info=True)
-            self._monitor_region_defined = False
-            self._flatten_regions_defined = False
-
-        # 2. Update Button States (uses flags set in step 1)
-        self._update_button_states()
-
-        # 3. Update Prerequisite Status Display
-        self._logger.debug(f"Calling _update_prerequisite_statuses('{platform}')...")
-        self._update_prerequisite_statuses(platform)
-        self._update_dashboard_display_state()
+        # Centralize UI updates after state is prepared.
+        # refresh_ui_signals calls _update_prerequisite_statuses and _update_dashboard_display_state.
+        self.refresh_ui_signals()
 
     @Slot()
     def refresh_ui_signals(self):
         """Emits all signals reflecting the current state for initial UI sync or full refresh."""
         self._logger.info(f"DashboardViewModel: Executing refresh_ui_signals for {self._selected_platform or 'None'}")
 
-        # 1. Call the main state update method to ensure all card elements are signaled.
-        self._logger.debug(f"refresh_ui_signals -> calling _update_dashboard_display_state.")
-        self._update_dashboard_display_state()  # This calculates and emits PNL, Target, Icon signals
-
-        # 2. Emit signals for other UI elements not directly handled by _update_dashboard_display_state.
-        self.recent_alerts_updated.emit(self._recent_alerts.copy())
-
-        # 3. Explicitly refresh prerequisite display.
+        # 1. Update prerequisite display first, as it might inform other states.
         self._logger.debug(f"refresh_ui_signals -> calling _update_prerequisite_statuses.")
         self._update_prerequisite_statuses(self._selected_platform)
 
-        # 4. Emit the monitoring activity state for MainViewModel (for Option A).
+        # 2. Call the main state update method to ensure all card elements and status bar are signaled.
+        self._logger.debug(f"refresh_ui_signals -> calling _update_dashboard_display_state.")
+        self._update_dashboard_display_state()  # This calculates and emits PNL, Target, Icon, Buttons, AND STATUS BAR.
+
+        # 3. Emit signals for other UI elements not directly handled by _update_dashboard_display_state.
+        self.recent_alerts_updated.emit(self._recent_alerts.copy())
+
+        # 4. Emit the monitoring activity state for MainViewModel.
         self._logger.debug(
             f"refresh_ui_signals -> emitting monitoring_session_activity_changed ({self._is_monitoring_globally_active}, {self._monitoring_platform}).")
         self.monitoring_session_activity_changed.emit(self._is_monitoring_globally_active, self._monitoring_platform)
@@ -888,57 +956,72 @@ class DashboardViewModel(QObject):
             self.activity_log_appended.emit("Threshold exceeded but monitoring platform unknown. Lockout skipped.",
                                             "ERROR")
 
-    def _handle_monitoring_error(self, error_msg: str):
-        """Callback from MonitoringService when worker reports an error."""
-        self._logger.error(f"DashboardViewModel: Monitoring Service Error Reported: {error_msg}")
-        # self._logger.critical(f"!!!! _handle_monitoring_error TRIGGERED: {error_msg} !!!!") # Keep if debugging
+    def _handle_monitoring_error(self, error_msg: str, is_task_definitively_stopped: bool):
+        self._logger.info(
+            f"DASHBOARD_VM: _handle_monitoring_error ENTERED. Error: '{error_msg}'. "
+            f"Is task definitively stopped: {is_task_definitively_stopped}. "
+            f"Prior _is_monitoring_globally_active: {self._is_monitoring_globally_active}."
+        )
 
-        # --- End History Session for Error (DO THIS FIRST) ---
-        session_id_to_end = self._current_session_id
-        last_pnl_on_error = 0.0
-        if self._last_monitor_result:
-            last_pnl_on_error = self._last_monitor_result.minimum_value
+        # --- Determine UI message levels ---
+        level_for_status_bar = "ERROR"
+        # (keep your existing known_platform_detection_phrases logic for level_for_status_bar)
+        known_platform_detection_phrases = ["failed to detect", "platform not running", "window not found"]
+        if any(phrase.lower() in error_msg.lower() for phrase in known_platform_detection_phrases):
+            level_for_status_bar = "WARNING"
 
-        if session_id_to_end:
-            try:
-                self._history_service.end_session(
-                    session_id=session_id_to_end,
-                    final_pnl=last_pnl_on_error,
-                    lockout_triggered=False,
-                    final_screenshot_path=None
-                )
-                self._logger.info(f"History session {session_id_to_end} ended due to monitoring error.")
-            except Exception as e_hist_end:
-                self._logger.error(f"Failed to properly end history session {session_id_to_end} on error: {e_hist_end}",
-                                   exc_info=True)
-            self._current_session_id = None
-        else:
-            self._logger.error("Monitoring error callback received, but no active session ID was tracked in ViewModel!")
-        # --- END End History Session ---
+        activity_log_level = "ERROR" if is_task_definitively_stopped else "WARNING"
+        activity_log_prefix = "Monitoring stopped due to error: " if is_task_definitively_stopped else "Monitoring error: "
 
-        stopped_platform = self._monitoring_platform  # Capture before clearing
+        self.activity_log_appended.emit(f"{activity_log_prefix}{error_msg}", activity_log_level)
+        self.status_message_changed.emit(f"Monitoring error: {error_msg}", level_for_status_bar)
 
-        # --- Now, update internal state and UI signals AFTER history is handled ---
-        self._is_monitoring_globally_active = False
-        self._monitoring_platform = None
-        self._current_pnl_text = "ERROR"
-        self._last_monitor_result = None
-
-        # Add alert
+        # --- Add to _recent_alerts ---
+        # This method is now the primary handler for errors from an active/failing worker.
+        # Add the error message it received.
         timestamp = time.strftime("%H:%M:%S")
-        alert_msg = f"{timestamp}: Monitoring Error: {error_msg}"
-        self._recent_alerts.append(alert_msg)
-        if len(self._recent_alerts) > 5: self._recent_alerts = self._recent_alerts[-5:]
+        alert_level_prefix = "[ERROR]" if is_task_definitively_stopped else "[WARNING]"  # Reflect severity in alert
+        alert_msg_for_list = f"{timestamp}: {alert_level_prefix} {error_msg}"
+
+        self._recent_alerts.append(alert_msg_for_list)
+        if len(self._recent_alerts) > 5:
+            self._recent_alerts = self._recent_alerts[-5:]
         self.recent_alerts_updated.emit(self._recent_alerts.copy())
 
-        # Log and update status bar
-        self.activity_log_appended.emit(f"Monitoring stopped due to error: {error_msg}", "ERROR")
-        self.status_message_changed.emit(f"Monitoring error: {error_msg}", "ERROR")
+        # --- Perform full stop actions if task is definitively stopped ---
+        if is_task_definitively_stopped:
+            if self._is_monitoring_globally_active:
+                self._logger.info(
+                    f"DASHBOARD_VM: Task definitively stopped by this error event. Performing full UI stop. Error: {error_msg}")
 
-        self.monitoring_session_activity_changed.emit(False, None)  # <<< EMIT SIGNAL
+                session_id_to_end = self._current_session_id
+                if session_id_to_end:
+                    # ... (end history session logic) ...
+                    self._history_service.end_session(...)  # Fill in params
+                    self._logger.info(f"History session {session_id_to_end} ended due to error: {error_msg}")
+                    self._current_session_id = None
 
-        # Update the consolidated card and button states
-        self._update_dashboard_display_state()
+                self._is_monitoring_globally_active = False
+                self._monitoring_platform = None
+                self._current_pnl_text = "Error"
+                self._last_monitor_result = None
+
+                self.monitoring_session_activity_changed.emit(False, None)
+                self._update_prerequisite_statuses(self._selected_platform)
+                self._update_dashboard_display_state()
+                self._logger.info(f"DASHBOARD_VM: Full UI stop procedures complete.")
+            else:
+                # Already inactive, but this error confirms it. Ensure UI is consistent.
+                self._logger.info(
+                    f"DASHBOARD_VM: Received definitive stop error, but already inactive. Ensuring UI reflects error. Error: {error_msg}")
+                if self._current_pnl_text != "Error" and "LOCKOUT" not in self._current_pnl_text.upper():
+                    self._current_pnl_text = "Error"
+                self._update_dashboard_display_state()  # Refresh UI
+        else:
+            # Recoverable error reported by worker
+            self._logger.info(
+                f"DASHBOARD_VM: Recoverable error reported: '{error_msg}'. Monitoring UI state remains active.")
+
 
     def _update_prerequisite_statuses(self, platform: Optional[str]):
         if not platform:

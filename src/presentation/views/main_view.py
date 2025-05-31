@@ -35,7 +35,7 @@ from src.domain.services.i_screenshot_service import IScreenshotService
 from src.domain.services.i_platform_selection_service import IPlatformSelectionService
 
 # Import your custom icon coloring function
-from src.presentation.components.ui_components import create_colored_svg_icon
+from src.presentation.components.ui_components import create_colored_svg_icon, ActionButton, DangerButton, StyledButton
 
 # Import ViewModels
 from src.presentation.view_models.main_view_model import MainViewModel
@@ -91,6 +91,10 @@ class MainView(QMainWindow):
         "Settings": ":/icons/settings.svg",
         "History": ":/icons/bar-chart-2.svg"  # Or file-text
     }
+
+    toolbar_start_button: Optional[QPushButton] = None  # Or ActionButton if type hinting strictly
+    toolbar_stop_button: Optional[QPushButton] = None  # Or DangerButton
+    toolbar_test_flash_button: Optional[QPushButton] = None # If you also move Test Flash
 
     def __init__(self, container: DIContainer, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -239,12 +243,35 @@ class MainView(QMainWindow):
             self.tab_buttons[tab_key] = button
             self.tab_button_group.addButton(button)
 
-        # self.platform_toolbar.addSeparator() # Separator after tabs (optional)
+        self.platform_toolbar.addSeparator() # Separator after tabs (optional)
 
         # Spacer Widget to push items to the right
         toolbar_spacer = QWidget()
         toolbar_spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.platform_toolbar.addWidget(toolbar_spacer)
+
+        # Create Start Button
+        self.toolbar_start_button = ActionButton("Start", icon=":/icons/play.svg")
+        self.toolbar_start_button.setObjectName("toolbarStartButton")
+        self.toolbar_start_button.setToolTip("Start monitoring for the selected platform")
+        # You can adjust padding via QSS if needed for toolbar specifically:
+        # self.toolbar_start_button.setStyleSheet("padding: 4px 8px;") # Example
+        self.platform_toolbar.addWidget(self.toolbar_start_button)
+
+        # Create Stop Button
+        self.toolbar_stop_button = DangerButton("Stop", icon=":/icons/stop-circle.svg")
+        self.toolbar_stop_button.setObjectName("toolbarStopButton")
+        self.toolbar_stop_button.setToolTip("Stop active monitoring")
+        # self.toolbar_stop_button.setStyleSheet("padding: 4px 8px;") # Example
+        self.platform_toolbar.addWidget(self.toolbar_stop_button)
+
+        # Create Flash Button
+        self.toolbar_test_flash_button = StyledButton("Flash", icon=":/icons/zap.svg")
+        self.toolbar_test_flash_button.setObjectName("toolbarTestFlashButton")
+        self.toolbar_test_flash_button.setToolTip("Test flash for defined regions")
+        self.platform_toolbar.addWidget(self.toolbar_test_flash_button)
+
+        self.platform_toolbar.addSeparator() # Optional: Separator after action buttons
 
         # Theme Toggle Button
         self.theme_toggle_button = QPushButton()
@@ -421,12 +448,15 @@ class MainView(QMainWindow):
 
     def _connect_signals(self):
         self._logger.debug("Attempting to connect MainView signals...")
+
+        # --- Initial Checks for Essential Components ---
         if not (self.platform_combo and self.main_view_model and
                 self.status_bar_main_status_label and self.status_bar_region_label and
                 self.status_bar_threshold_label and self.status_bar_duration_label):
             self._logger.error(
                 "CRITICAL: Essential UI elements or MainViewModel not initialized. Aborting signal connections.")
             return
+
         required_vm_attributes = ['dashboard_vm', 'visual_setup_vm', 'settings_vm', 'history_vm']
         for vm_attr_name in required_vm_attributes:
             if not hasattr(self, vm_attr_name) or getattr(self, vm_attr_name, None) is None:
@@ -435,36 +465,34 @@ class MainView(QMainWindow):
                 return
         self._logger.info("All critical UI/VMs present. Proceeding with signal connections.")
 
-        # Platform ComboBox & MainVM Summary
+        # --- Platform ComboBox & MainVM Summary (Existing Connections) ---
         self.platform_combo.currentTextChanged.connect(self.main_view_model.user_selected_platform)
         self.main_view_model.selected_platform_changed.connect(self._update_platform_combo)
         self.main_view_model.available_platforms_changed.connect(self._update_available_platforms)
 
-        # <<< NEW CONNECTION FOR ENABLING/DISABLING PLATFORM COMBOBOX >>>
         if self.main_view_model and hasattr(self.main_view_model, 'platform_selection_enabled_changed'):
             self.main_view_model.platform_selection_enabled_changed.connect(self._set_platform_combo_enabled_state)
             self._logger.debug(
                 "Connected MainVM.platform_selection_enabled_changed to MainView._set_platform_combo_enabled_state.")
         else:
             self._logger.warning(
-                "MainViewModel does not have 'platform_selection_enabled_changed' signal. Platform ComboBox will not be dynamically enabled/disabled.")
-        # <<< END NEW CONNECTION >>>
+                "MainViewModel does not have 'platform_selection_enabled_changed' signal for Platform ComboBox.")
 
         self.main_view_model.summary_region_changed.connect(self.status_bar_region_label.setText)
         self.main_view_model.summary_threshold_changed.connect(self.status_bar_threshold_label.setText)
         self.main_view_model.summary_duration_changed.connect(self.status_bar_duration_label.setText)
 
-        # Region Preview Tooltip
+        # --- Region Preview Tooltip (Existing Connection) ---
         if self.visual_setup_vm and hasattr(self.visual_setup_vm, 'monitor_region_preview_changed'):
             self.visual_setup_vm.monitor_region_preview_changed.connect(self._update_summary_region_tooltip)
 
-        # Status Bar Main Message
-        for vm_attr_name in required_vm_attributes:
+        # --- Status Bar Main Message (Existing Connections) ---
+        for vm_attr_name in required_vm_attributes: # dashboard_vm is in this list
             vm_instance = getattr(self, vm_attr_name)
             if hasattr(vm_instance, 'status_message_changed'):
                 vm_instance.status_message_changed.connect(self._show_status_message)
 
-        # Dashboard Navigation & Summary Refresh Triggers
+        # --- Dashboard Navigation & Summary Refresh Triggers (Existing Connections) ---
         if "Dashboard" in self._tab_references and isinstance(self._tab_references["Dashboard"], DashboardView):
             if hasattr(self._tab_references["Dashboard"], 'request_tab_navigation'):
                 self._tab_references["Dashboard"].request_tab_navigation.connect(self.handle_tab_navigation_request)
@@ -474,7 +502,7 @@ class MainView(QMainWindow):
         if self.visual_setup_vm and hasattr(self.visual_setup_vm, 'visual_setup_profile_changed'):
             self.visual_setup_vm.visual_setup_profile_changed.connect(self.main_view_model.refresh_summary_data)
 
-        # Theme Toggle & Refresh
+        # --- Theme Toggle & Refresh (Existing Connections) ---
         if self.theme_toggle_button:
             self.theme_toggle_button.clicked.connect(self.main_view_model.toggle_theme)
         self.main_view_model.current_theme_changed.connect(self._update_ui_for_theme_change)
@@ -485,16 +513,81 @@ class MainView(QMainWindow):
             if vm_instance and hasattr(vm_instance, 'on_theme_refresh_requested'):
                 self.main_view_model.theme_refresh_requested.connect(vm_instance.on_theme_refresh_requested)
                 self._logger.debug(f"Connected MainVM.theme_refresh_requested to {vm_name}.on_theme_refresh_requested.")
-            elif vm_instance:
+            elif vm_instance: # Log even if it doesn't have the slot, for completeness
                 self._logger.debug(f"{vm_name} has no on_theme_refresh_requested slot.")
 
-        # Connect QStackedWidget's currentChanged signal
+        # --- QStackedWidget currentChanged (Existing Connection) ---
         if self.stacked_widget:
             self.stacked_widget.currentChanged.connect(self._on_stacked_widget_changed)
 
+        # --------------------------------------------------------------------
+        # --- NEW CONNECTIONS for Toolbar Buttons (Start/Stop Toggle & Test Flash) ---
+        # --------------------------------------------------------------------
+
+        # --- NEW CONNECTIONS for Toolbar Start/Stop Buttons ---
+        if hasattr(self, 'toolbar_start_button') and self.toolbar_start_button:
+            if self.dashboard_vm and hasattr(self.dashboard_vm, 'start_monitoring'):
+                self.toolbar_start_button.clicked.connect(self.dashboard_vm.start_monitoring)
+                self._logger.debug("Connected toolbar_start_button.clicked to DashboardVM.start_monitoring")
+            else:
+                self._logger.error(
+                    "FAILED to connect toolbar_start_button.clicked: DashboardVM or start_monitoring slot missing.")
+
+            if self.dashboard_vm and hasattr(self.dashboard_vm, 'can_start_monitoring_changed'):
+                self.dashboard_vm.can_start_monitoring_changed.connect(self.toolbar_start_button.setEnabled)
+                self._logger.debug(
+                    "Connected DashboardVM.can_start_monitoring_changed to toolbar_start_button.setEnabled")
+            else:
+                self._logger.error(
+                    "FAILED to connect can_start_monitoring_changed for toolbar_start_button: DashboardVM or signal missing.")
+        else:
+            self._logger.warning(
+                "MainView: self.toolbar_start_button not found. Toolbar Start button connections skipped.")
+
+        if hasattr(self, 'toolbar_stop_button') and self.toolbar_stop_button:
+            if self.dashboard_vm and hasattr(self.dashboard_vm, 'stop_monitoring'):
+                self.toolbar_stop_button.clicked.connect(self.dashboard_vm.stop_monitoring)
+                self._logger.debug("Connected toolbar_stop_button.clicked to DashboardVM.stop_monitoring")
+            else:
+                self._logger.error(
+                    "FAILED to connect toolbar_stop_button.clicked: DashboardVM or stop_monitoring slot missing.")
+
+            if self.dashboard_vm and hasattr(self.dashboard_vm, 'can_stop_monitoring_changed'):
+                self.dashboard_vm.can_stop_monitoring_changed.connect(self.toolbar_stop_button.setEnabled)
+                self._logger.debug(
+                    "Connected DashboardVM.can_stop_monitoring_changed to toolbar_stop_button.setEnabled")
+            else:
+                self._logger.error(
+                    "FAILED to connect can_stop_monitoring_changed for toolbar_stop_button: DashboardVM or signal missing.")
+        else:
+            self._logger.warning(
+                "MainView: self.toolbar_stop_button not found. Toolbar Stop button connections skipped.")
+
+        # 3. Test Flash Button (if moved to toolbar)
+        if hasattr(self, 'toolbar_test_flash_button') and self.toolbar_test_flash_button:
+            # Connect button click to ViewModel's action slot
+            if self.dashboard_vm and hasattr(self.dashboard_vm, 'test_flash_regions'):
+                self.toolbar_test_flash_button.clicked.connect(self.dashboard_vm.test_flash_regions)
+                self._logger.debug("Connected toolbar_test_flash_button.clicked to DashboardVM.test_flash_regions")
+            else:
+                self._logger.error(
+                    "FAILED to connect toolbar_test_flash_button.clicked: DashboardVM or test_flash_regions slot missing.")
+
+            # Connect ViewModel's state signal (for enablement) to the button's setEnabled slot
+            if self.dashboard_vm and hasattr(self.dashboard_vm, 'can_test_flash_changed'):
+                self.dashboard_vm.can_test_flash_changed.connect(self.toolbar_test_flash_button.setEnabled)
+                self._logger.debug(
+                    "Connected DashboardVM.can_test_flash_changed to toolbar_test_flash_button.setEnabled")
+            else:
+                self._logger.error(
+                    "FAILED to connect can_test_flash_changed for toolbar_test_flash_button: DashboardVM or signal missing.")
+        else:
+            # This means the button wasn't created in _setup_ui, which is fine if you decided against moving it.
+            self._logger.info(
+                "MainView: self.toolbar_test_flash_button not found. Toolbar Test Flash button connections skipped.")
+
         self._logger.info("MainView signal connections process completed.")
 
-        # +++ NEW SLOT TO HANDLE ENABLING/DISABLING THE PLATFORM COMBOBOX +++
 
     @Slot(bool)
     def _set_platform_combo_enabled_state(self, enabled: bool):
@@ -796,3 +889,50 @@ class MainView(QMainWindow):
             if view_widget == current_widget_in_stack:
                 return name
         return None
+
+    @Slot(str, str, bool, str)
+    def _update_monitoring_action_button(self, text: str, icon_name: str, enabled: bool, style_key: str):
+        if not self.monitoring_action_button:
+            self._logger.error("MainView: monitoring_action_button is None, cannot update.")
+            return
+
+        self.monitoring_action_button.setText(text)
+        self.monitoring_action_button.setEnabled(enabled)
+
+        # --- Icon Logic ---
+        icon_path = ""
+        is_dark = self.property("darkTheme") == True
+        # Define colors based on style_key and theme (simplified)
+        # You might want to use colors from your ui_components.ActionButton/DangerButton if accessible
+        color_map = {
+            "action": QColor("#2ecc71") if is_dark else QColor("#27ae60"),  # Green
+            "danger": QColor("#e74c3c") if is_dark else QColor("#c0392b"),  # Red
+            "action_disabled": QColor("#7f8c8d")  # Grey
+        }
+        current_icon_color = color_map.get(style_key, color_map["action_disabled"])
+
+        if icon_name == "play":
+            icon_path = ":/icons/play.svg"
+        elif icon_name == "stop-circle":
+            icon_path = ":/icons/stop-circle.svg"
+
+        if icon_path and QFile.exists(icon_path):
+            try:
+                colored_icon = create_colored_svg_icon(icon_path, current_icon_color,
+                                                       self.monitoring_action_button.iconSize())
+                self.monitoring_action_button.setIcon(colored_icon)
+            except Exception as e:
+                self._logger.error(f"Error setting icon '{icon_name}' for monitoring action button: {e}")
+                self.monitoring_action_button.setIcon(QIcon())
+        else:
+            self.monitoring_action_button.setIcon(QIcon())
+            if icon_path: self._logger.warning(f"Icon path not found for monitoring action button: {icon_path}")
+
+        # --- Style Logic ---
+        # Map style_key to QSS classes if your ActionButton, DangerButton are styled by class
+        # For simplicity, we set a property that QSS can target: QPushButton[styleKey="danger"]
+        self.monitoring_action_button.setProperty("styleKey", style_key)
+        self.monitoring_action_button.style().unpolish(self.monitoring_action_button)
+        self.monitoring_action_button.style().polish(self.monitoring_action_button)
+
+        # self._logger.debug(f"MainView: Monitoring action button updated - Text: {text}, Icon: {icon_name}, Enabled: {enabled}, StyleKey: {style_key}")

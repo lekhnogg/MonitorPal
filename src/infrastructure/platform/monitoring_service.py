@@ -7,7 +7,7 @@ This service coordinates screenshot capture, OCR, and detection of loss threshol
 import os
 import re
 import time
-from typing import Tuple, Optional, List, Callable
+from typing import Tuple, Optional, List, Callable, Any
 from datetime import datetime
 from PIL import Image
 
@@ -19,11 +19,11 @@ from src.domain.services.i_ocr_service import IOcrService
 from src.domain.services.i_background_task_service import IBackgroundTaskService, Worker
 from src.domain.services.i_platform_detection_service import IPlatformDetectionService
 from src.domain.services.i_logger_service import ILoggerService
-from src.domain.services.i_config_repository_service import IConfigRepository
 from src.domain.services.i_region_service import IRegionService
 from src.domain.models.monitoring_result import MonitoringResult
 from src.domain.common.result import Result
-from src.domain.common.errors import ValidationError, ConfigurationError, ResourceError, PlatformError
+from src.domain.common.errors import ValidationError, ConfigurationError, ResourceError, PlatformError, DomainError, \
+    ErrorCategory
 from src.domain.services.i_profile_service import IProfileService
 
 class MonitoringWorker(Worker[bool]):
@@ -32,11 +32,11 @@ class MonitoringWorker(Worker[bool]):
     """
 
     def __init__(self,
-                 session_id: str,  # <-- ADD
-                 history_service: IHistoryService,  # <-- ADD
+                 session_id: str,
+                 history_service: IHistoryService,
                  platform: str,
                  region: Tuple[int, int, int, int],
-                 region_name: str,  # Add region_name parameter
+                 region_name: str,
                  threshold: float,
                  interval_seconds: float,
                  screenshot_service: IScreenshotService,
@@ -46,15 +46,15 @@ class MonitoringWorker(Worker[bool]):
                  profile_service: IProfileService,
                  save_directory: str,
                  on_check_complete: Callable[[MonitoringResult], None],
-                 on_status_update: Optional[Callable[[str, str], None]] = None,
-                 on_error: Optional[Callable[[str], None]] = None):
+                 on_status_update: Optional[Callable[[str, str], None]] = None):
+
         """Initialize the monitoring worker."""
         super().__init__()
-        self.session_id = session_id  # <-- STORE
-        self._history_service = history_service  # <-- STORE (use _ prefix if preferred)
+        self.session_id = session_id
+        self._history_service = history_service
         self.platform = platform
         self.region = region
-        self.region_name = region_name  # Store the region name
+        self.region_name = region_name
         self.threshold = threshold
         self.interval_seconds = interval_seconds
         self.screenshot_service = screenshot_service
@@ -65,7 +65,6 @@ class MonitoringWorker(Worker[bool]):
         self.monitoring_directory = save_directory
         self.on_check_complete = on_check_complete
         self.on_status_update = on_status_update
-        self.on_error = on_error
 
         # Internal state
         self.check_count = 0
@@ -78,16 +77,17 @@ class MonitoringWorker(Worker[bool]):
 
     def execute(self) -> bool:
         """Execute the monitoring process."""
-        self.report_started()  # <<< ADD THIS AT THE START
-        self.logger.info(f"Starting monitoring for {self.platform} (Session ID: {self.session_id})") # Added session_id to log
+        self.report_started()
+        self.logger.info(
+            f"Starting monitoring for {self.platform} (Session ID: {self.session_id})")  # Added session_id to log
         try:
             platform_window_result = self.platform_detection_service.detect_platform_window(
                 self.platform, timeout=10)
             if platform_window_result.is_failure:
                 error_msg = f"Failed to detect {self.platform} window: {platform_window_result.error}"
                 self.logger.error(error_msg)
-                self.report_error(error_msg) # report_error is a method of Worker
-                return False
+                self.report_error(error_msg)  # <<< CHANGE: This now calls Worker.report_error()
+                return False  # Worker still exits due to critical setup failure
 
             self.platform_window_info = platform_window_result.value
 
@@ -163,9 +163,15 @@ class MonitoringWorker(Worker[bool]):
                         time.sleep(wait_step)
                     if self.cancel_requested: break
 
+
                 except Exception as cycle_err:
-                    self.logger.error(f"Error in monitoring cycle: {cycle_err}", exc_info=True)
-                    if self.on_status_update: self.on_status_update(f"Error in monitoring cycle: {cycle_err}", "ERROR")
+
+                    error_message = f"Error in monitoring cycle: {cycle_err}"
+
+                    self.logger.error(error_message, exc_info=True)
+
+                    self.report_error(error_message)  # <<< CHANGE: This now calls Worker.report_error()
+
                     time.sleep(2)  # Short delay before retrying next iteration
 
             if self.cancel_requested:
@@ -186,9 +192,9 @@ class MonitoringWorker(Worker[bool]):
         Process a single monitoring check, including OCR and threshold comparison.
         Handles cases where no numeric values are extracted.
         """
-        extracted_text = "" # Initialize for robust error reporting
-        screenshot_path = "" # Initialize for robust error reporting
-        profile = None # Initialize
+        extracted_text = ""  # Initialize for robust error reporting
+        screenshot_path = ""  # Initialize for robust error reporting
+        profile = None  # Initialize
 
         try:
             # --- 1. Setup Paths ---
@@ -226,7 +232,7 @@ class MonitoringWorker(Worker[bool]):
                 self.report_status(f"Failed to extract text: {extract_result.error}", "ERROR")
                 # Return failure Result directly
                 return extract_result
-            extracted_text = extract_result.value # Store the extracted text
+            extracted_text = extract_result.value  # Store the extracted text
 
             # --- 5. Extract Numeric Values ---
             extract_values_result = self.ocr_service.extract_numeric_values_with_patterns(
@@ -249,12 +255,14 @@ class MonitoringWorker(Worker[bool]):
                         self.logger.debug(f"Heuristic: Dollar value found without minus sign: ${dollar_value}")
                         try:
                             # Use the existing cleaner method (assuming _clean_and_convert_value exists on ocr_service)
-                             # noinspection PyProtectedMember
-                            cleaned_value = self.ocr_service._clean_and_convert_value(dollar_value, f"${dollar_value}") # type: ignore
+                            # noinspection PyProtectedMember
+                            cleaned_value = self.ocr_service._clean_and_convert_value(dollar_value,
+                                                                                      f"${dollar_value}")  # type: ignore
 
-                            if cleaned_value is not None and cleaned_value >= 0: # Check conversion succeeded and it's not already negative
+                            if cleaned_value is not None and cleaned_value >= 0:  # Check conversion succeeded and it's not already negative
                                 self.report_status(
-                                    f"Heuristic: OCR may have missed sign. Treating ${dollar_value} as negative.", "WARNING")
+                                    f"Heuristic: OCR may have missed sign. Treating ${dollar_value} as negative.",
+                                    "WARNING")
                                 values = [-cleaned_value]  # Force to negative
                                 self.logger.debug(f"Heuristic: Forced value to negative: {values}")
                         except Exception as ex:
@@ -269,9 +277,9 @@ class MonitoringWorker(Worker[bool]):
                 # Create a MonitoringResult indicating no value was found
                 no_value_result = MonitoringResult(
                     values=[],
-                    minimum_value=0.0, # Placeholder
+                    minimum_value=0.0,  # Placeholder
                     threshold=self.threshold,
-                    threshold_exceeded=False, # Cannot exceed threshold
+                    threshold_exceeded=False,  # Cannot exceed threshold
                     raw_text=extracted_text,
                     timestamp=time.time(),
                     region_name=self.region_name,
@@ -284,9 +292,9 @@ class MonitoringWorker(Worker[bool]):
             # --- END CRITICAL CHECK ---
 
             # --- 8. Process Found Values (If 'values' was not empty) ---
-            min_value = min(values) # Now safe to call min()
+            min_value = min(values)  # Now safe to call min()
             threshold_exceeded = min_value < self.threshold
-            result_screenshot_path = screenshot_path # Default path
+            result_screenshot_path = screenshot_path  # Default path
 
             # --- 9. Handle Threshold Breach (Save history screenshot) ---
             if threshold_exceeded:
@@ -297,10 +305,11 @@ class MonitoringWorker(Worker[bool]):
                     import shutil
                     shutil.copy2(screenshot_path, timestamped_path)
                     self.report_status(f"Threshold exceeded! Saved history to {timestamped_path}", "WARNING")
-                    result_screenshot_path = timestamped_path # Update path for result object
+                    result_screenshot_path = timestamped_path  # Update path for result object
                 except Exception as copy_err:
                     self.report_status(f"Failed to copy screenshot on threshold breach: {copy_err}", "ERROR")
-                    self.logger.error(f"Failed to copy '{screenshot_path}' to '{timestamped_path}': {copy_err}", exc_info=True)
+                    self.logger.error(f"Failed to copy '{screenshot_path}' to '{timestamped_path}': {copy_err}",
+                                      exc_info=True)
                     # Keep result_screenshot_path as the _current.png path
 
             # --- 10. Create Final Result Object ---
@@ -322,25 +331,25 @@ class MonitoringWorker(Worker[bool]):
             self.on_check_complete(final_result)
             return Result.ok(final_result)
 
+
         except Exception as check_err:
-             # --- 12. Catch-All Error Handling ---
-             self.logger.error(f"Unexpected error during _process_check: {check_err}", exc_info=True)
-             # Report the error via callback if possible
-             self.report_error(f"Internal error during monitoring check: {check_err}")
-             # Return a failure Result containing a domain error
-             return Result.fail(PlatformError(message=f"Internal check error: {check_err}", inner_error=check_err))
+
+            # --- 12. Catch-All Error Handling ---
+
+            error_message = f"Internal error during monitoring check: {check_err}"
+
+            self.logger.error(f"Unexpected error during _process_check: {check_err}", exc_info=True)
+
+            self.report_error(error_message)  # <<< CHANGE: This now calls Worker.report_error()
+
+            # Return a failure Result containing a domain error
+
+            return Result.fail(PlatformError(message=f"Internal check error: {check_err}", inner_error=check_err))
 
     def report_status(self, message: str, level: str) -> None:
         """Report a status update."""
         if self.on_status_update:
             self.on_status_update(message, level)
-
-    def report_error(self, message: str) -> None:
-        """Report an error."""
-        self.logger.error(message)
-        if self.on_error:
-            self.on_error(message)
-        super().report_error(message)
 
 
 class MonitoringService(IMonitoringService):
@@ -351,7 +360,6 @@ class MonitoringService(IMonitoringService):
                  ocr_service: IOcrService,
                  thread_service: IBackgroundTaskService,
                  platform_detection_service: IPlatformDetectionService,
-                 config_repository: IConfigRepository,
                  path_service: IPathService,
                  logger: ILoggerService,
                  profile_service: IProfileService,
@@ -362,7 +370,6 @@ class MonitoringService(IMonitoringService):
         self.ocr_service = ocr_service
         self.thread_service = thread_service
         self.platform_detection_service = platform_detection_service
-        self.config_repository = config_repository
         self.path_service = path_service
         self.logger = logger
         self.profile_service = profile_service
@@ -384,25 +391,16 @@ class MonitoringService(IMonitoringService):
                          interval_seconds: float = 5.0,
                          on_status_update: Optional[Callable[[str, str], None]] = None,
                          on_threshold_exceeded: Optional[Callable[[MonitoringResult], None]] = None,
-                         on_error: Optional[Callable[[str], None]] = None,
-                         on_individual_check_complete: Optional[Callable[[MonitoringResult], None]] = None) -> Result[bool]:
-        """
-        Starts the monitoring process for a given platform and threshold.
-        This involves:
-        1. Validating inputs and current state.
-        2. Fetching necessary configuration (like monitor region coordinates).
-        3. Storing session parameters and callbacks.
-        4. Creating a MonitoringWorker instance.
-        5. Defining callbacks for the worker's completion or errors.
-        6. Submitting the worker to the background task service.
-        """
-        # The main try block should start here, encompassing all setup logic
-        try: # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< FIXED: ADDED TRY HERE
-
-            # --- 1. PRE-FLIGHT CHECKS ---
+                         on_error: Optional[Callable[[str, bool], None]] = None,  # <<< CHANGED: Signature updated
+                         on_individual_check_complete: Optional[Callable[[MonitoringResult], None]] = None
+                         ) -> Result[bool]:
+        try:
+            # --- 1. PRE-FLIGHT CHECKS --- (No change here)
             if self.monitoring_active:
-                self.logger.warning(f"Start monitoring requested for {platform}, but monitoring is already active for {self.platform}.")
-                return Result.fail(ValidationError(message="Monitoring already active", details={"current_platform": self.platform}))
+                self.logger.warning(
+                    f"Start monitoring requested for {platform}, but monitoring is already active for {self.platform}.")
+                return Result.fail(
+                    ValidationError(message="Monitoring already active", details={"current_platform": self.platform}))
 
             self.logger.info(f"Attempting to start monitoring for platform '{platform}' (Session ID: {session_id})")
 
@@ -411,24 +409,23 @@ class MonitoringService(IMonitoringService):
                 return Result.fail(ValidationError("Platform name cannot be empty"))
 
             if threshold > 0:
-                self.logger.debug(f"Positive threshold {threshold} provided, converting to {-threshold} for loss monitoring.")
+                self.logger.debug(
+                    f"Positive threshold {threshold} provided, converting to {-threshold} for loss monitoring.")
                 threshold = -threshold
 
-            # --- 2. FETCH CONFIGURATION (Monitor Region) ---
+            # --- 2. FETCH CONFIGURATION (Monitor Region) --- (No change here)
             self.logger.debug(f"Fetching monitor region for platform '{platform}'.")
             region_result = self.region_service.get_monitor_region(platform)
             if region_result.is_failure or region_result.value is None:
                 msg = f"P&L Monitoring region is not defined for platform '{platform}'. Cannot start monitoring."
                 self.logger.error(msg)
                 return Result.fail(ConfigurationError(msg))
-
             monitor_region = region_result.value
             coordinates = monitor_region.coordinates
             region_name = monitor_region.name
-
             self.logger.info(f"Successfully fetched monitor region '{region_name}' at {coordinates} for '{platform}'.")
 
-            # --- 3. STORE SESSION PARAMETERS AND CALLBACKS ---
+            # --- 3. STORE SESSION PARAMETERS AND CALLBACKS --- (No change here)
             self.platform = platform
             self.threshold = threshold
             self.on_threshold_exceeded_callback = on_threshold_exceeded
@@ -437,14 +434,14 @@ class MonitoringService(IMonitoringService):
             try:
                 platform_monitoring_path = self.path_service.get_platform_monitoring_path(platform)
                 self.logger.info(f"Monitoring screenshots will be saved in: {platform_monitoring_path}")
-            except Exception as e_path: # This specific try-except for path_service is fine
+            except Exception as e_path:
                 self.logger.error(f"Failed to get monitoring path for {platform}: {e_path}", exc_info=True)
                 return Result.fail(ConfigurationError(f"Failed to determine monitoring save path: {e_path}"))
 
-            # --- 4. CREATE MONITORING WORKER ---
+            # --- 4. CREATE MONITORING WORKER --- (No change here)
             self.logger.debug(f"Creating MonitoringWorker for session '{session_id}'.")
             try:
-                worker = MonitoringWorker( # This specific try-except for worker init is fine
+                worker = MonitoringWorker(
                     session_id=session_id,
                     history_service=self._history_service,
                     platform=platform,
@@ -459,60 +456,126 @@ class MonitoringService(IMonitoringService):
                     profile_service=self.profile_service,
                     save_directory=platform_monitoring_path,
                     on_check_complete=self._handle_worker_check_complete,
-                    on_status_update=on_status_update,
-                    on_error=on_error
+                    on_status_update=on_status_update
                 )
             except Exception as e_worker_init:
                 self.logger.error(f"Failed to initialize MonitoringWorker: {e_worker_init}", exc_info=True)
-                self._on_individual_check_complete_callback = None
+                # self._on_individual_check_complete_callback = None # Already reset in outer except
+                # self.on_threshold_exceeded_callback = None # Already reset in outer except
                 return Result.fail(PlatformError(f"Failed to create monitoring worker: {e_worker_init}"))
 
             # --- 5. DEFINE WORKER COMPLETION/ERROR HANDLERS ---
-            def on_worker_task_completed(execute_result: bool):
-                self.logger.info(f"MonitoringWorker task for session '{session_id}' completed. Result: {execute_result}.")
+
+            def on_worker_task_completed(execute_result_payload: Any):
+                self.logger.info(
+                    f"MonitoringWorker task for session '{session_id}' on_worker_task_completed. Payload: {execute_result_payload}.")
+                worker_returned_value: Optional[bool] = None
+                # ... (payload deserialization logic as before - no change here) ...
+                if isinstance(execute_result_payload, bool):
+                    worker_returned_value = execute_result_payload
+                elif isinstance(execute_result_payload, dict) and "success" in execute_result_payload:
+                    try:
+                        deserialized_res = Result.from_thread_safe_dict(execute_result_payload)
+                        if deserialized_res.is_success:
+                            if isinstance(deserialized_res.value, bool):
+                                worker_returned_value = deserialized_res.value
+                            else:
+                                self.logger.warning(
+                                    f"Worker completed with unexpected deserialized value type: {type(deserialized_res.value)}")
+                                worker_returned_value = False
+                        else:
+                            self.logger.error(
+                                f"Worker task for session {session_id} completed with a failure Result: {deserialized_res.error}")
+                            worker_returned_value = False
+                    except Exception as e_deserialize:
+                        self.logger.error(f"Error deserializing worker completion payload: {e_deserialize}",
+                                          exc_info=True)
+                        worker_returned_value = False
+                else:
+                    self.logger.warning(
+                        f"Worker completed with unexpected payload type: {type(execute_result_payload)}. Treating as failure.")
+                    worker_returned_value = False
+                # --- END Deserialization ---
+
+                # Task is definitively finished, reset MonitoringService state
                 self.monitoring_active = False
                 self.platform = None
                 self.threshold = None
-                self._on_individual_check_complete_callback = None
 
                 if worker.cancel_requested:
                     self.logger.info(f"Monitoring task for session {session_id} was cancelled by request.")
-                    if on_status_update: on_status_update("Monitoring cancelled.", "INFO")
+                    if on_status_update:
+                        on_status_update("Monitoring cancelled.", "INFO")
                     return
 
-                if execute_result is True:
+                if worker_returned_value is True:  # Threshold met or other successful completion
                     if self.latest_result and self.latest_result.threshold_exceeded:
                         self.logger.info(f"Threshold exceeded for session '{session_id}'. Notifying external listener.")
                         if self.on_threshold_exceeded_callback:
                             try:
                                 self.on_threshold_exceeded_callback(self.latest_result)
                             except Exception as e_cb:
-                                self.logger.error(f"Error in external on_threshold_exceeded_callback: {e_cb}", exc_info=True)
+                                self.logger.error(f"Error in external on_threshold_exceeded_callback: {e_cb}",
+                                                  exc_info=True)
                     else:
-                        self.logger.warning(
-                            f"Worker for session {session_id} completed with 'True' but latest_result does not indicate threshold exceeded. Review logic.")
-                        if on_status_update: on_status_update("Monitoring finished (unexpected state).", "WARNING")
-                else:
+                        self.logger.info(
+                            f"Worker for session {session_id} completed with 'True' but latest_result "
+                            f"does not indicate threshold exceeded or task was not marked as cancelled. (Current latest_result: {self.latest_result})")
+                        if on_status_update:
+                            on_status_update("Monitoring finished.", "INFO")
+
+                elif worker_returned_value is False:  # Worker self-terminated due to an error (e.g., initial platform detection failure)
                     self.logger.error(
-                        f"Monitoring worker for session {session_id} returned 'False', indicating an error or abnormal early exit.")
+                        f"Monitoring worker for session {session_id} returned 'False' from execute(). "
+                        f"The specific error should have been reported via on_worker_task_error, leading to a definitive stop if needed.")
+                    # DO NOT call external on_error here. The worker's earlier report_error() (if any)
+                    # combined with on_worker_task_error's logic (checking is_task_running)
+                    # is responsible for signaling the definitive stop to the ViewModel.
+                    # This handler's job is just to acknowledge the worker completed with False.
+
+                else:  # worker_returned_value is None (should ideally not happen if worker returns bool)
+                    self.logger.error(
+                        f"Worker for session {session_id} completed with an indeterminate state (payload was None).")
+                    # Treat this as a definitive stop as well, but the message should be clearer if possible.
+                    # Since we don't have a specific error message from the worker here,
+                    # we might need to signal this generic failure.
+                    if on_error:
+                        on_error(
+                            f"Monitoring task for '{platform}' stopped: Worker ended with an unexpected None result.",
+                            True)
 
             def on_worker_task_error(error_message_from_worker: str):
-                self.logger.error(f"MonitoringWorker task for session '{session_id}' reported an error: {error_message_from_worker}")
-                self.monitoring_active = False
-                self.platform = None
-                self.threshold = None
-                self._on_individual_check_complete_callback = None
+                self.logger.warning(
+                    f"MONITORING_SERVICE: Worker for session '{session_id}' reported an error: '{error_message_from_worker}'")
 
+                # <<< CHANGED: Determine if the task is definitively stopped >>>
+                is_task_definitively_stopped = not self.thread_service.is_task_running(self.monitoring_task_id)
+
+                if is_task_definitively_stopped:
+                    self.logger.info(
+                        f"Task '{self.monitoring_task_id}' for session '{session_id}' is no longer running "
+                        f"after error reported. Resetting MonitoringService state.")
+                    if self.monitoring_active:  # Only if we thought it was active
+                        self.monitoring_active = False
+                        self.platform = None
+                        self.threshold = None
+                else:
+                    self.logger.debug(
+                        f"Task '{self.monitoring_task_id}' for session '{session_id}' is still considered running "
+                        f"by thread service despite worker reporting an error (likely recoverable by worker).")
+
+                # Notify the external error handler, passing the new flag
                 if on_error:
                     try:
-                        on_error(error_message_from_worker)
+                        on_error(error_message_from_worker,
+                                 is_task_definitively_stopped)  # <<< CHANGED: Pass boolean flag
                     except Exception as e_cb:
                         self.logger.error(f"Error in external on_error_callback: {e_cb}", exc_info=True)
 
             worker.set_on_completed(on_worker_task_completed)
             worker.set_on_error(on_worker_task_error)
 
-            # --- 6. SUBMIT WORKER TO BACKGROUND TASK SERVICE ---
+            # --- 6. SUBMIT WORKER TO BACKGROUND TASK SERVICE --- (No change here)
             self.logger.info(f"Submitting MonitoringWorker for session '{session_id}' to background task service.")
             task_submission_result = self.thread_service.execute_task(self.monitoring_task_id, worker)
 
@@ -522,35 +585,60 @@ class MonitoringService(IMonitoringService):
                 return Result.ok(True)
             else:
                 self.logger.error(f"Failed to submit monitoring task to thread service: {task_submission_result.error}")
+                # Cleanup callbacks if submission fails
                 self._on_individual_check_complete_callback = None
                 self.on_threshold_exceeded_callback = None
+                # The 'on_error' callback itself is part of the method signature, not stored on self directly for this purpose.
                 return task_submission_result
 
-        # --- EXCEPTION HANDLING for start_monitoring itself ---
-        except Exception as e: # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< THIS EXCEPT NOW CORRECTLY PAIRS WITH THE OUTER TRY
-            self.logger.error(f"Unexpected critical error in MonitoringService.start_monitoring for platform '{platform}': {e}", exc_info=True)
+        except Exception as e:
+            self.logger.error(
+                f"Unexpected critical error in MonitoringService.start_monitoring for platform '{platform}': {e}",
+                exc_info=True)
+            # Ensure service state is reset if a setup error occurs before task submission
+            self.monitoring_active = False
+            self.platform = None
+            self.threshold = None
             self._on_individual_check_complete_callback = None
             self.on_threshold_exceeded_callback = None
             return Result.fail(ConfigurationError(message=f"Unexpected error starting monitoring: {e}", inner_error=e))
 
     def _handle_worker_check_complete(self, result: MonitoringResult):
         self.latest_result = result
-        self.logger.debug(f"Internal: _handle_worker_check_complete received result for session '{result.session_id if hasattr(result, 'session_id') else 'N/A'}'. P&L: {result.minimum_value if result.has_values else 'N/A'}.")
+        self.logger.debug(
+            f"Internal: _handle_worker_check_complete received result for session '{result.session_id if hasattr(result, 'session_id') else 'N/A'}'. P&L: {result.minimum_value if result.has_values else 'N/A'}.")
 
         if self._on_individual_check_complete_callback:
             try:
-                self.logger.debug(f"Propagating MonitoringResult (P&L: {result.minimum_value if result.has_values else 'N/A'}) to external on_individual_check_complete callback.")
+                self.logger.debug(
+                    f"Propagating MonitoringResult (P&L: {result.minimum_value if result.has_values else 'N/A'}) to external on_individual_check_complete callback.")
                 self._on_individual_check_complete_callback(result)
             except Exception as e:
                 self.logger.error(f"Error invoking external _on_individual_check_complete_callback: {e}", exc_info=True)
         else:
             self.logger.debug("No external on_individual_check_complete_callback registered to propagate result to.")
 
+    def check_platform_readiness(self, platform: str) -> Result[bool]:
+        self.logger.debug(f"MonitoringService: Checking platform readiness for '{platform}'.")
+
+        readiness_result = self.platform_detection_service.is_platform_running(platform)
+
+        if readiness_result.is_success:
+            # is_platform_running now only returns Result.ok(True) on success
+            # So, readiness_result.value will be True here.
+            self.logger.info(f"Platform '{platform}' is ready for monitoring (process is running).")
+            return Result.ok(True)
+        else:
+            # is_platform_running failed, and readiness_result.error contains the specific error object
+            # (e.g., PlatformNotRunningError, UnknownPlatformError, PlatformOperationError)
+            self.logger.warning(f"Platform '{platform}' not ready: {readiness_result.error}")
+            # Propagate the failure Result, which includes the specific error object
+            return Result.fail(readiness_result.error)
+
     def stop_monitoring(self) -> Result[bool]:
         """Stop the current monitoring process."""
         if not self.monitoring_active:
             return Result.ok(False)  # Nothing to stop
-
         try:
             self.logger.info("Stopping monitoring")
 
@@ -559,7 +647,6 @@ class MonitoringService(IMonitoringService):
 
             # Mark as inactive even if cancellation failed
             self.monitoring_active = False
-
             return result
 
         except Exception as e:
@@ -574,5 +661,3 @@ class MonitoringService(IMonitoringService):
             self.monitoring_active = False
 
         return self.monitoring_active
-
-

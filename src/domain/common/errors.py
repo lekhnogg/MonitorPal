@@ -153,3 +153,29 @@ class UIError(DomainError):
             details=details,
             inner_error=inner_error
         )
+
+class PlatformNotRunningError(PlatformError): # Inherits from PlatformError
+    """Error indicating the specified platform's process is not running."""
+    def __init__(self, platform_name: str, message: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        self.platform_name = platform_name
+        custom_message = message or f"Platform '{platform_name}' process is not running."
+        super().__init__(message=custom_message, details=details)
+        # Severity can be WARNING if we want the status bar to treat it as such by default
+        self.severity = ErrorSeverity.WARNING # Or keep as ERROR from PlatformError if preferred
+
+class UnknownPlatformError(PlatformError): # Inherits from PlatformError
+    """Error indicating the platform name is not recognized by the detection service."""
+    def __init__(self, platform_name: str, message: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        self.platform_name = platform_name
+        custom_message = message or f"Platform name '{platform_name}' is unknown or not supported by the detection service."
+        super().__init__(message=custom_message, details=details)
+        self.severity = ErrorSeverity.ERROR # This is likely a config error
+
+class PlatformOperationError(PlatformError): # Inherits from PlatformError
+    """Generic error for failures during a platform operation (e.g., psutil failure)."""
+    def __init__(self, platform_name: Optional[str], operation: str, message: Optional[str] = None, details: Optional[Dict[str, Any]] = None, inner_error: Optional[Exception] = None):
+        self.platform_name = platform_name
+        self.operation = operation
+        custom_message = message or f"An error occurred during operation '{operation}' for platform '{platform_name or 'N/A'}'. See inner error."
+        super().__init__(message=custom_message, details=details, inner_error=inner_error)
+        self.severity = ErrorSeverity.ERROR

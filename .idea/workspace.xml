@@ -4,14 +4,18 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="STUFF WORKS. MONITOR WITHOUT APP RUNNING CORRECTLY DEALS WITH THREAD AND CLEANS UP. FLASH WORKS BUT IS STILL WEAK BECAUSE OF THE BUTTON NOT BEING DISABLED. APART FROM THAT STUFF WORKS.">
+    <list default="true" id="aaf2eb6a-5261-41b9-a8cc-e339a294c8ee" name="Changes" comment="FLASH BUTTONS NOW CORRECTLY DISABLE ONCE CLICKED FOR DURATION OF FLASHING EVENT.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/application/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/application/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/common/errors.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/common/errors.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_background_task_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/infrastructure/ui/qt_flash_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/ui/qt_flash_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/components/region_entry_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/services/i_monitoring_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/monitoring_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/platform/windows_platform_detection_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/platform/windows_platform_detection_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure/threading/qt_background_task_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/dashboard_view_model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/view_models/visual_setup_view_model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/view_models/visual_setup_view_model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/presentation/views/visual_setup_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/visual_setup_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/dashboard_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/presentation/views/main_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/presentation/views/main_view.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -103,6 +107,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "SingleRegionMoreFixed",
+    "ignore.virus.scanning.warn.message": "true",
     "last_opened_file_path": "C:/Users/Gabe/PycharmProjects/MonitorPal/src/presentation/styles/stylesheets",
     "settings.editor.selected.configurable": "vcs.Git"
   }
@@ -420,7 +425,15 @@
       <option name="project" value="LOCAL" />
       <updated>1747350810743</updated>
     </task>
-    <option name="localTasksCounter" value="31" />
+    <task id="LOCAL-00031" summary="FLASH BUTTONS NOW CORRECTLY DISABLE ONCE CLICKED FOR DURATION OF FLASHING EVENT.">
+      <option name="closed" value="true" />
+      <created>1747436146305</created>
+      <option name="number" value="00031" />
+      <option name="presentableId" value="LOCAL-00031" />
+      <option name="project" value="LOCAL" />
+      <updated>1747436146305</updated>
+    </task>
+    <option name="localTasksCounter" value="32" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -446,6 +459,7 @@
     <MESSAGE value="Major upgrades..MORE" />
     <MESSAGE value="History tab works, all tabs look somewhat the same, minor adjustments needed, also lockout sequence no idea if works at this point." />
     <MESSAGE value="STUFF WORKS. MONITOR WITHOUT APP RUNNING CORRECTLY DEALS WITH THREAD AND CLEANS UP. FLASH WORKS BUT IS STILL WEAK BECAUSE OF THE BUTTON NOT BEING DISABLED. APART FROM THAT STUFF WORKS." />
-    <option name="LAST_COMMIT_MESSAGE" value="STUFF WORKS. MONITOR WITHOUT APP RUNNING CORRECTLY DEALS WITH THREAD AND CLEANS UP. FLASH WORKS BUT IS STILL WEAK BECAUSE OF THE BUTTON NOT BEING DISABLED. APART FROM THAT STUFF WORKS." />
+    <MESSAGE value="FLASH BUTTONS NOW CORRECTLY DISABLE ONCE CLICKED FOR DURATION OF FLASHING EVENT." />
+    <option name="LAST_COMMIT_MESSAGE" value="FLASH BUTTONS NOW CORRECTLY DISABLE ONCE CLICKED FOR DURATION OF FLASHING EVENT." />
   </component>
 </project>

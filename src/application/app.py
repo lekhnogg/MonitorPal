@@ -148,7 +148,6 @@ def initialize_app() -> DIContainer:
         ocr_service=ocr_service,
         thread_service=thread_service,
         platform_detection_service=platform_detection_service, # Pass the singleton instance
-        config_repository=config_repo,
         path_service=path_service,
         logger=logger,
         profile_service=profile_service, # Pass the singleton instance

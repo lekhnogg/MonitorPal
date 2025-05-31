@@ -91,100 +91,73 @@ class DashboardView(QWidget):
         main_layout.setSpacing(15)
 
         # -----------------------------------------
-        # --- NEW: Consolidated Live Status Card (Top Row) ---
+        # --- Consolidated Live Status Card (Top Row) ---
         # -----------------------------------------
+        # This section remains unchanged
         self.live_status_card = QFrame()
-        self.live_status_card.setObjectName("liveStatusCard")  # New object name
-        self.live_status_card.setProperty("class", "statusInfoCard")  # Use existing styling
-        live_status_card_main_layout = QHBoxLayout(self.live_status_card)  # Main HBox for card
-        live_status_card_main_layout.setContentsMargins(15, 10, 15, 10)  # Adjusted padding
+        self.live_status_card.setObjectName("liveStatusCard")
+        self.live_status_card.setProperty("class", "statusInfoCard")
+        live_status_card_main_layout = QHBoxLayout(self.live_status_card)
+        live_status_card_main_layout.setContentsMargins(15, 10, 15, 10)
         live_status_card_main_layout.setSpacing(15)
 
-        # --- Left Part of Live Status Card: P&L and Status Indicator ---
-        left_section_widget = QWidget()  # Container for left items
+        left_section_widget = QWidget()
         left_section_layout = QVBoxLayout(left_section_widget)
         left_section_layout.setContentsMargins(0, 0, 0, 0)
-        left_section_layout.setSpacing(3)  # Tight spacing
-
-        # Row 1: P&L Title and Status Indicator Icon
+        left_section_layout.setSpacing(3)
         pnl_header_row_layout = QHBoxLayout()
         pnl_header_row_layout.setSpacing(6)
-
         self.status_indicator_icon_label = QLabel()
         self.status_indicator_icon_label.setObjectName("statusIndicatorIcon")
-        self.status_indicator_icon_label.setFixedSize(20, 20)  # Adjust size as needed
-        # Icon will be set by ViewModel based on monitoring state
+        self.status_indicator_icon_label.setFixedSize(20, 20)
         pnl_header_row_layout.addWidget(self.status_indicator_icon_label)
-
         self.pnl_title_label = QLabel("CURRENT P&L")
-        self.pnl_title_label.setProperty("class", "cardTitle")  # Use smaller cardTitle class
+        self.pnl_title_label.setProperty("class", "cardTitle")
         pnl_header_row_layout.addWidget(self.pnl_title_label)
-        pnl_header_row_layout.addStretch(1)  # Push title and icon left
+        pnl_header_row_layout.addStretch(1)
         left_section_layout.addLayout(pnl_header_row_layout)
-
-        # Row 2: P&L Value
         self.pnl_display_label = QLabel("N/A")
-        self.pnl_display_label.setObjectName("pnlDisplayLabel")  # Keep this ID for main P&L styling
+        self.pnl_display_label.setObjectName("pnlDisplayLabel")
         self.pnl_display_label.setProperty("state", "neutral")
-        # Align left if desired for this layout
-        # self.pnl_display_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         left_section_layout.addWidget(self.pnl_display_label)
-
-        # Optional: Small P&L progress/trend bar (like React example)
-        # self.pnl_small_trend_bar = QFrame()
-        # self.pnl_small_trend_bar.setObjectName("pnlSmallTrendBar")
-        # self.pnl_small_trend_bar.setMinimumHeight(8); self.pnl_small_trend_bar.setMaximumHeight(8)
-        # self.pnl_small_trend_bar.setStyleSheet("background-color: #374151; border-radius: 4px;") # Placeholder
-        # left_section_layout.addWidget(self.pnl_small_trend_bar)
-
-        left_section_layout.addStretch(1)  # Push P&L info to the top of its VBox
-
-        live_status_card_main_layout.addWidget(left_section_widget, 1)  # P&L + Status Icon takes some space
-
-        # --- Optional: Vertical Separator Line ---
+        left_section_layout.addStretch(1)
+        live_status_card_main_layout.addWidget(left_section_widget, 1)
         v_separator = QFrame()
         v_separator.setFrameShape(QFrame.Shape.VLine)
         v_separator.setFrameShadow(QFrame.Shadow.Sunken)
-        v_separator.setObjectName("cardVerticalSeparator")  # For QSS styling
+        v_separator.setObjectName("cardVerticalSeparator")
         live_status_card_main_layout.addWidget(v_separator)
-
-        # --- Right Part of Live Status Card: Monitoring Target Info ---
-        right_section_widget = QWidget()  # Container for right items
+        right_section_widget = QWidget()
         right_section_layout = QVBoxLayout(right_section_widget)
         right_section_layout.setContentsMargins(0, 0, 0, 0)
         right_section_layout.setSpacing(3)
-
         self.monitoring_target_title_label = QLabel("MONITORING TARGET")
         self.monitoring_target_title_label.setProperty("class", "cardTitle")
         right_section_layout.addWidget(self.monitoring_target_title_label)
-
         self.monitoring_target_info_label = QLabel("Platform: N/A - Region: N/A")
         self.monitoring_target_info_label.setObjectName("monitoringTargetInfoLabel")
-        # This label can have its tooltip updated by the VM with coordinates
         right_section_layout.addWidget(self.monitoring_target_info_label)
-
-        right_section_layout.addStretch(1)  # Push info to the top
-
-        live_status_card_main_layout.addWidget(right_section_widget, 2)  # Give target info more space
-
-        main_layout.addWidget(self.live_status_card)  # Add the consolidated card to the main layout
-        # --- END NEW Consolidated Card ---
+        right_section_layout.addStretch(1)
+        live_status_card_main_layout.addWidget(right_section_widget, 2)
+        main_layout.addWidget(self.live_status_card)
+        # --- END Consolidated Live Status Card ---
 
         # -----------------------------------------
-        # --- Main Content Grid ---
+        # --- Main Content Grid (Prerequisites & Alerts) ---
         # -----------------------------------------
         main_content_layout = QGridLayout()
         main_content_layout.setSpacing(15)
-        main_content_layout.setColumnStretch(0, 1)
-        main_content_layout.setColumnStretch(1, 1)
-        main_content_layout.setColumnStretch(2, 1)
+        main_content_layout.setColumnStretch(0, 1)  # Column 0 for Prerequisites
+        main_content_layout.setColumnStretch(1, 1)  # Column 1 for Alerts
+        # Optional: Add row stretches if you want to control height distribution more explicitly
+        # main_content_layout.setRowStretch(0, 1) # Give row 0 stretch factor
 
         # -----------------------------------------
-        # --- Prerequisites Panel ---
+        # --- Prerequisites Panel (Column 0) ---
         # -----------------------------------------
         prereq_panel = QFrame()
         prereq_panel.setObjectName("prereqPanel")
-        prereq_panel.setProperty("class", "contentSectionPanel")  # Neutral class name
+        prereq_panel.setProperty("class", "contentSectionPanel")
         prereq_layout = QVBoxLayout(prereq_panel)
         prereq_layout.setContentsMargins(15, 15, 15, 15)
         prereq_layout.setSpacing(8)
@@ -194,8 +167,7 @@ class DashboardView(QWidget):
         prereq_title.setProperty("class", "panelTitle")
         prereq_header_layout.addWidget(prereq_title)
         prereq_header_layout.addStretch(1)
-
-        self.prereq_badge_label = QLabel("Loading...")  # Initialized in __init__
+        self.prereq_badge_label = QLabel("Loading...")
         self.prereq_badge_label.setObjectName("prereqBadge")
         prereq_header_layout.addWidget(self.prereq_badge_label)
         prereq_layout.addLayout(prereq_header_layout)
@@ -206,143 +178,89 @@ class DashboardView(QWidget):
         prereq_divider.setObjectName("panelDivider")
         prereq_layout.addWidget(prereq_divider)
 
-        # self.prereq_widgets is already an instance dict: {}
-        # self.prerequisite_setup_data is an instance list of tuples
-        for key, display_name_in_ui in self.prerequisite_setup_data:  # Use instance attribute
-            row_layout = QHBoxLayout();
+        for key, display_name_in_ui in self.prerequisite_setup_data:
+            row_layout = QHBoxLayout()
             row_layout.setSpacing(6)
-
-            icon_label = QLabel();
+            icon_label = QLabel()
             icon_label.setFixedSize(18, 18)
-            icon_label.setObjectName(f"prereqIcon_{key}");
+            icon_label.setObjectName(f"prereqIcon_{key}")
             icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             row_layout.addWidget(icon_label)
-
             status_label = QLabel(f"{display_name_in_ui}: Loading...")
             status_label.setObjectName(f"prereqText_{key}")
             status_label.setWordWrap(True)
             row_layout.addWidget(status_label, 1)
-
-            action_button = SecondaryButton("...")  # Placeholder text
+            action_button = SecondaryButton("...")
             action_button.setObjectName(f"prereqAction_{key}")
-            action_button.setVisible(False);
+            action_button.setVisible(False)
             action_button.setMinimumWidth(90)
-            action_button.setStyleSheet("padding-top: 1px; padding-bottom: 1px;")  # Specific override
+            action_button.setStyleSheet("padding-top: 1px; padding-bottom: 1px;")
             row_layout.addWidget(action_button)
-
             prereq_layout.addLayout(row_layout)
-            # Populate the instance dictionary
             self.prereq_widgets[key] = {
                 "icon": icon_label,
                 "text": status_label,
-                "display_name": display_name_in_ui,  # Store for _update_prerequisite_row
+                "display_name": display_name_in_ui,
                 "button": action_button
             }
-        prereq_layout.addStretch(1)
-        main_content_layout.addWidget(prereq_panel, 0, 0, 2, 1)
+        prereq_layout.addStretch(1)  # Pushes content to top of this panel
+        main_content_layout.addWidget(prereq_panel, 0, 0)  # Add to grid: Row 0, Column 0
 
         # -----------------------------------------
-        # --- Quick Actions Panel ---
-        # -----------------------------------------
-        actions_panel = QFrame()
-        actions_panel.setObjectName("actionsPanel")
-        actions_panel.setProperty("class", "contentSectionPanel")  # Good, uses neutral class
-        actions_layout = QVBoxLayout(actions_panel)  # This is the main layout for the whole "Quick Actions" panel
-        actions_layout.setContentsMargins(15, 15, 15, 15)
-        actions_layout.setSpacing(8)
-
-        actions_header = QLabel("QUICK ACTIONS")
-        actions_header.setProperty("class", "panelTitle")
-        actions_layout.addWidget(actions_header)
-
-        actions_divider = QFrame()
-        actions_divider.setFrameShape(QFrame.Shape.HLine)
-        actions_divider.setFrameShadow(QFrame.Shadow.Sunken)
-        actions_divider.setObjectName("panelDivider")
-        actions_layout.addWidget(actions_divider)
-
-        # --- Vertical Button Layout ---
-        # Renamed for clarity, was 'buttons_layout', now 'quick_action_buttons_layout'
-        quick_action_buttons_layout = QVBoxLayout()  # <<< CHANGED TO QVBoxLayout
-        quick_action_buttons_layout.setSpacing(10)  # Vertical spacing between buttons (adjust as needed)
-
-        self.start_button = ActionButton("Start", icon=":/icons/play.svg")
-        self.start_button.setObjectName("startButton")
-        self.start_button.setToolTip("Start monitoring the selected platform")
-        quick_action_buttons_layout.addWidget(self.start_button)  # Add to the vertical layout
-
-        self.stop_button = DangerButton("Stop", icon=":/icons/stop-circle.svg")
-        self.stop_button.setObjectName("stopButton")
-        self.stop_button.setToolTip("Stop active monitoring")
-        quick_action_buttons_layout.addWidget(self.stop_button)  # Add to the vertical layout
-
-        self.flash_button = StyledButton("Test Flash", icon=":/icons/zap.svg")
-        self.flash_button.setObjectName("flashButton")
-        self.flash_button.setToolTip("Flash defined regions for the selected platform")
-        quick_action_buttons_layout.addWidget(self.flash_button)  # Add to the vertical layout
-
-        # If you want these buttons to be at the top of their allocated space in the 'actions_panel':
-        quick_action_buttons_layout.addStretch(1)
-        # If you want them centered vertically within their space, don't add stretch here,
-        # but ensure the parent 'actions_layout' handles alignment if it has extra space.
-
-        actions_layout.addLayout(
-            quick_action_buttons_layout)  # Add the vertical button layout to the panel's main layout
-
-        # This stretch pushes the entire button group (and header/divider) towards the top of the actions_panel.
-        # Keep this if you want the Quick Actions section to not take up all vertical space if available.
-        actions_layout.addStretch(1)
-
-        main_content_layout.addWidget(actions_panel, 0, 1)  # Add to the grid
-
-        # -----------------------------------------
-        # --- Alerts Panel ---
+        # --- Alerts Panel (Column 1) ---
         # -----------------------------------------
         alerts_panel = QFrame()
-        alerts_panel.setObjectName("alertsPanel")  # Keep specific objectName
-        alerts_panel.setProperty("class", "contentSectionPanel")  # <<< CHANGED
+        alerts_panel.setObjectName("alertsPanel")
+        alerts_panel.setProperty("class", "contentSectionPanel")
         alerts_layout = QVBoxLayout(alerts_panel)
-        alerts_layout.setContentsMargins(15, 15, 15, 15);
+        alerts_layout.setContentsMargins(15, 15, 15, 15)
         alerts_layout.setSpacing(8)
 
-        alerts_title = QLabel("RECENT ALERTS");
+        alerts_title = QLabel("RECENT ALERTS")
         alerts_title.setProperty("class", "panelTitle")
         alerts_layout.addWidget(alerts_title)
-        alerts_divider = QFrame();
+        alerts_divider = QFrame()
         alerts_divider.setFrameShape(QFrame.Shape.HLine)
-        alerts_divider.setFrameShadow(QFrame.Shadow.Sunken);
+        alerts_divider.setFrameShadow(QFrame.Shadow.Sunken)
         alerts_divider.setObjectName("panelDivider")
         alerts_layout.addWidget(alerts_divider)
-        self.alerts_list = QListWidget();
+        self.alerts_list = QListWidget()
         self.alerts_list.setObjectName("alertsList")
         self.alerts_list.setAlternatingRowColors(True)
-        alerts_layout.addWidget(self.alerts_list, 1)
-        main_content_layout.addWidget(alerts_panel, 0, 2, 2, 1)
+        alerts_layout.addWidget(self.alerts_list, 1)  # Stretch list within its panel
+        main_content_layout.addWidget(alerts_panel, 0, 1)  # Add to grid: Row 0, Column 1
 
+        # Add the 2-column grid layout to the main vertical layout of the tab
+        # Give it a stretch factor so it takes up available vertical space before the log panel
         main_layout.addLayout(main_content_layout, 1)
 
         # -----------------------------------------
-        # --- Activity Log Panel ---
+        # --- Activity Log Panel (Below the Grid, Full Width) ---
         # -----------------------------------------
         log_panel = QFrame()
-        log_panel.setObjectName("logPanel")  # Keep specific objectName
-        log_panel.setProperty("class", "contentSectionPanel")  # <<< CHANGED
+        log_panel.setObjectName("logPanel")
+        log_panel.setProperty("class", "contentSectionPanel")
         log_layout = QVBoxLayout(log_panel)
-        log_layout.setContentsMargins(15, 15, 15, 15);
+        log_layout.setContentsMargins(15, 15, 15, 15)
         log_layout.setSpacing(8)
 
-        log_title = QLabel("ACTIVITY LOG");
+        log_title = QLabel("ACTIVITY LOG")
         log_title.setProperty("class", "panelTitle")
         log_layout.addWidget(log_title)
-        log_divider = QFrame();
+        log_divider = QFrame()
         log_divider.setFrameShape(QFrame.Shape.HLine)
-        log_divider.setFrameShadow(QFrame.Shadow.Sunken);
+        log_divider.setFrameShadow(QFrame.Shadow.Sunken)
         log_divider.setObjectName("panelDivider")
         log_layout.addWidget(log_divider)
-        self.activity_log_display = LogDisplay(self)  # LogDisplay sets its own objectName
-        self.activity_log_display.setMinimumHeight(100)
-        log_layout.addWidget(self.activity_log_display)
-        main_layout.addWidget(log_panel, 0)
+        self.activity_log_display = LogDisplay(self)
+        self.activity_log_display.setMinimumHeight(100)  # Or set a stretch factor below
+        log_layout.addWidget(self.activity_log_display, 1)  # Give stretch factor 1 to log display within its panel
+
+        # Add the log panel to the main layout
+        # Adjust stretch factor based on how much space it should take relative to the grid above
+        # If grid gets stretch 1 and log panel gets stretch 1, they share space.
+        # If log panel gets stretch 0, it takes its minimum needed height.
+        main_layout.addWidget(log_panel, 1)  # Example: giving it stretch factor 1 as well
 
     def _connect_signals(self):
         """Connect signals from widgets to ViewModel slots and vice versa."""

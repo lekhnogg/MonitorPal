@@ -17,7 +17,8 @@ from src.domain.services.i_platform_detection_service import IPlatformDetectionS
 from src.domain.services.i_logger_service import ILoggerService
 from src.domain.common.result import Result
 from src.domain.services.i_window_manager_service import IWindowManager
-from src.domain.common.errors import PlatformError
+from src.domain.common.errors import PlatformError, PlatformOperationError, UnknownPlatformError, \
+    PlatformNotRunningError
 
 
 class WindowsPlatformDetectionService(IPlatformDetectionService):
@@ -421,39 +422,27 @@ class WindowsPlatformDetectionService(IPlatformDetectionService):
             Result containing True if the platform is running, False otherwise
         """
         try:
-            # Validate platform name
             if platform not in self._target_executables:
-                error = PlatformError(
-                    message=f"Unknown platform: {platform}",
-                    details={
-                        "platform": platform,
-                        "supported_platforms": list(self._target_executables.keys())
-                    }
-                )
-                self.logger.error(str(error))
-                return Result.fail(error)
+                self.logger.error(f"Unknown platform specified for detection: {platform}")
+                return Result.fail(UnknownPlatformError(platform_name=platform))  # Specific error
 
             target_exe = self._target_executables[platform]
             self.logger.debug(f"Checking if {platform} is running (executable: {target_exe})")
 
-            # Check for processes matching the target executable
-            import psutil
+            import psutil  # Ensure psutil is imported
             for proc in psutil.process_iter(['pid', 'name']):
                 try:
                     if proc.info['name'] and proc.info['name'].lower() == target_exe.lower():
                         self.logger.debug(f"Found running process for {platform}: PID {proc.info['pid']}")
-                        return Result.ok(True)
+                        return Result.ok(True)  # Platform is running
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     continue
 
+            # If loop completes, process was not found
             self.logger.debug(f"No running process found for {platform}")
-            return Result.ok(False)
+            return Result.fail(PlatformNotRunningError(platform_name=platform))  # Specific error for "not running"
 
-        except Exception as e:
-            error = PlatformError(
-                message=f"Error checking if platform is running: {platform}",
-                details={"platform": platform},
-                inner_error=e
-            )
-            self.logger.error(str(error))
-            return Result.fail(error)
+        except Exception as e:  # For unexpected errors during the check (e.g., psutil library issue)
+            self.logger.error(f"Unexpected error checking if platform '{platform}' is running: {e}", exc_info=True)
+            return Result.fail(
+                PlatformOperationError(platform_name=platform, operation="is_platform_running", inner_error=e))

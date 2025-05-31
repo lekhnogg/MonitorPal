@@ -54,33 +54,29 @@ class WorkerWrapper(QObject):
             task_id: Identifier for this task
         """
         super().__init__()
-        self.worker = worker
+        self.worker = worker  # The worker instance passed in
         self.logger = logger
         self.task_id = task_id
-        self.signals = WorkerSignals()
+        self.signals = WorkerSignals()  # The wrapper's own signals
 
-        # --- Connect the domain worker's reporting methods to emit this wrapper's Qt signals ---
-        # This means when the domain worker calls self.report_started(), it emits self.signals.started
+        # The purpose here is to ensure that when the DOMAIN worker instance
+        # (self.worker) calls its own report_xxx() methods, which in turn
+        # call its self.on_xxx_callback hooks, those hooks are set to
+        # emit THIS WRAPPER's signals.
+
+        # So, if worker.report_started() is called, it will invoke worker.on_started_callback.
+        # We set worker.on_started_callback to be self.signals.started.emit.
         self.worker.set_on_started(self.signals.started.emit)
         self.worker.set_on_progress(self.signals.progress.emit)
-        # The domain worker's on_completed_callback and on_error_callback are NOT set here.
-        # They are set by the *caller* of QtBackgroundTaskService.execute_task (e.g., MonitoringService)
-        # on the domain worker instance. Those will be connected to self.signals.completed/error
-        # in QtBackgroundTaskService.execute_task.
 
-        # Store original callbacks
-        self.original_started_callback = worker.on_started_callback
-        self.original_progress_callback = worker.on_progress_callback
-        self.original_completed_callback = worker.on_completed_callback
-        self.original_error_callback = worker.on_error_callback
-
-        # Connect worker callbacks to our signals
-        self.worker.set_on_started(self.signals.started.emit)
-        self.worker.set_on_progress(self.signals.progress.emit)
+        # If worker.report_error() is called, it invokes worker.on_error_callback.
+        # We set worker.on_error_callback to be self.signals.error.emit.
         self.worker.set_on_error(self.signals.error.emit)
 
-        # We don't set completed callback directly to avoid circular references
-        # Instead, we'll emit our completed signal in _process_and_emit_result
+        # NOTE: We DO NOT touch self.worker.on_completed_callback here.
+        # The 'completed' signal is emitted by this WorkerWrapper's run() method
+        # based on the return value of worker.execute(). It does not rely on
+        # the worker itself calling report_completed().
 
     @Slot()
     def run(self):
@@ -197,68 +193,75 @@ class QtBackgroundTaskService(IBackgroundTaskService):
         self.mutex = QMutex()  # Simple mutex for thread safety
 
     def execute_task(self, task_id: str, worker: Worker[T]) -> Result[bool]:
-        """
-        Execute a worker in a background thread.
-
-        Args:
-            task_id: Unique identifier for the task
-            worker: Worker to execute
-
-        Returns:
-            Result indicating success or failure of task initialization
-        """
         locker = QMutexLocker(self.mutex)
-
         try:
             if task_id in self.tasks:
-                locker.unlock()  # Unlock before returning
+                locker.unlock()
                 return Result.fail(f"Task '{task_id}' is already running")
 
             self.logger.debug(f"QtBackgroundTaskService: Starting task '{task_id}'")
+
+            # --- CAPTURE CLIENT CALLBACKS FIRST ---
+            # These are the callbacks that the client (e.g., MonitoringService)
+            # has set on the worker instance *before* it was passed to this method.
+            client_on_started_callback = worker.on_started_callback
+            client_on_progress_callback = worker.on_progress_callback
+            client_on_completed_callback = worker.on_completed_callback
+            client_on_error_callback = worker.on_error_callback
+
+            self.logger.debug(
+                f"QtBackgroundTaskService: Task '{task_id}'. Captured client_on_error_callback: {client_on_error_callback}")
+
             thread = QThread()
+            # WorkerWrapper's __init__ will now overwrite worker.on_started_callback,
+            # worker.on_progress_callback, and worker.on_error_callback to emit its own signals.
+            # worker.on_completed_callback remains untouched by WorkerWrapper.
             wrapper = WorkerWrapper(worker, self.logger, task_id)
             wrapper.moveToThread(thread)
 
             # --- Crucial Connections ---
             thread.started.connect(wrapper.run)
-
-            # When wrapper's run() method finishes (successfully or with exception),
-            # it emits _wrapper_execution_finished. Connect this to QThread.quit.
             wrapper.signals._wrapper_execution_finished.connect(thread.quit)
-
-            # When the QThread's event loop actually quits and the thread finishes,
-            # perform cleanup.
             thread.finished.connect(wrapper.deleteLater)
             thread.finished.connect(thread.deleteLater)
             thread.finished.connect(lambda: self._handle_task_finished(task_id))
 
-            # Connect the WorkerWrapper's public signals to the domain Worker's originally set callbacks.
-            # The domain worker's report_xxx methods will be set by the caller (e.g., MonitoringService)
-            # This ensures the caller's callbacks are invoked when the wrapper emits its signals.
-            if worker.on_started_callback:
-                wrapper.signals.started.connect(worker.on_started_callback, Qt.QueuedConnection)
-            if worker.on_progress_callback:
-                wrapper.signals.progress.connect(worker.on_progress_callback, Qt.QueuedConnection)
-            if worker.on_completed_callback:  # This is for the result of execute()
-                wrapper.signals.completed.connect(worker.on_completed_callback, Qt.QueuedConnection)
-            if worker.on_error_callback:  # This is for errors reported by worker.report_error() or unhandled exceptions
-                wrapper.signals.error.connect(worker.on_error_callback, Qt.QueuedConnection)
+            # --- CONNECT WRAPPER SIGNALS TO CAPTURED CLIENT CALLBACKS ---
+            if client_on_started_callback:
+                self.logger.debug(
+                    f"QtBackgroundTaskService: Task '{task_id}'. Connecting wrapper.signals.started to {client_on_started_callback}")
+                wrapper.signals.started.connect(client_on_started_callback, Qt.QueuedConnection)
 
-            self.tasks[task_id] = TaskInfo(task_id, thread, wrapper, worker)
-            locker.unlock()  # Unlock after modifying tasks dict
+            if client_on_progress_callback:
+                self.logger.debug(
+                    f"QtBackgroundTaskService: Task '{task_id}'. Connecting wrapper.signals.progress to {client_on_progress_callback}")
+                wrapper.signals.progress.connect(client_on_progress_callback, Qt.QueuedConnection)
 
-            # Start thread
+            if client_on_completed_callback:  # For the result of worker.execute()
+                self.logger.debug(
+                    f"QtBackgroundTaskService: Task '{task_id}'. Connecting wrapper.signals.completed to {client_on_completed_callback}")
+                wrapper.signals.completed.connect(client_on_completed_callback, Qt.QueuedConnection)
+
+            if client_on_error_callback:  # For worker.report_error() or unhandled exceptions in execute()
+                self.logger.debug(
+                    f"QtBackgroundTaskService: Task '{task_id}'. Connecting wrapper.signals.error to {client_on_error_callback}")
+                wrapper.signals.error.connect(client_on_error_callback, Qt.QueuedConnection)
+            else:
+                self.logger.warning(
+                    f"QtBackgroundTaskService: Task '{task_id}'. client_on_error_callback is None. Errors from worker.report_error() or unhandled exceptions in execute() may not be externally handled through this worker's on_error_callback.")
+
+            self.tasks[task_id] = TaskInfo(task_id, thread, wrapper,
+                                           worker)  # The 'worker' in TaskInfo still has its on_xxx callbacks pointing to wrapper signals, which is fine.
+            locker.unlock()
+
             thread.start()
-
             self.logger.debug(f"Task '{task_id}' started successfully")
             return Result.ok(True)
         except Exception as e:
-            # Ensure locker is unlocked in case of exception before return
             if locker.isLocked():
                 locker.unlock()
             error_message = f"Error starting task '{task_id}': {e}"
-            self.logger.error(error_message)
-            self.logger.debug(traceback.format_exc())
+            self.logger.error(error_message, exc_info=True)  # Added exc_info
             return Result.fail(error_message)
 
     # --- Add this new private method ---
@@ -309,9 +312,9 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             """Call original callback."""
             if original_error_callback:
                 try:
-                     original_error_callback(error)
+                    original_error_callback(error)
                 except Exception as e:
-                     self.logger.error(f"Error in user's on_error callback for task '{task_id}': {e}")
+                    self.logger.error(f"Error in user's on_error callback for task '{task_id}': {e}")
             # No need to call _cleanup_task here anymore
 
         # Set wrapped callbacks
@@ -361,7 +364,7 @@ class QtBackgroundTaskService(IBackgroundTaskService):
         """
         Request cancellation of a running task.
         """
-        task_info = None # Variable to hold task_info outside the lock
+        task_info = None  # Variable to hold task_info outside the lock
 
         # --- Step 1: Find the task info under lock ---
         locker = QMutexLocker(self.mutex)
@@ -369,12 +372,12 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             self.logger.warning(f"Cannot cancel task '{task_id}' - not found or already finished.")
             return Result.fail(f"Task '{task_id}' not found")
         task_info = self.tasks[task_id]
-        locker.unlock() # Release lock before interacting with thread
+        locker.unlock()  # Release lock before interacting with thread
 
         # --- Step 2: Request cancellation without lock ---
         try:
             self.logger.debug(f"Requesting cancellation for task '{task_id}'")
-            task_info.worker.cancel() # Signal the worker logic to stop
+            task_info.worker.cancel()  # Signal the worker logic to stop
 
             # Ask the thread's event loop to quit. This helps if the worker
             # is waiting on something event-loop related. Might not be strictly
@@ -383,23 +386,24 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             # but here cancel_task is likely called from main thread where QThread was created.
             # Direct call should be fine, but MetaObject call is safer across threads.
             # QMetaObject.invokeMethod(task_info.thread, "quit", Qt.QueuedConnection)
-            task_info.thread.quit() # Try direct quit first
+            task_info.thread.quit()  # Try direct quit first
 
             # --- Step 3: Wait GRACEFULLY (Optional but recommended) ---
             # Decide if you want cancel_task to block until the thread confirms exit.
             # If you don't wait here, the task might still be in the dictionary for a short while.
-            wait_success = task_info.thread.wait(2000) # Wait up to 2 seconds
+            wait_success = task_info.thread.wait(2000)  # Wait up to 2 seconds
 
             if wait_success:
-                 self.logger.debug(f"Task '{task_id}' thread finished gracefully after cancellation request.")
-                 # No need to remove from dict here, _handle_task_finished will do it.
-                 return Result.ok(True)
+                self.logger.debug(f"Task '{task_id}' thread finished gracefully after cancellation request.")
+                # No need to remove from dict here, _handle_task_finished will do it.
+                return Result.ok(True)
             else:
-                 self.logger.warning(f"Task '{task_id}' thread did not finish within timeout after cancellation request. It might finish later.")
-                 # DO NOT TERMINATE.
-                 # The task will be removed from the dictionary later when the 'finished' signal is emitted.
-                 # We report success because the cancellation *request* was sent.
-                 return Result.ok(True) # Or Result.fail("Cancellation timed out") if you prefer
+                self.logger.warning(
+                    f"Task '{task_id}' thread did not finish within timeout after cancellation request. It might finish later.")
+                # DO NOT TERMINATE.
+                # The task will be removed from the dictionary later when the 'finished' signal is emitted.
+                # We report success because the cancellation *request* was sent.
+                return Result.ok(True)  # Or Result.fail("Cancellation timed out") if you prefer
 
         except Exception as e:
             error_message = f"Error requesting cancellation for task '{task_id}': {e}"
@@ -408,7 +412,7 @@ class QtBackgroundTaskService(IBackgroundTaskService):
             # Attempt to remove the task from the dictionary in case of error during cancellation itself
             locker_cleanup = QMutexLocker(self.mutex)
             if task_id in self.tasks:
-                 del self.tasks[task_id]
+                del self.tasks[task_id]
             return Result.fail(error_message)
 
     def is_task_running(self, task_id: str) -> bool:
